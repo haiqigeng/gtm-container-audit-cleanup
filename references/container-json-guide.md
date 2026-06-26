@@ -392,7 +392,30 @@ Do not paste full custom code unless it is necessary evidence. Summarize:
 - repeated logic that should become a helper variable.
 
 Use hashes or short snippets to compare duplicates without filling the context
-window.
+window. Hashes, external URLs, code length, extracted variable references, and
+duplicate groups are triage signals only. They do not complete semantic
+validation.
+
+For each active Custom HTML tag and each referenced, risky, unused, or
+cleanup-relevant Custom JavaScript variable, create an object-level semantic row
+that records:
+
+- purpose;
+- role category;
+- trigger or consumer context;
+- consent assumption;
+- external URLs, dataLayer pushes, storage, cookie, DOM, listener, and network
+  side effects;
+- variable references;
+- expected output or side effect;
+- runtime risks;
+- recommended action;
+- semantic status.
+
+If the export does not provide enough evidence to decide the semantic status,
+mark the object `More info needed` or defer it with the missing runtime,
+business, CMP/legal, or vendor-platform evidence. Do not silently drop it from
+the cleanup plan.
 
 For custom JS variables, evaluate the returned value:
 
@@ -439,9 +462,16 @@ For large containers:
    server-side forwarding, custom HTML/JS.
 6. Design consolidation candidates before finalizing cleanup candidates.
 7. Recompute what becomes obsolete after the consolidation design.
-8. Sample low-risk naming/hygiene patterns, then expand only when findings
+8. Convert triage clusters into object-level semantic status for each
+   meaningful object. Mark unresolved families as deferred, not done.
+9. Sample low-risk naming/hygiene patterns, then expand only when findings
    repeat.
-9. Keep raw object details in files/tables and report only evidence snippets.
+10. Reconcile counts by object family: total, inventoried, dependency-mapped,
+   semantically validated, cleanup-decisioned, deferred, not applicable,
+   user-excluded, and unresolved.
+11. Treat any nonzero unresolved count as a failed completion gate until the
+   row is resolved or explicitly deferred with blocker evidence.
+12. Keep raw object details in files/tables and report only evidence snippets.
 
 ## Usage Status Values
 

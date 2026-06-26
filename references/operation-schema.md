@@ -26,9 +26,58 @@ Audit depth and mutation aggressiveness are separate decisions.
 | Deep | User approves full cleanup and evidence is strong. | Cross-layer consolidation, helper variables, reusable triggers, broad naming, obsolete-object deletion after QA, custom-code hardening. | Transformational architecture changes or business-semantic changes. |
 | Transformational | Container needs redesign, migration, or server-side/gateway architecture change. | New gateway pattern, ecommerce data contract redesign, server-side migration, market architecture changes. | Always requires a signed-off plan and staged execution. |
 
-Default to a complete deep audit. Default direct execution to `Standard` unless
-the user approves `Deep` or `Transformational`. Never reduce audit coverage just
-because a specific change is blocked.
+Default to a complete deep audit. Default cleanup plans and direct execution to
+`Standard` as the recommended level unless the user approves `Deep` or
+`Transformational`. Never reduce audit coverage just because a specific change
+is blocked.
+
+## Aggressiveness Choice Contract
+
+Cleanup plans must make the aggressiveness choice visible to the user. For every
+operation where more than one level could reasonably apply, include:
+
+- the recommended aggressiveness;
+- the available alternative levels;
+- what each alternative includes or excludes;
+- the risk and QA impact of each alternative;
+- any level that is blocked, unsafe, or not applicable, with the reason.
+
+Do not force the user to infer that `Standard` was chosen. If the recommended
+level is obvious, still show why lower or higher levels were not selected when
+the operation is material, consent-sensitive, destructive, or cross-layer. If a
+step has only one safe level, state that and explain the blocker for the other
+levels.
+
+## Audit-To-Plan Completeness Gate
+
+A cleanup plan must be compiled from a complete semantic audit, not from an
+inventory subset. Before producing the final operation set, reconcile each
+material object family against the audit ledger:
+
+- Tags;
+- Triggers;
+- Variables;
+- Custom HTML tags;
+- Custom JavaScript variables;
+- Custom templates;
+- Consent settings and routing;
+- Ecommerce/dataLayer contracts;
+- Official documentation contracts;
+- Naming/folders;
+- Unused and consolidation-obsolete objects.
+
+For each family, record one of these outcomes: operation(s) proposed, no change
+needed after semantic validation, deferred with blocker, not applicable, or
+user-excluded. Do not omit a family because no obvious mutation was found. Do
+not allow an inventory-only or dependency-only family to disappear from the
+cleanup plan; either finish semantic validation or mark the family deferred.
+
+For families with no mutation, create a report-only `Document exception` or
+`Defer` row so the user can see that the family was reviewed. For unresolved
+families, include the failed phase, affected objects, blocker, required next
+evidence, risk, and recommended next action. A cleanup plan with unresolved
+families may still be useful, but it must be labeled `Incomplete / blocked` and
+must not claim full cleanup readiness.
 
 ## Route Decision Matrix
 
@@ -56,7 +105,8 @@ Represent every proposed or executed cleanup as a structured operation:
 | Field | Required meaning |
 | --- | --- |
 | `change_id` | Stable unique ID, such as `GTM-OP-001`. |
-| `aggressiveness` | Conservative, Standard, Deep, or Transformational. |
+| `recommended_aggressiveness` | Conservative, Standard, Deep, or Transformational. |
+| `aggressiveness_options` | User-selectable levels for this operation, with include/exclude scope, risk, QA impact, and blockers. |
 | `route` | Direct GTM/MCP/API, Same-container JSON, Overwrite JSON, New-container JSON, Report-only. |
 | `layer` | Workspace, Tag, Trigger, Variable, Built-in variable, Folder, Template, Server-side object, Website/dataLayer. |
 | `action` | Add, Update, Rename, Delete, Replace, Flatten, Consolidate, Defer, Document exception. |
@@ -64,6 +114,9 @@ Represent every proposed or executed cleanup as a structured operation:
 | `before_name` | Required for existing objects. |
 | `after_name` | Required for rename, replace, or new object. |
 | `semantic_role` | Vendor/event/business purpose. |
+| `semantic_status` | Keep, Fix, Consolidate, Delete candidate, More info needed, or Not applicable. Required for cleanup-relevant objects. |
+| `coverage_phase_status` | Inventory, dependency map, semantic validation, cleanup decision, and report reconciliation status for the affected family. |
+| `reconciliation_status` | Complete, incomplete, blocked, or not applicable. Required for report-only/deferred rows. |
 | `reason` | Finding, official-doc contract, dependency issue, or user decision. |
 | `official_doc_basis` | Source title/URL or `Not applicable`. |
 | `dependencies` | Consumers, trigger groups, setup/teardown, variables, folders, templates, custom-code refs. |
@@ -82,13 +135,19 @@ Compile audit findings into operations in this order:
 
 1. Normalize inventory and dependency facts.
 2. Attach official documentation contracts to GA4 and vendor-event findings.
-3. Classify findings by business impact and risk.
-4. Choose cleanup aggressiveness.
-5. Choose execution route.
-6. Generate operations with route-specific mutation style.
-7. Validate dependencies and blockers.
-8. Batch operations for execution.
-9. Run post-batch readback and update statuses.
+3. Reconcile material object families against the audit ledger and identify any
+   family that is still inventory-only or dependency-only.
+4. Finish semantic validation for unresolved families or mark them deferred with
+   blockers.
+5. Classify findings by business impact and risk.
+6. Choose recommended cleanup aggressiveness.
+7. Add selectable aggressiveness options and tradeoffs for each material
+   operation.
+8. Choose execution route.
+9. Generate operations with route-specific mutation style.
+10. Validate dependencies and blockers.
+11. Batch operations for execution.
+12. Run post-batch readback and update statuses.
 
 For direct GTM/MCP/API, prefer `Update` or `Rename` on existing IDs. Use
 `Replace` only when a new reusable concept is needed or the API/tool behavior
@@ -189,6 +248,9 @@ Use when the user asks for a fast production repair.
   by configuration or renamed/deferred.
 - A custom HTML tag that only defines a function is a probable no-op unless
   runtime evidence proves an external caller.
+- Custom HTML and Custom JavaScript triage is not enough for planning. Every
+  cleanup-relevant custom-code object needs semantic status, or the plan must
+  defer it with the missing evidence.
 - A Google tag or Google event tag with server endpoint, S2S naming, routing
   parameters, or consent-forwarding parameters is a client-to-server candidate;
   classify uncertain destination IDs or missing browser-side blocking triggers

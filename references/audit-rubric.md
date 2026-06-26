@@ -48,6 +48,10 @@ Use priority separately from severity when planning work:
 
 `P0 Now`, `P1 This sprint`, `P2 Planned cleanup`, `P3 Backlog`, `Decision needed`.
 
+For examples and edge-case calibration, read `severity-calibration.md`. Keep
+severity, priority, and confidence separate; do not lower severity merely
+because evidence confidence is low.
+
 ## Evidence Sources
 
 Record source freshness for each audit:
@@ -85,6 +89,12 @@ Large containers still require complete coverage; use normalized tables,
 clustering, hashes, and grouped findings to scale the work rather than skipping
 object families.
 
+The checklist is a minimum floor, not a ceiling. Agents may do more when the
+evidence supports it, but must not do less than the mandatory checks. If a
+required check cannot be completed from the available evidence, record it as
+`Deferred` or `More info needed` with the exact blocker, affected objects, risk,
+required evidence, and next action.
+
 For every audit, cover:
 
 - all tags, triggers, variables, folders, templates, consent settings, and
@@ -101,6 +111,34 @@ For every audit, cover:
 Sampling is allowed only to explain repeated low-risk hygiene patterns in the
 report. It is not a reason to skip dependency mapping or cleanup eligibility
 checks for the full container.
+
+Semantic completion gate: a workstream is not complete until semantic
+validation is complete or explicitly deferred with a blocker. Inventory,
+dependency coverage, hashes, URL extraction, duplicate grouping, script output,
+and reference maps are evidence inputs, not semantic validation. Do not mark any
+meaningful object family `Done` when the only completed work is inventory or
+dependency mapping.
+
+Reconcile counts before delivery for each meaningful object family:
+
+- total source objects;
+- inventoried objects;
+- dependency-mapped objects;
+- semantically validated objects;
+- cleanup-decision objects;
+- deferred objects;
+- not applicable objects;
+- user-excluded objects;
+- unresolved objects.
+
+The semantic coverage formula must reconcile:
+`total = semantically validated + deferred + not applicable + user-excluded`.
+Any nonzero unresolved count means the audit or cleanup plan is incomplete until
+the row is resolved or explicitly deferred with a blocker.
+
+If any mandatory gate fails, deliver the result as `Incomplete / blocked`. Do
+not soften the failure into a normal limitation, and do not omit the affected
+family from the cleanup plan.
 
 ## Official Documentation Contract
 
@@ -184,6 +222,11 @@ shared routing, record:
 For low-risk hygiene objects, sample then expand when patterns repeat. For
 high-risk objects, inspect individually.
 
+Every meaningful object family must have semantic status: `Keep`, `Fix`,
+`Consolidate`, `Delete candidate`, `More info needed`, or `Not applicable`.
+Do not mark a family complete when it has only inventory rows, dependency rows,
+or code hashes.
+
 ## Name-Based Scope Inference
 
 Use object names as evidence of intended scope, then verify whether the
@@ -217,7 +260,7 @@ If the user has a house convention, follow it. Otherwise use this default:
 
 | Layer | Required pattern | Examples |
 | --- | --- | --- |
-| Tags | `Vendor - Event/role - Scope/detail` | `GA4 - purchase`, `GA4 - Config`, `Meta - AddToCart - IGGI`, `Google Ads - Purchase - FR`, `Pinterest - Base` |
+| Tags | `Vendor - Event/role - Scope/detail` | `GA4 - purchase`, `GA4 - Config`, `Meta - AddToCart - Product line`, `Google Ads - Purchase - FR`, `Pinterest - Base` |
 | Triggers | `Utility/type - Event or condition - Scope/detail` | `CE - purchase`, `PV - All Pages`, `Consent - Meta Granted`, `Block - No Marketing Consent`, `Group - purchase + Google Consent` |
 | Variables | `Type acronym - Variable name/source` | `DLV - ecommerce.purchase.products`, `CJS - Purchase total quantity`, `LT - Hostname to currency`, `RT - Product range from path`, `URL - Hostname` |
 | Folders | `Vendor` or `Domain / Function` | `GA4`, `Meta`, `Google Ads`, `Ecommerce helpers`, `Consent` |
@@ -262,7 +305,7 @@ Rules:
   business distinction is unknown. Mark that row as blocked for owner
   clarification instead of treating the ID-suffixed name as a preferred final
   production name.
-- Keep ambiguous business tokens such as `IGGI`, `Aura`, `Smart`, or agency
+- Keep ambiguous business tokens such as `ProductLineA`, `CampaignX`, `SegmentY`, or agency
   acronyms only when the user confirms their meaning or the configuration proves
   the scope.
 - Do not rename a variable unless all `{{Variable Name}}` references in tags,
@@ -335,6 +378,9 @@ Check representative page types and environments:
 Flag implementation checks as `More info needed` when the export alone cannot
 prove website behavior.
 
+Use `runtime-qa-templates.md` when browser, Tag Assistant, network, CMP, SPA, or
+vendor-platform evidence is needed.
+
 ## Security And Custom Code
 
 Check:
@@ -367,6 +413,26 @@ For each custom HTML tag under review:
   null handling;
 - verify that any proposed replacement preserves the original dynamic reference
   unless a semantic change is explicitly approved.
+
+For every active Custom HTML tag and every referenced, risky, or cleanup-relevant
+Custom JavaScript variable, record an object-level semantic row with:
+
+- purpose;
+- role category, such as vendor loader, event dispatcher, listener, DOM helper,
+  storage/cookie helper, consent/CMP UI, identity helper, payload transformer,
+  obsolete/paused, or other;
+- trigger or consumer context;
+- consent assumption;
+- side effects, including external URLs, dataLayer pushes, cookies, storage,
+  DOM writes, listeners, and network calls;
+- variable references and expected output or side effect;
+- runtime risks;
+- recommended action;
+- semantic status.
+
+Paused or unused custom-code objects still require a decommission rationale
+before they become delete candidates. Custom templates require the same semantic
+review when they are present or consumed by tags/variables.
 
 ## Architecture And Organization
 
@@ -725,6 +791,11 @@ an optional cleanup opportunity only when the website/dataLayer can provide the 
 event context and parameters. If not, make the dataLayer or site event
 instrumentation the prerequisite.
 
+Use `vendor-playbooks.md` for vendor-specific checks, including Piano Analytics,
+consentmanager.net, Google Publisher Tag/Google Ad Manager, Marfeel, Outbrain,
+Logora, Criteo, Awin, and common media platforms. Use `source-map.md` for
+official documentation entry points.
+
 Meta-specific checks:
 
 - base code is not mixed with `noscript` in a custom HTML tag unless there is a
@@ -812,6 +883,10 @@ cleanup from these layers. The change log must separately list
 deferred items with the exact blocker, such as unclear business scope, missing
 CMP/legal decision, missing runtime evidence, or vendor-platform validation
 needed.
+
+Custom code cleanup cannot be reduced to one generic row when custom-code
+objects exist. The plan must include object-level semantic review and cleanup
+decisions, or explicitly defer the affected objects with blockers.
 
 Before delivery, self-audit the generated cleanup artifact as a fresh container
 export. The self-audit must confirm:

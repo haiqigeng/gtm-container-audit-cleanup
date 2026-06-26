@@ -15,8 +15,9 @@ read Markdown instructions and work with exported GTM container JSON.
   consolidation opportunities.
 - Uses official Google and vendor documentation as the source of truth for
   standard events, payload shape, consent expectations, and validation methods.
-- Produces cleanup plans, route-aware operation tables, importable JSON checks,
-  and change logs without publishing or creating GTM versions.
+- Adds completion gates, limited-audit boundaries, severity calibration, vendor
+  playbooks, runtime QA templates, route-aware operation tables, importable JSON
+  checks, and change logs without publishing or creating GTM versions.
 
 ## Core Principles
 
@@ -38,6 +39,20 @@ references/                      Audit, source, mutation, reporting guides
 scripts/                         Deterministic helper scripts for exports,
                                   diffs, patches, validation, and self-tests
 ```
+
+Key references:
+
+- `completion-gates.md`: mandatory workstreams, phase model, and definition of
+  done.
+- `limited-audit-protocol.md`: rules for explicitly limited audits.
+- `audit-rubric.md`: full audit checklist and semantic review rules.
+- `vendor-playbooks.md`: vendor-specific payload and setup checks.
+- `runtime-qa-templates.md`: Tag Assistant, browser, network, consent, and
+  server-side QA templates.
+- `severity-calibration.md`: severity, priority, and confidence calibration.
+- `operation-schema.md`: cleanup aggressiveness, route, and operation schema.
+- `mutation-playbook.md`: pre-write and mutation safety rules.
+- `report-templates.md`: workbook/report/change-log schemas.
 
 ## Using The Skill
 
@@ -72,6 +87,7 @@ Useful commands:
 python scripts/gtm_export_inspect.py path\to\container.json
 python scripts/gtm_validate_artifact.py path\to\artifact.json --mode overwrite
 python scripts/gtm_diff_operations.py original.json cleaned.json
+python scripts/gtm_audit_gate_check.py reconciliation.xlsx
 python scripts/gtm_self_test.py
 ```
 

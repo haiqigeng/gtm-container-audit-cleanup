@@ -44,6 +44,33 @@ mean the page content should be treated as permanently current.
 | Google CMP setup | OneTrust CMP in GTM | <https://support.google.com/tagmanager/answer/14545200> | 2026-06-26 |
 | Google CMP setup | Axeptio CMP in GTM | <https://support.google.com/tagmanager/answer/14705891> | 2026-06-26 |
 | GTM consent | Consent mode support | <https://support.google.com/tagmanager/answer/10718549> | 2026-06-26 |
+| GTM consent | Troubleshoot consent mode with Tag Assistant | <https://developers.google.com/tag-platform/security/guides/consent-debugging> | 2026-06-26 |
+| GTM consent | Consent APIs for GTM templates | <https://developers.google.com/tag-platform/tag-manager/templates/consent-apis> | 2026-06-26 |
+| consentmanager.net | Google Tag Manager integration | <https://help.consentmanager.net/books/cmp/page/google-tag-manager-%28gtm%29> | 2026-06-26 |
+| consentmanager.net | Working with Google Consent Mode | <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode> | 2026-06-26 |
+| consentmanager.net | GTM and Google Consent Mode v2 | <https://help.consentmanager.net/books/cmp/page/working-with-gtm-google-consent-mode-v2> | 2026-06-26 |
+| consentmanager.net | Google Consent Mode v2 automatic blocking | <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-v2-automatic-blocking-code> | 2026-06-26 |
+| consentmanager.net | Google Consent Mode v2 manual/semi-automatic blocking | <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-v2-manualsemiautomatic-blocking-code> | 2026-06-26 |
+| consentmanager.net | Google Consent Mode with GA4 | <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-google-analytics-%28ga4%29> | 2026-06-26 |
+| consentmanager.net | Working with Google Ad Manager | <https://help.consentmanager.net/books/cmp/page/working-with-google-ad-manager> | 2026-06-26 |
+| Google Publisher Tag | Get started with GPT | <https://developers.google.com/publisher-tag/guides/get-started> | 2026-06-26 |
+| Google Publisher Tag | GPT reference | <https://developers.google.com/publisher-tag/reference> | 2026-06-26 |
+| Google Publisher Tag | Configure privacy settings sample | <https://developers.google.com/publisher-tag/samples/configure-privacy> | 2026-06-26 |
+| Google Publisher Tag | GPT release notes | <https://developers.google.com/publisher-tag/release-notes> | 2026-06-26 |
+| Google Ad Manager | Ads personalization settings in publisher ad tags | <https://support.google.com/admanager/answer/7678538> | 2026-06-26 |
+| Piano Analytics | Google Tag Manager PA SDK template | <https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-pa-sdk-template> | 2026-06-26 |
+| Piano Analytics | Google Tag Manager SmartTag template | <https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-smarttag-template> | 2026-06-26 |
+| Piano Analytics | Consent management developer docs | <https://developers.piano.io/analytics/data-collection/how-to-send-events/consent/> | 2026-06-26 |
+| Piano Analytics | Privacy configurations | <https://analytics-docs.piano.io/en/analytics/v1/privacy-configurations> | 2026-06-26 |
+| Piano Analytics | Privacy analysis | <https://analytics-docs.piano.io/en/analytics/v1/privacy-analysis> | 2026-06-26 |
+| Piano Analytics | Consent exemption configuration | <https://analytics-docs.piano.io/en/analytics/v1/consent-exemption-configuration> | 2026-06-26 |
+| Piano Analytics | Contains personal data flag | <https://analytics-docs.piano.io/en/analytics/v1/contains-personal-data-flag> | 2026-06-26 |
+| Piano Analytics | Default fed properties | <https://analytics-docs.piano.io/en/analytics/v1/what-properties-are-fed-by-default> | 2026-06-26 |
+| Piano Analytics | Server-side tracking with Stape/GTM server | <https://analytics-docs.piano.io/fr/analytics/v1/stape> | 2026-06-26 |
+| Marfeel | Marfeel SDK via GTM | <https://www.marfeel.com/docs/analytics/sdk-integrations/how-to-implement-marfeel-sdk-via-gtm-google-tag-manager> | 2026-06-26 |
+| Outbrain | Outbrain pixel on GTM | <https://www.outbrain.com/help/advertisers/outbrain-pixel-gtm/> | 2026-06-26 |
+| Logora | JavaScript installation | <https://docs.logora.fr/en/installation/javascript-sdk> | 2026-06-26 |
+| Logora | Server-side installation | <https://docs.logora.fr/en/installation/server-side-sdk> | 2026-06-26 |
 
 For vendors not listed here, search official vendor documentation first. If a
 vendor has no official setup or event reference, document the search path and
@@ -164,6 +191,48 @@ lower confidence.
   <https://help.awin.com/developers/docs/gtm-client-side>
 - Awin sales tracking:
   <https://help.awin.com/developers/docs/implementing-sales-tracking>
+- Outbrain pixel on GTM:
+  <https://www.outbrain.com/help/advertisers/outbrain-pixel-gtm/>
+- Marfeel SDK via GTM:
+  <https://www.marfeel.com/docs/analytics/sdk-integrations/how-to-implement-marfeel-sdk-via-gtm-google-tag-manager>
+- Logora JavaScript installation:
+  <https://docs.logora.fr/en/installation/javascript-sdk>
+- Logora server-side installation:
+  <https://docs.logora.fr/en/installation/server-side-sdk>
+
+### Publisher Ads, GPT, And Google Ad Manager
+
+- Google Publisher Tag get started:
+  <https://developers.google.com/publisher-tag/guides/get-started>
+- Google Publisher Tag reference:
+  <https://developers.google.com/publisher-tag/reference>
+- Configure GPT privacy settings:
+  <https://developers.google.com/publisher-tag/samples/configure-privacy>
+- GPT release notes:
+  <https://developers.google.com/publisher-tag/release-notes>
+- Google Ad Manager ads personalization in publisher ad tags:
+  <https://support.google.com/admanager/answer/7678538>
+
+### Piano Analytics
+
+- Google Tag Manager PA SDK template:
+  <https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-pa-sdk-template>
+- Google Tag Manager SmartTag template:
+  <https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-smarttag-template>
+- Consent management:
+  <https://developers.piano.io/analytics/data-collection/how-to-send-events/consent/>
+- Privacy configurations:
+  <https://analytics-docs.piano.io/en/analytics/v1/privacy-configurations>
+- Privacy analysis:
+  <https://analytics-docs.piano.io/en/analytics/v1/privacy-analysis>
+- Consent exemption configuration:
+  <https://analytics-docs.piano.io/en/analytics/v1/consent-exemption-configuration>
+- Contains personal data flag:
+  <https://analytics-docs.piano.io/en/analytics/v1/contains-personal-data-flag>
+- Default fed properties:
+  <https://analytics-docs.piano.io/en/analytics/v1/what-properties-are-fed-by-default>
+- Server-side tracking with Stape/GTM server:
+  <https://analytics-docs.piano.io/fr/analytics/v1/stape>
 
 ### CMP And Consent Vendors
 
@@ -179,6 +248,20 @@ lower confidence.
   <https://developers.didomi.io/cmp/web-sdk/reference/events>
 - Didomi Web SDK API:
   <https://developers.didomi.io/cmp/web-sdk/reference/api>
+- consentmanager.net GTM integration:
+  <https://help.consentmanager.net/books/cmp/page/google-tag-manager-%28gtm%29>
+- consentmanager.net Google Consent Mode:
+  <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode>
+- consentmanager.net GTM and Google Consent Mode v2:
+  <https://help.consentmanager.net/books/cmp/page/working-with-gtm-google-consent-mode-v2>
+- consentmanager.net Google Consent Mode v2 automatic blocking:
+  <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-v2-automatic-blocking-code>
+- consentmanager.net Google Consent Mode v2 manual/semi-automatic blocking:
+  <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-v2-manualsemiautomatic-blocking-code>
+- consentmanager.net Google Consent Mode with GA4:
+  <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-google-analytics-%28ga4%29>
+- consentmanager.net Google Ad Manager:
+  <https://help.consentmanager.net/books/cmp/page/working-with-google-ad-manager>
 
 Use official Google sources first. Use vendor documentation for non-Google
 vendors such as Meta, LinkedIn, TikTok, Pinterest, Reddit, X/Twitter, affiliate

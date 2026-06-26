@@ -1,6 +1,6 @@
 ---
 name: gtm-container-audit-cleanup
-description: Audit, clean, and standardize Google Tag Manager web or server-side containers from exported container JSON, GTM API/UI evidence, Tag Assistant observations, or implementation screenshots. Use when an agent is asked to review GTM governance, container installation, one tag gateway patterns, consent mode, GA4/ecommerce, marketing pixels, server-side tagging, custom HTML/JavaScript, naming conventions, duplicate or consolidatable tags/triggers/variables, obsolete elements, cleaned importable container JSON, or cleanup plans. Compatible with Codex, Claude Code, Gemini, and other agents that can read Markdown. Default to a complete deep audit; mutate only after explicit user approval; never publish or create GTM versions unless explicitly requested.
+description: Audit, clean, and standardize Google Tag Manager web or server-side containers from exported container JSON, GTM API/UI evidence, Tag Assistant observations, runtime/network evidence, or implementation screenshots. Use when an agent is asked to review GTM governance, container installation, one tag gateway patterns, consent mode, GA4/ecommerce, marketing pixels, server-side tagging, custom HTML/JavaScript, naming conventions, duplicate or consolidatable tags/triggers/variables, obsolete elements, runtime QA, change logs, cleaned importable container JSON, or cleanup plans. Compatible with Codex, Claude Code, Gemini, and other agents that can read Markdown. Default to a complete deep audit; mutate only after explicit user approval; never publish or create GTM versions unless explicitly requested.
 ---
 
 # GTM Container Audit Cleanup
@@ -24,6 +24,9 @@ memory, or a specific runtime.
   container file, not a Markdown report or code block containing JSON. Treat
   manual same-container import as conflict-sensitive unless the user says they
   will overwrite or import into a new container.
+- **Runtime QA**: Build or execute Tag Assistant, browser, network, CMP,
+  server-side, and vendor-platform validation plans when runtime behavior,
+  consent timing, duplicate hits, SPA routes, or vendor acceptance matters.
 - **Report generation**: Produce a technical audit table, executive summary,
   stakeholder report, cleanup plan, or change log.
 
@@ -116,103 +119,22 @@ by default. Execution should use `Standard` cleanup by default, escalate to
 
 ## Mandatory Completion Ledger
 
-For every audit, cleanup plan, cleanup run, or importable JSON run, maintain a
-completion ledger. Do not rely on an implied checklist.
-
-The ledger must cover these mandatory workstreams:
-
-- scope and evidence freshness;
-- full inventory for tags, triggers, variables, folders, templates, and consent
-  settings;
-- dependency map, including custom HTML/JavaScript references;
-- structured operation schema when a cleanup plan or mutation is requested;
-- official documentation map for GA4 and every meaningful vendor/event family;
-- Google event classification, with ambiguous Google Analytics events treated
-  as GA4/current Google tag rather than UA;
-- official dataLayer/event payload format map for GA4 standard and ecommerce
-  events, not only tag UI settings;
-- deep semantic review for high-risk and shared tags, triggers, and variables;
-- standard ecommerce variable checks;
-- missing standard events and dataLayer readiness;
-- naming convention and naming standardization;
-- one tag gateway and consolidation review;
-- currently unused, consolidation-obsolete, and deferred objects;
-- tag payload, trigger, variable, folder, template, consent, custom-code, and
-  naming cleanup decisions;
-- mutation route, route-specific cleanup strategy, rollback source, import
-  conflict strategy when applicable, and validation results when cleanup is
-  requested;
-- generated JSON self-QA when an importable container is produced;
-- regression checks for route-specific hazards, including same-container JSON
-  add/delete churn, built-in variable omission, partial custom-template layers,
-  and missing schema dependencies;
-- change log and deferred blocker summary.
+For every audit, cleanup plan, cleanup run, importable JSON run, final handoff,
+or change log, maintain a completion ledger. Read
+`references/completion-gates.md` for the required workstreams, phase model,
+definition of done, reconciliation counts, and failed-gate handling. Do not rely
+on an implied checklist.
 
 Each ledger row must be marked `Done`, `Deferred`, `Not applicable`, or
 `User-excluded`. `Deferred` requires affected objects, exact blocker, required
 evidence, risk, and next action. Do not mark a workstream complete just because
 one example or one vendor family was checked.
 
-Before final delivery, run a final coverage check:
-
-- No mandatory workstream is blank or silently skipped.
-- Every layer has either changes, findings, or a documented reason for no
-  change.
-- Naming standardization is applied or blocked with explicit object-level
-  reasons.
-- Official documentation was checked for every material vendor/event family, or
-  the missing source is documented after checking bundled references and
-  searching the internet for official vendor documentation.
-- Every Google analytics/ecommerce object is classified as GA4/current Google
-  tag or an explicit UA exception; no UA Enhanced Ecommerce path remains as an
-  active GA4 mapping without a verified mapper and outgoing payload proof.
-- Standard ecommerce variables and their consumers were reviewed.
-- Trigger, tag, and variable names match their actual logic; for example, a
-  `form_submit` trigger group must contain form-submit logic, not a purchase
-  trigger.
-- Naming standardization covers every tag, trigger, variable, and folder in
-  scope, not only examples or high-risk objects. Mixed trigger prefixes such as
-  `Didomi`, `Block`, `TR`, `TG`, and `Trigger` are resolved to the chosen
-  convention or documented with object-level blockers.
-- Proposed and applied final names are unique within each layer. If a naming
-  pattern would produce duplicates, the plan adds meaningful suffixes that
-  explain the actual distinction between objects, or marks the affected names as
-  blocked pending business clarification.
-- No trigger group contains only one trigger after cleanup. Map every
-  consuming tag directly to the child trigger, then delete the group for direct
-  GTM/API or overwrite/new-container JSON. For same-container merge JSON, where
-  deletion by omission is not reliable, mark the group as a delete candidate and
-  provide the overwrite/direct-deletion artifact or instruction.
-- Every rename/delete/update has a dependency sweep, including `setupTag` and
-  `teardownTag` `tagName` references after tag renames.
-- Generated importable JSON has no new missing references and no unresolved
-  duplicate/unused candidates unless documented as intentional.
-- Cleanup operations match the selected route: direct GTM cleanup modifies
-  existing objects in place when safe, while same-container import JSON may use
-  replacement/additive objects with a decommission map to avoid import conflicts.
-- Same-container JSON intended for GTM View Changes preserves existing tag,
-  trigger, variable, folder, and template names for modified existing objects.
-  Do not combine full naming standardization with a View Changes JSON and then
-  claim the result will review as in-place modifications; GTM merge conflicts
-  are name-based. Provide a separate final-standardized artifact or direct
-  GTM/API/MCP plan for naming.
-- For same-container merge/review JSON, unchanged objects are omitted from the
-  import patch except schema dependencies required by changed objects: folder
-  definitions required by `parentFolderId` references and, when any included
-  tag/variable uses a custom-template `type` such as `cvt_123_456`, the complete
-  intended `customTemplate` set. Verify dependency-only objects are byte-for-byte
-  unchanged unless intentionally edited, and explain why they are present in the
-  import file.
-- Preserve the complete `builtInVariable` array in importable JSON whenever the
-  source or cleanup draft has enabled built-in variables. Treat it as the
-  container's enabled built-in-variable set, not ordinary unchanged noise.
-- Generated importable JSON passes a final self-audit as a fresh artifact:
-  parses as GTM JSON, has unique IDs, resolves trigger, variable, setup-tag, and
-  teardown-tag references, covers all layers, applies naming or documents
-  blockers, and lists every residual issue before delivery.
-- Any produced change log matches the `Change Log Columns` in
-  `references/report-templates.md` exactly, unless the user explicitly asks for
-  a different schema.
+Before final delivery, run the final coverage check from
+`completion-gates.md`. If a report or workbook includes a reconciliation table,
+validate it with `scripts/gtm_audit_gate_check.py`. If any mandatory gate fails,
+label the deliverable `Incomplete / blocked` and list failed workstreams,
+affected objects, blockers, risk, required evidence, and next action.
 
 If the user asks for a short answer, create the full ledger in the report or
 workbook and summarize only the status in chat.
@@ -245,8 +167,14 @@ Follow these rules in Codex, Claude Code, Gemini CLI, or any similar agent:
 
 ## Resource Routing
 
+- Read `references/completion-gates.md` for every audit, cleanup plan, cleanup
+  execution, importable JSON artifact, final handoff, or change log.
+- Read `references/limited-audit-protocol.md` when the user asks for a quick,
+  sample, narrow, single-family, or explicitly limited audit.
 - Read `references/audit-rubric.md` for the complete audit checklist, severity
   model, cleanup heuristics, and classification rules.
+- Read `references/severity-calibration.md` before assigning client-facing
+  severity or priority.
 - Read `references/operation-schema.md` when turning audit findings into a
   cleanup plan, selecting aggressiveness, choosing direct GTM/MCP/API versus
   JSON, preparing an operation table, or validating route-specific risks.
@@ -256,14 +184,25 @@ Follow these rules in Codex, Claude Code, Gemini CLI, or any similar agent:
 - Read `references/source-map.md` when checking modern GTM, GA4, consent mode,
   server-side tagging, UA, Google Optimize assumptions, or official vendor
   event/payload documentation.
+- Read `references/vendor-playbooks.md` before judging GA4, Google Ads,
+  Floodlight, Meta, TikTok, Pinterest, Microsoft, LinkedIn, Criteo, affiliate,
+  Piano Analytics, publisher ads, Marfeel, Outbrain, Logora, CMP, or unknown
+  vendor payloads.
+- Read `references/runtime-qa-templates.md` when runtime behavior, consent
+  timing, duplicate hits, SPA routes, browser-to-server routing, or vendor
+  platform acceptance needs validation.
 - Read `references/mutation-playbook.md` immediately before any create, update,
   rename, delete, or batch cleanup.
 - Read `references/report-templates.md` before delivering audit results,
   cleanup plans, final handoffs, or change logs.
+- Use `references/forward-test-prompts.md` when forward-testing a release or
+  checking whether the skill generalizes across realistic request types.
 - When Python is available and a GTM export is provided, use
   `scripts/gtm_export_inspect.py` to accelerate inventory, duplicate,
   dependency, unused-candidate, and ecommerce-variable discovery. Treat script
   output as audit hints that still require semantic review.
+- Use `scripts/gtm_audit_gate_check.py` before claiming a workbook, CSV, JSON,
+  or report with workstream reconciliation is complete.
 - Use `scripts/gtm_diff_operations.py` when comparing an original export to a
   cleanup draft or post-change export. It emits structured operations and can
   produce change-log-shaped CSV.
@@ -318,8 +257,9 @@ observed browser behavior over generic descriptions.
 
 1. **Confirm scope and mode**. Establish whether this is audit-only, planning,
    or approved cleanup.
-2. **Load the right references**. Start with `audit-rubric.md`; add JSON,
-   sources, mutation, or reporting references only when needed.
+2. **Load the right references**. Start with `completion-gates.md` and
+   `audit-rubric.md`; add JSON, sources, vendor playbooks, runtime QA,
+   mutation, or reporting references only when needed.
 3. **Build inventory**. Inventory tags, triggers, variables, folders,
    templates, consent settings, workspaces/versions when relevant, and website
    implementation evidence. For large exports, run the bundled inspection
@@ -419,30 +359,35 @@ observed browser behavior over generic descriptions.
    map. Re-scan all `{{Variable Name}}` references, especially inside custom HTML
    and custom JavaScript, plus setup/teardown `tagName` references after tag
    renames.
-20. **Recommend next actions**. Separate no-write recommendations,
+21. **Recommend next actions**. Separate no-write recommendations,
    user/business decisions, consolidation candidates, and approved mutation
    candidates.
-21. **Confirm execution route**. When the user approves cleanup, ask whether
+22. **Confirm execution route**. When the user approves cleanup, ask whether
    they want direct GTM execution through available
    tools/MCP/API or a GTM-compatible import JSON file they can import manually.
-22. **Select route-specific cleanup strategy**. For direct GTM/MCP/API cleanup,
+23. **Select route-specific cleanup strategy**. For direct GTM/MCP/API cleanup,
    preserve and modify existing objects in place when safe. For manual
    same-container import JSON, use a conflict-aware replacement/additive strategy
    when it reduces GTM import conflicts, emit only changed objects in the import
    file, and document old-to-new decommission mapping. For overwrite/new-container
    JSON, direct object updates/deletions may be appropriate.
-23. **Stop before writes**. If mutation is requested, read
+24. **Stop before writes**. If mutation is requested, read
    `mutation-playbook.md`, prepare a plan, and ask for explicit approval unless
    approval has already been given for the exact operations.
-24. **Self-QA generated outputs**. Before delivering an importable JSON, inspect
+25. **Self-QA generated outputs**. Before delivering an importable JSON, inspect
    the generated file as if it were a fresh export: run inventory, dependency,
    duplicate, unused, naming, GA4 dataLayer, and residual-issue checks. This is
    a self-audit gate, not an external workspace/export check.
-25. **State the next step**. After each completed audit or workflow phase,
+26. **Reconcile completion gates**. Before final delivery, check the completion
+   ledger against `completion-gates.md`; if a reconciliation workbook/table is
+   produced, run `scripts/gtm_audit_gate_check.py`. If a required gate fails,
+   label the deliverable `Incomplete / blocked` and list failed rows, blockers,
+   risk, required evidence, and next action.
+27. **State the next step**. After each completed audit or workflow phase,
    state the concrete next step, including whether the user must approve a
    route, decide an owner/business question, provide evidence, or allow
    execution.
-26. **Report clearly**. Use `report-templates.md` and provide a reproducible
+28. **Report clearly**. Use `report-templates.md` and provide a reproducible
    audit trail.
 
 ## Non-Negotiable Safety Rules
@@ -529,47 +474,12 @@ observed browser behavior over generic descriptions.
 
 ## Output Expectations
 
-For audits, include:
-
-- executive summary;
-- evidence sources and freshness;
-- inventory counts;
-- semantic-role and consolidation summary for tags, triggers, and variables;
-- official documentation contracts checked for GA4 and vendor tags;
-- official GA4 dataLayer/event payload format checked per standard event;
-- missing standard events and dataLayer readiness blockers;
-- standard ecommerce variable logic summary, especially broken formulas,
-  unexpected output types, and affected tag consumers;
-- findings table with status, severity, confidence, evidence, impact,
-  recommendation, and mutation requirement;
-- cleanup roadmap grouped by risk and dependency;
-- open questions and decisions needed.
-
-For approved cleanups, include:
-
-- approved scope and workspace coordinates;
-- execution route: direct GTM/MCP/API cleanup or importable GTM container JSON;
-- route-specific cleanup strategy, including import mode and conflict handling
-  for JSON deliverables;
-- for same-container merge JSON, confirmation that the import file contains only
-  changed objects and omits unchanged templates/arrays;
-- operations performed and skipped;
-- structured operation table with change IDs, route, aggressiveness, QA, and
-  rollback;
-- complete changed-vs-deferred summary by layer, including tags, triggers,
-  variables, templates, folders, consent, naming, and consolidation;
-- old-to-new replacement map and decommission plan when the JSON route creates
-  replacement/additive objects for manual same-container import;
-- naming convention applied plus a before/after rename map for tags, triggers,
-  variables, and folders;
-- explicit blocker and required evidence for every material deferred cleanup;
-- verification evidence from a fresh post-change inventory;
-- generated JSON self-QA status, including parse/reference/duplicate/unused,
-  naming, GA4 dataLayer, and residual blocker checks when applicable;
-- change log using the exact template columns from
-  `references/report-templates.md` when a change log is requested or produced;
-- rollback path;
-- publish/version status, usually `Not published`.
+Use `references/report-templates.md` for the required report, workbook, roadmap,
+operation, runtime QA, change-log, and handoff schemas. At minimum, every
+deliverable must expose evidence freshness, inventory/dependency coverage,
+semantic validation status, official documentation coverage, findings or
+no-change evidence, cleanup route/aggressiveness, blockers, QA requirements,
+rollback/publish status when cleanup is involved, and deferred decisions.
 
 Every audit, phase handoff, cleanup result, generated JSON delivery, or QA
 summary must include `Recommended next step`. This next step must be concrete
