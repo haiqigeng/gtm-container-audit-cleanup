@@ -16,8 +16,10 @@ read Markdown instructions and work with exported GTM container JSON.
 - Uses official Google and vendor documentation as the source of truth for
   standard events, payload shape, consent expectations, and validation methods.
 - Adds completion gates, limited-audit boundaries, severity calibration, vendor
-  playbooks, runtime QA templates, route-aware operation tables, importable JSON
-  checks, and change logs without publishing or creating GTM versions.
+  playbooks, semantic modeling, semantic logic checks, optimization patterns,
+  centralized policies, runtime QA templates, route-aware operation tables,
+  importable JSON checks, and change logs without publishing or creating GTM
+  versions.
 
 ## Core Principles
 
@@ -44,9 +46,24 @@ Key references:
 
 - `completion-gates.md`: mandatory workstreams, phase model, and definition of
   done.
+- `policy-register.md`: stable policy IDs for repeated safety, naming, JSON,
+  mutation, and reporting rules.
 - `limited-audit-protocol.md`: rules for explicitly limited audits.
 - `audit-rubric.md`: full audit checklist and semantic review rules.
+- `audit-ga4-ecommerce.md`: GA4/current Google tag, dataLayer, ecommerce, and
+  standard variable checks.
+- `audit-consent-server.md`: CMP, consent mode, browser-to-server, and
+  server-side caution checks.
+- `audit-media-vendors.md`: media/vendor payload, signal quality, and
+  cross-vendor checks.
 - `vendor-playbooks.md`: vendor-specific payload and setup checks.
+- `semantic-model-protocol.md`: internal business objective and measurement
+  system model.
+- `semantic-logic-checks.md`: internal graph, formula, context, and payload
+  contradiction checks.
+- `optimization-patterns.md`: hygiene-to-strategic optimization pattern library.
+- `import-json-policy.md`: same-container merge, View Changes, overwrite, and
+  schema-dependency rules for importable JSON.
 - `runtime-qa-templates.md`: Tag Assistant, browser, network, consent, and
   server-side QA templates.
 - `severity-calibration.md`: severity, priority, and confidence calibration.
@@ -89,6 +106,7 @@ python scripts/gtm_validate_artifact.py path\to\artifact.json --mode overwrite
 python scripts/gtm_diff_operations.py original.json cleaned.json
 python scripts/gtm_audit_gate_check.py reconciliation.xlsx
 python scripts/gtm_self_test.py
+python scripts/check_release.py
 ```
 
 Python is not required to understand or apply the skill instructions, but it is

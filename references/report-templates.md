@@ -14,6 +14,7 @@ consistent across containers, clients, and agents.
 - Final Handoff
 - Spreadsheet-Friendly Tabs
 - Change Log Columns
+- Cleanup Plan And Change Log Coherence
 - Output Format Selection
 - Required Closing Question
 
@@ -448,6 +449,24 @@ Evidence / notes
 
 Use concise `Action` values: Added, Removed, Renamed, Modified, Renamed +
 Modified, Replaced, No-op / Documented exception.
+
+## Cleanup Plan And Change Log Coherence
+
+The cleanup plan is the decision source. The change log is the execution record.
+Do not make the change log a second audit or a place for new analysis.
+
+Before delivering both files, verify:
+
+- every change-log row maps to a cleanup operation `Change ID`, except explicit
+  `No-op / Documented exception` rows;
+- object IDs, before names, after names, action, reason/decision, functional
+  impact, consent/privacy impact, QA priority, QA status, owner, and status do
+  not contradict the cleanup plan;
+- if semantic logic checks discover a bad setup after the plan was drafted,
+  update the cleanup operation first, then mirror the executed/generated change
+  in the change log;
+- deferred semantic issues appear as deferred/blocker operations, not as changed
+  rows.
 
 When a change log is produced, validate the header before delivery. The file
 must contain exactly the columns above in the same order unless the user

@@ -5,42 +5,21 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-
-ID_KEYS = {
-    "tag": "tagId",
-    "trigger": "triggerId",
-    "variable": "variableId",
-    "folder": "folderId",
-    "builtInVariable": "name",
-    "customTemplate": "templateId",
-}
+from gtm_lib import (
+    ID_KEYS,
+    apply_patch,
+    comparable,
+    comparable_container,
+    container_version,
+    custom_template_id,
+    optional_object_id,
+)
 
 IGNORED_FOR_CHANGE = {"path", "fingerprint"}
 FOLDER_REFERENCING_LAYERS = ("tag", "trigger", "variable")
-CUSTOM_TEMPLATE_RE = re.compile(r"^cvt_\d+_(\d+)$")
-
-
-def container_version(data: dict[str, Any]) -> dict[str, Any]:
-    return data.get("containerVersion", data)
-
-
-def object_id(obj: dict[str, Any], id_key: str) -> str | None:
-    value = obj.get(id_key) or obj.get("name")
-    return str(value) if value is not None else None
-
-
-def comparable(obj: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in obj.items() if k not in IGNORED_FOR_CHANGE}
-
-
-def custom_template_id(obj: dict[str, Any]) -> str | None:
-    match = CUSTOM_TEMPLATE_RE.match(str(obj.get("type", "")))
-    return match.group(1) if match else None
 
 
 def merge_patch(original_cv: dict[str, Any], optimized_cv: dict[str, Any]) -> dict[str, Any]:
@@ -50,16 +29,16 @@ def merge_patch(original_cv: dict[str, Any], optimized_cv: dict[str, Any]) -> di
         original_objects = original_cv.get(layer, []) or []
         optimized_objects = optimized_cv.get(layer, []) or []
         original_by_id = {
-            object_id(obj, id_key): obj
+            optional_object_id(obj, id_key): obj
             for obj in original_objects
-            if object_id(obj, id_key) is not None
+            if optional_object_id(obj, id_key) is not None
         }
 
         changed = []
         for obj in optimized_objects:
-            oid = object_id(obj, id_key)
+            oid = optional_object_id(obj, id_key)
             before = original_by_id.get(oid)
-            if before is None or comparable(obj) != comparable(before):
+            if before is None or comparable(obj, IGNORED_FOR_CHANGE) != comparable(before, IGNORED_FOR_CHANGE):
                 changed.append(obj)
 
         if changed:
@@ -111,44 +90,7 @@ def merge_patch(original_cv: dict[str, Any], optimized_cv: dict[str, Any]) -> di
 
 
 def reconstruct(original_cv: dict[str, Any], patch_cv: dict[str, Any]) -> dict[str, Any]:
-    merged = deepcopy(original_cv)
-    for layer, id_key in ID_KEYS.items():
-        replacements = patch_cv.get(layer)
-        if not replacements:
-            continue
-
-        by_id = {
-            object_id(obj, id_key): obj
-            for obj in replacements
-            if object_id(obj, id_key) is not None
-        }
-        seen: set[str] = set()
-        next_objects = []
-        for obj in merged.get(layer, []) or []:
-            oid = object_id(obj, id_key)
-            if oid in by_id:
-                next_objects.append(by_id[oid])
-                seen.add(str(oid))
-            else:
-                next_objects.append(obj)
-
-        for oid, obj in by_id.items():
-            if oid not in seen:
-                next_objects.append(obj)
-
-        merged[layer] = next_objects
-
-    return merged
-
-
-def comparable_container(cv: dict[str, Any]) -> dict[str, Any]:
-    clean = {}
-    for key, value in cv.items():
-        if isinstance(value, list):
-            clean[key] = [comparable(obj) if isinstance(obj, dict) else obj for obj in value]
-        elif key not in IGNORED_FOR_CHANGE:
-            clean[key] = value
-    return clean
+    return apply_patch(original_cv, patch_cv)
 
 
 def main() -> int:

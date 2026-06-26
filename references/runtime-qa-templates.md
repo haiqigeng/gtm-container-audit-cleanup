@@ -4,6 +4,16 @@ Use this reference when website behavior, consent timing, duplicate hits,
 network payloads, SPA routing, server-side routing, or vendor platform
 acceptance matters. Exported GTM JSON cannot prove these checks.
 
+## Contents
+
+- QA Evidence Header
+- Consent QA Matrix
+- Pageview And SPA QA
+- Ecommerce QA
+- Network QA Columns
+- Server-Side QA
+- Vendor Platform QA
+
 ## QA Evidence Header
 
 ```text

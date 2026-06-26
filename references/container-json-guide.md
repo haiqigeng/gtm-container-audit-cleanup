@@ -141,7 +141,10 @@ After the first inventory, create semantic groups before writing findings:
   destination IDs, or consent/routing parameters;
 - by custom code body hash and variable reference set;
 - by dataLayer path family, such as `ecommerce.purchase.products.*`;
-- by expected output type.
+- by expected output type;
+- by semantic role and formula family, such as total value, item price, total
+  quantity, item array, content IDs, lead type, transaction ID, consent group,
+  market, or product category.
 
 For each group, decide whether objects are:
 
@@ -155,6 +158,18 @@ For each group, decide whether objects are:
 
 Do not report only exact duplicates. Similar objects at scale are often the main
 cleanup opportunity.
+
+After grouping, run `semantic-logic-checks.md` for shared variables, computed
+values, media/ecommerce payloads, custom code, and any object whose name implies
+a business action or scope. The JSON export can reveal contradictions such as a
+`total_quantity` helper reading prices, a purchase-value tag reading a product
+unit price, or several vendors consuming the same variable with incompatible
+field-shape expectations.
+
+For complex containers, build the semantic model from
+`semantic-model-protocol.md` before proposing consolidation. This is especially
+important when repeated objects differ by market, product line, form type,
+campaign, consent category, server route, or vendor payload shape.
 
 ## Google Event Classification Pass
 
@@ -245,135 +260,33 @@ marking the variable incorrect or safe to consolidate.
 ## Importable JSON Cleanup Pass
 
 When the user asks for cleanup JSON, generate a GTM-compatible container
-import/export JSON file after the complete audit and cleanup design. Do not
-produce a partial patch unless the user explicitly asked for one.
+import/export JSON file after the complete audit and cleanup design. Use
+`import-json-policy.md` as the source of truth for same-container merge, View
+Changes review, overwrite/new-container imports, schema dependencies, validation
+commands, and failure handling.
 
-Required pass order:
+This guide still owns the export-analysis loop:
 
 1. Preserve the original export as rollback evidence.
-2. Record the intended import mode: manual same-container merge, overwrite, or
-   new-container import. If unspecified, assume manual same-container merge and
-   document the conflict strategy.
-3. Build complete dependency maps for tags, triggers, variables, trigger groups,
+2. Build dependency maps for tags, triggers, variables, trigger groups,
    setup/teardown, folders, templates, and custom code references.
-4. Classify Google analytics/ecommerce objects as GA4/current Google tag by
-   default, with UA only as an explicit documented exception.
-5. Classify all objects as keep, safe change, safe delete candidate,
+3. Classify all objects as keep, safe change, safe delete candidate,
    consolidation obsolete, or deferred with blocker.
-6. Choose the JSON object strategy. For manual same-container merge, emit a
-   minimal review patch containing only changed objects. Allow finalized
-   replacement/additive objects when in-place edits would create GTM import
-   conflicts or empty-value errors. For overwrite or new-container imports,
-   direct object updates/deletions may be appropriate. If the user wants GTM
-   View Changes to show modified existing objects, preserve existing object
-   names in the review JSON; GTM merge conflicts are name-based, so broad
-   renaming belongs in direct GTM/API/MCP cleanup or a separate final-state
-   artifact.
-7. Apply all evidence-safe fixes across tags, triggers, variables, custom code,
+4. Apply every evidence-safe fix across tags, triggers, variables, custom code,
    folders, naming, duplicates, and consolidation candidates.
-8. Flatten trigger groups with exactly one member by remapping every consuming
-   tag to the child trigger. Delete the group for overwrite/new-container JSON;
-   for same-container merge JSON, mark it as a delete candidate and provide the
-   required direct/overwrite deletion path because merge patches cannot reliably
-   delete omitted existing objects.
-9. Recompute dependencies after every consolidation/delete batch in the draft
-   JSON.
-10. Validate that the JSON still parses, IDs are unique, references resolve, and
-   no new missing trigger, variable, setup-tag, or teardown-tag references were
-   introduced.
-11. Self-audit the generated file as a fresh export: inventory all layers, detect
-   duplicate configurations, unresolved unused objects, naming/logic
-   mismatches, active UA Enhanced Ecommerce mappings, missing references, and
-   residual blockers.
-12. Validate import-noise handling. For manual same-container merge, omit
-   unchanged object arrays from the import patch except schema dependencies
-   needed to resolve changed objects: folder definitions for `parentFolderId`
-   references and the complete intended `customTemplate` set when included
-   tags/variables use template `type` values such as `cvt_123_456`. If custom
-   templates are included only as dependencies, verify they are byte-for-byte
-   unchanged from the source export and document that they are present only to
-   resolve GTM entity types. Preserve the complete intended `builtInVariable`
-   array whenever the source or cleanup draft has enabled built-in variables.
-   Preserve a separate full-export backup only for rollback or
-   overwrite/new-container use.
-13. For manual same-container merge JSON that uses replacement/additive objects,
-   produce an old-to-new replacement map, consumer-update evidence, and
-   post-QA decommission plan for the original objects.
-14. Produce a change log that lists changed objects and deferred objects by
-   blocker.
+5. Recompute dependencies after every consolidation/delete batch.
+6. Validate with `scripts/gtm_validate_artifact.py` and create operation/change
+   evidence with `scripts/gtm_diff_operations.py`.
 
-Use deterministic helpers when Python is available:
+For manual same-container merge patches, use:
 
-- `scripts/gtm_diff_operations.py <original> <draft>` to produce a structured
-  operation diff or change-log-shaped CSV for full exports.
-- `scripts/gtm_diff_operations.py <original> <patch> --patch` for
-  same-container patch artifacts, so omitted unchanged objects are not treated
-  as removals.
-- `scripts/gtm_validate_artifact.py <artifact> --original <original> --mode
-  same-container-view` for GTM View Changes JSON.
-- `scripts/gtm_validate_artifact.py <artifact> --original <original> --mode
-  same-container-final` for same-container final-state JSON.
-- `scripts/gtm_validate_artifact.py <artifact> --mode overwrite` or
-  `--mode new-container` for overwrite/new-container artifacts.
+- `scripts/gtm_make_merge_patch.py` for final-state patch artifacts;
+- `scripts/gtm_make_name_preserving_review_patch.py` for GTM View Changes review
+  artifacts.
 
-Do not deliver a JSON artifact when `gtm_validate_artifact.py` fails unless the
-failure is intentionally accepted by the user and documented as a residual
-blocker.
-
-When a full cleanup draft exists and the deliverable is manual same-container
-merge for final state, use `scripts/gtm_make_merge_patch.py` to create the final
-file. The script omits unchanged arrays and validates that applying the patch to
-the original export reconstructs the cleaned draft.
-
-When the deliverable is a same-container JSON intended for GTM View Changes, use
-`scripts/gtm_make_name_preserving_review_patch.py`. It preserves existing names
-and rewrites variable/setup/teardown references so GTM can match conflicts by
-name and show modifications instead of broad add/delete churn. State that this
-review artifact intentionally defers naming standardization.
-
-The cleanup JSON should include safe trigger and variable cleanup, not only
-tag payload or ecommerce fixes. For same-container merge patches, "include"
-means include every changed object needed for the final state, not every
-unchanged object from the source export. If a category has no changes, state why:
-already clean, blocked by evidence, blocked by business meaning, or not
-applicable.
-Do not call the JSON import-ready when the generated-file self-audit has blank
-workstreams or unresolved duplicate/unused/reference/name mismatches that are
-not documented as intentional residuals.
-Do not call template modified/delete/add noise acceptable when no template
-behavior changed. If no included object needs a `cvt_...` type, omit the
-`customTemplate` layer. If included objects need `cvt_...` types, include the
-complete intended custom-template set, not a partial subset, and verify the
-dependency-only templates are unchanged.
-
-Do not omit folders that are referenced by `parentFolderId` in changed tags,
-triggers, or variables. Referenced folders are schema dependencies for GTM
-import, even when the folder objects themselves are unchanged.
-
-Do not omit custom templates that are referenced by included tags or variables
-whose `type` is a `cvt_...` value. Referenced custom templates are schema
-dependencies for GTM import, even when the template objects themselves are
-unchanged.
-
-Do not use a rename-heavy JSON import as the human-review artifact. GTM merge
-conflicts are name-based, so renamed tags, triggers, and variables can appear as
-added/deleted rather than modified. Use direct GTM/API/MCP for true in-place
-renaming, or produce a name-preserving review JSON plus a separate
-final-standardized artifact.
-
-Do not omit `builtInVariable` when the source export has enabled built-in
-variables. GTM import can interpret a missing built-in-variable layer as an
-empty enabled set, which disables built-ins such as Page URL, Event, Click, and
-Form variables.
-
-Do not call a cleanup complete when active tags still depend on a trigger group
-that contains only one trigger. That group must be flattened or explicitly
-blocked by the route, with the direct/overwrite deletion path documented.
-
-Do not apply direct GTM/MCP/API in-place cleanup assumptions to manual
-same-container import JSON. If the file is meant for manual merge into the same
-container, prepare the artifact for import conflict handling and make the
-replacement/decommission path explicit.
+Do not call a JSON artifact import-ready while generated-file self-audit has
+blank workstreams, missing references, unresolved duplicate/unused/name/logic
+issues, active unverified UA ecommerce paths, or undocumented route blockers.
 
 ## Custom Code Triage
 

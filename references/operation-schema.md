@@ -129,6 +129,15 @@ Represent every proposed or executed cleanup as a structured operation:
 Do not execute an operation table that lacks dependencies, QA method, rollback,
 or route for any mutation.
 
+The operation table is the source of truth for cleanup decisions. A change log
+must mirror applied/generated operations by `change_id`; it must not introduce
+new analysis, different impact wording, or different object status that was not
+present in the approved/generated operation.
+
+Semantic logic checks should normally be folded into existing `reason`,
+`blocker`, `risk`, and `qa_method` fields. Add a separate traceability field only
+when the user requests a deeper technical workbook.
+
 ## Operation Compiler
 
 Compile audit findings into operations in this order:
@@ -137,17 +146,20 @@ Compile audit findings into operations in this order:
 2. Attach official documentation contracts to GA4 and vendor-event findings.
 3. Reconcile material object families against the audit ledger and identify any
    family that is still inventory-only or dependency-only.
-4. Finish semantic validation for unresolved families or mark them deferred with
-   blockers.
-5. Classify findings by business impact and risk.
-6. Choose recommended cleanup aggressiveness.
-7. Add selectable aggressiveness options and tradeoffs for each material
+4. Build the semantic model for meaningful object families and finish semantic
+   validation, or mark unresolved families deferred with blockers.
+5. Run semantic logic checks for value, quantity, item, lead, media, shared
+   variable, and custom-code logic.
+6. Select applicable optimization patterns without flattening business meaning.
+7. Classify findings by business impact and risk.
+8. Choose recommended cleanup aggressiveness.
+9. Add selectable aggressiveness options and tradeoffs for each material
    operation.
-8. Choose execution route.
-9. Generate operations with route-specific mutation style.
-10. Validate dependencies and blockers.
-11. Batch operations for execution.
-12. Run post-batch readback and update statuses.
+10. Choose execution route.
+11. Generate operations with route-specific mutation style.
+12. Validate dependencies and blockers.
+13. Batch operations for execution.
+14. Run post-batch readback and update statuses.
 
 For direct GTM/MCP/API, prefer `Update` or `Rename` on existing IDs. Use
 `Replace` only when a new reusable concept is needed or the API/tool behavior
@@ -209,6 +221,19 @@ mapping.
   hiding consent, ownership, or vendor-specific payload rules.
 - Treat gateway failure blast radius as a risk.
 
+### Advanced Consolidation
+
+Use when repeated objects may be combined through lookup tables, regex tables,
+helper variables, payload mappers, or gateway routing.
+
+- Load `optimization-patterns.md`.
+- Consolidate only after semantic model checks prove shared business meaning or
+  a safe dynamic scope field.
+- Prefer dynamic conditions over hardcoded duplication when they remain readable
+  and QA-able.
+- Do not combine objects that differ by business objective, consent category,
+  product/market ownership, platform optimization use, or payload shape.
+
 ### Server-Side GTM
 
 Use when server container evidence exists or migration is requested.
@@ -244,6 +269,12 @@ Use when the user asks for a fast production repair.
 - A scalar product ID is suspect when a vendor expects an array or object.
 - A helper that reads old dataLayer history is suspect when the event context
   requires the current ecommerce action.
+- A formula that resolves is not automatically meaningful; totals, quantities,
+  lead values, item arrays, content IDs, and media payload fields must make
+  logical sense against source event, output type, and consumers.
+- Missing business logic can be a finding even when all current GTM objects are
+  technically valid; record website/dataLayer/server blockers instead of
+  inventing GTM-side guesses.
 - A name that says a country, product, consent vendor, or event must be enforced
   by configuration or renamed/deferred.
 - A custom HTML tag that only defines a function is a probable no-op unless

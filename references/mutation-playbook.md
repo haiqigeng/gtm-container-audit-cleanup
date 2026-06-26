@@ -90,14 +90,7 @@ operation table:
   reusable concepts, staged migrations, or cases where GTM/API behavior makes an
   in-place edit unsafe.
 - **Importable JSON for manual same-container merge**: prepare for GTM import
-  conflict handling. Replacement/additive objects are allowed, and often safer,
-  when editing existing objects would create difficult import conflicts or
-  `value cannot be empty` errors. Emit a minimal review patch that contains only
-  changed objects, update consumers inside the JSON, keep an old-to-new map, and
-  list old objects as post-QA decommission candidates rather than pretending
-  they vanished safely from the existing container. If the user cares about GTM
-  View Changes as the review surface, preserve existing object names in the JSON
-  and defer naming standardization; GTM merge conflict matching is name-based.
+  conflict handling and follow `import-json-policy.md`.
 - **Importable JSON for overwrite or new-container import**: a full cleaned
   export may update, rename, or delete existing objects directly because manual
   conflict resolution against the existing container is not the main constraint.
@@ -341,6 +334,10 @@ risk.
   quantity, revenue, tax, shipping, transaction ID, item IDs, categories, or
   item arrays, trace every consumer and verify the required output shape for
   each destination.
+- Before changing or preserving computed business logic, run
+  `semantic-logic-checks.md`. A resolving formula is not enough; the source
+  event, source path, formula, output type, variable name, and every consuming
+  field must make logical sense together.
 - Test ecommerce helper changes against empty, one-item, and multi-item payloads,
   plus missing price, quantity, currency, and product fields where those cases
   are possible.
@@ -365,77 +362,20 @@ Custom HTML edits are high risk. Before changing one:
 
 ## Importable JSON Validation
 
-For importable GTM container JSON:
+For importable GTM container JSON, use `import-json-policy.md` as the source of
+truth. Before delivery, still confirm mutation-specific gates:
 
-- keep a copy of the original export path or source as rollback evidence;
-- record the import mode and conflict strategy. If the user did not specify an
-  import mode, assume manual same-container merge and use a conflict-aware
-  replacement/additive strategy when safer than in-place edits;
-- preserve the GTM export/import schema rather than producing a Markdown or
-  pseudo-JSON artifact;
-- for manual same-container merge, include only changed objects in the import
-  patch; omit unchanged layers and unchanged objects so GTM workspace changes
-  remain human-reviewable, except folder definitions required to resolve
-  `parentFolderId` references on changed objects and the complete intended
-  custom-template set required to resolve included tag/variable `cvt_...` types;
-  also preserve the complete intended `builtInVariable` enabled set;
-- for manual same-container merge intended for GTM View Changes, preserve
-  existing object names and do not apply broad naming standardization in that
-  JSON; produce a direct GTM/API/MCP step or a separate final-state artifact for
-  naming;
-- when a full cleanup draft exists, generate the final review patch with
-  `scripts/gtm_make_merge_patch.py` or an equivalent reconstruction check;
-- keep object IDs unique and references valid after additions, deletions,
-  renames, and consolidations;
-- compare missing variable, trigger, setup-tag, and teardown-tag references
-  before and after generation so pre-existing built-in/internal references are
-  not confused with new breakage;
-- run the generated file through the same inventory/dependency checks as a fresh
-  export before delivery; this is a self-audit gate, not an external
-  workspace/export check;
-- include safe trigger, variable, tag, folder, naming, and consolidation changes,
-  not only the first high-confidence payload fix;
-- omit unrelated `customTemplate` objects in manual same-container merge patches
-  unless no included object needs them; when included objects use tag/variable
-  `cvt_...` types, include the complete intended custom-template set and verify
-  dependency-only templates are byte-for-byte unchanged;
-- include unchanged folder objects when changed tags, triggers, or variables
-  keep `parentFolderId`; otherwise GTM import can reject the file with unknown
-  folder errors;
-- include unchanged custom template objects when included tags or variables use
-  `cvt_...` template types; otherwise GTM import can reject the file with
-  unknown entity type errors. Include the complete intended template set rather
-  than a partial subset to avoid template delete/add churn;
-- include the complete `builtInVariable` array when the source or cleanup
-  draft has enabled built-in variables; otherwise GTM import can interpret the
-  missing layer as an empty enabled set;
-- when replacement/additive objects are used for same-container import, include
-  an old-to-new replacement map, the consumer updates made in the JSON, and the
-  old objects to decommission after Preview/debug QA;
-- confirm no active GA4/current Google mapping depends on UA Enhanced Ecommerce
-  paths unless the verified mapper and outgoing payload evidence are documented;
-- confirm trigger/tag/variable names match actual behavior and scope, such as
-  `form_submit` groups using form-submit triggers and `purchase` groups using
-  purchase events;
-- confirm no cleaned full export contains trigger groups with exactly one
-  child trigger. For same-container merge patches, confirm consumers are mapped
-  to the child trigger and remaining single-member groups are explicit
-  route-limited delete candidates;
-- confirm custom HTML tags that define conversion/helper functions either call
-  or register those functions, or are listed as deferred with owner/runtime
-  evidence needed;
-- confirm page-specific duplicate `PageView` tags are removed, converted to the
-  vendor's official funnel event, or deferred with dataLayer/runtime evidence;
-- confirm duplicate configurations, unused objects, and consolidation-obsolete
-  objects are resolved or listed as intentional residuals with blockers;
-- include or attach the completion ledger showing every mandatory workstream as
-  `Done`, `Deferred`, `Not applicable`, or `User-excluded`;
-- write a concise change log with changed objects, deleted or replaced objects,
-  consolidation-obsolete objects, and deferred objects with blockers, using the
-  exact `Change Log Columns` schema from `report-templates.md` unless the user
-  explicitly requested a different schema;
-- recommend import into a new GTM workspace and Preview/debug validation before
-  publishing.
+- GTM export/import schema is preserved;
+- object IDs are unique and references remain valid after changes;
+- no active GA4/current Google mapping depends on UA Enhanced Ecommerce paths
+  without documented mapper evidence;
+- trigger/tag/variable names match actual behavior and scope;
+- single-member trigger groups are flattened or route-limited with blockers;
+- duplicate configurations, unused objects, and consolidation-obsolete objects
+  are resolved or listed as intentional residuals;
+- completion ledger and change log are attached when required;
+- import into a new GTM workspace and Preview/debug validation are recommended
+  before publishing.
 
 ## Rollback And Verification
 

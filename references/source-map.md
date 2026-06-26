@@ -5,6 +5,19 @@ consent mode, and server-side tagging evolve. Verify current official docs when
 the finding depends on product behavior, legal/privacy-sensitive configuration,
 or a deprecated/sunset product.
 
+## Contents
+
+- Official Sources To Prefer
+- Frequently Consulted Documentation Index
+- Google Tag, GTM, GA4, Ads, And Floodlight
+- Common Media And Advertising Vendors
+- Publisher Ads, GPT, And Google Ad Manager
+- Piano Analytics
+- CMP And Consent Vendors
+- Current Baseline Assumptions
+- When To Re-Verify
+- Maintenance Notes
+
 ## Official Sources To Prefer
 
 Use these as fast entry points, not as frozen truth. Re-open the official page or

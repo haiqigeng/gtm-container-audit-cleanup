@@ -5,84 +5,21 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from pathlib import Path
 from typing import Any
 
+from gtm_lib import (
+    ID_KEYS,
+    apply_patch,
+    custom_template_id,
+    load_container_version,
+    object_id,
+    refs,
+    sort_ids,
+    trigger_group_members,
+)
 
-ID_KEYS = {
-    "tag": "tagId",
-    "trigger": "triggerId",
-    "variable": "variableId",
-    "folder": "folderId",
-    "customTemplate": "templateId",
-    "builtInVariable": "name",
-}
 PATCH_MODES = {"same-container-view", "same-container-final"}
-
-REF_RE = re.compile(r"\{\{([^{}]+)\}\}")
-CUSTOM_TEMPLATE_RE = re.compile(r"^cvt_\d+_(\d+)$")
-
-
-def container_version(data: dict[str, Any]) -> dict[str, Any]:
-    return data.get("containerVersion", data)
-
-
-def load_cv(path: Path) -> dict[str, Any]:
-    return container_version(json.loads(path.read_text(encoding="utf-8")))
-
-
-def object_id(obj: dict[str, Any], key: str) -> str:
-    value = obj.get(key) or obj.get("name")
-    return "" if value is None else str(value)
-
-
-def apply_patch(original_cv: dict[str, Any], patch_cv: dict[str, Any]) -> dict[str, Any]:
-    merged = json.loads(json.dumps(original_cv))
-    for layer, key in ID_KEYS.items():
-        replacements = patch_cv.get(layer)
-        if not replacements:
-            continue
-        by_id = {
-            object_id(obj, key): obj
-            for obj in replacements
-            if object_id(obj, key)
-        }
-        seen = set()
-        next_objects = []
-        for obj in merged.get(layer, []) or []:
-            oid = object_id(obj, key)
-            if oid in by_id:
-                next_objects.append(by_id[oid])
-                seen.add(oid)
-            else:
-                next_objects.append(obj)
-        for oid, obj in by_id.items():
-            if oid not in seen:
-                next_objects.append(obj)
-        merged[layer] = next_objects
-    return merged
-
-
-def refs(obj: Any) -> set[str]:
-    return set(REF_RE.findall(json.dumps(obj, ensure_ascii=False)))
-
-
-def trigger_group_members(trigger: dict[str, Any]) -> list[str]:
-    members = []
-    for parameter in trigger.get("parameter", []) or []:
-        if parameter.get("key") == "triggerIds":
-            members.extend(
-                item.get("value")
-                for item in parameter.get("list", []) or []
-                if item.get("value")
-            )
-    return members
-
-
-def custom_template_id(obj: dict[str, Any]) -> str | None:
-    match = CUSTOM_TEMPLATE_RE.match(str(obj.get("type", "")))
-    return match.group(1) if match else None
 
 
 def duplicate_ids(cv: dict[str, Any]) -> dict[str, list[str]]:
@@ -184,8 +121,8 @@ def name_churn(original_cv: dict[str, Any], cv: dict[str, Any]) -> dict[str, Any
             for oid in sorted(set(original) & set(current), key=lambda value: (not value.isdigit(), value))
             if original[oid].get("name") != current[oid].get("name")
         ]
-        new_ids = sorted(set(current) - set(original), key=lambda value: (not value.isdigit(), value))
-        omitted_ids = sorted(set(original) - set(current), key=lambda value: (not value.isdigit(), value))
+        new_ids = sort_ids(set(current) - set(original))
+        omitted_ids = sort_ids(set(original) - set(current))
         churn[layer] = {
             "renamedExistingCount": len(renamed),
             "renamedExisting": renamed[:25],
@@ -213,8 +150,8 @@ def single_member_groups(cv: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def validate(path: Path, original: Path | None, mode: str) -> dict[str, Any]:
-    artifact_cv = load_cv(path)
-    original_cv = load_cv(original) if original else None
+    artifact_cv = load_container_version(path)
+    original_cv = load_container_version(original) if original else None
     effective_cv = (
         apply_patch(original_cv, artifact_cv)
         if original_cv and mode in PATCH_MODES

@@ -9,15 +9,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-
-ID_KEYS = {
-    "tag": "tagId",
-    "trigger": "triggerId",
-    "variable": "variableId",
-    "folder": "folderId",
-    "customTemplate": "templateId",
-    "builtInVariable": "name",
-}
+from gtm_lib import ID_KEYS, apply_patch, comparable, load_container_version, object_id, sort_ids
 
 LAYER_LABELS = {
     "tag": "Tag",
@@ -27,8 +19,6 @@ LAYER_LABELS = {
     "customTemplate": "Template",
     "builtInVariable": "Built-in variable",
 }
-
-IGNORED = {"path", "fingerprint"}
 
 CSV_COLUMNS = [
     "Change ID",
@@ -48,50 +38,6 @@ CSV_COLUMNS = [
     "Owner",
     "Evidence / notes",
 ]
-
-
-def container_version(data: dict[str, Any]) -> dict[str, Any]:
-    return data.get("containerVersion", data)
-
-
-def load_cv(path: Path) -> dict[str, Any]:
-    return container_version(json.loads(path.read_text(encoding="utf-8")))
-
-
-def obj_id(obj: dict[str, Any], key: str) -> str:
-    value = obj.get(key) or obj.get("name")
-    return "" if value is None else str(value)
-
-
-def comparable(obj: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in obj.items() if k not in IGNORED}
-
-
-def apply_patch(before_cv: dict[str, Any], patch_cv: dict[str, Any]) -> dict[str, Any]:
-    merged = json.loads(json.dumps(before_cv))
-    for layer, key in ID_KEYS.items():
-        replacements = patch_cv.get(layer)
-        if not replacements:
-            continue
-        by_id = {
-            obj_id(obj, key): obj
-            for obj in replacements
-            if obj_id(obj, key)
-        }
-        seen = set()
-        next_objects = []
-        for obj in merged.get(layer, []) or []:
-            oid = obj_id(obj, key)
-            if oid in by_id:
-                next_objects.append(by_id[oid])
-                seen.add(oid)
-            else:
-                next_objects.append(obj)
-        for oid, obj in by_id.items():
-            if oid not in seen:
-                next_objects.append(obj)
-        merged[layer] = next_objects
-    return merged
 
 
 def action_for(before: dict[str, Any] | None, after: dict[str, Any] | None) -> str:
@@ -129,16 +75,16 @@ def operations(before_cv: dict[str, Any], after_cv: dict[str, Any], route: str, 
     change_number = 1
     for layer, key in ID_KEYS.items():
         before_by_id = {
-            obj_id(obj, key): obj
+            object_id(obj, key): obj
             for obj in before_cv.get(layer, []) or []
-            if obj_id(obj, key)
+            if object_id(obj, key)
         }
         after_by_id = {
-            obj_id(obj, key): obj
+            object_id(obj, key): obj
             for obj in after_cv.get(layer, []) or []
-            if obj_id(obj, key)
+            if object_id(obj, key)
         }
-        for oid in sorted(set(before_by_id) | set(after_by_id), key=lambda value: (not value.isdigit(), value)):
+        for oid in sort_ids(set(before_by_id) | set(after_by_id)):
             before = before_by_id.get(oid)
             after = after_by_id.get(oid)
             action = action_for(before, after)
@@ -211,8 +157,8 @@ def main() -> int:
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     args = parser.parse_args()
 
-    before_cv = load_cv(args.before)
-    after_cv = load_cv(args.after)
+    before_cv = load_container_version(args.before)
+    after_cv = load_container_version(args.after)
     if args.patch:
         after_cv = apply_patch(before_cv, after_cv)
     rows = operations(before_cv, after_cv, args.route, args.aggressiveness)

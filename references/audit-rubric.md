@@ -12,6 +12,8 @@ page source, crawl output, or stakeholder-provided evidence.
 - Audit Completeness Contract
 - Official Documentation Contract
 - Deep Object Semantics
+- Semantic Model Protocol
+- Semantic Logic Consistency
 - Name-Based Scope Inference
 - Mandatory Naming Standardization
 - One Tag Gateway Detection
@@ -22,9 +24,6 @@ page source, crawl output, or stakeholder-provided evidence.
 - Setup Hygiene
 - Consent And Privacy
 - Google Event Classification Baseline
-- Official GA4 DataLayer And Event Payload Contract
-- GA4 And Google Tags
-- Mandatory Standard Ecommerce Variable Checks
 - Server-Side GTM
 - Vendor Pixels And Marketing Tags
 - Cleanup Heuristics
@@ -226,6 +225,39 @@ Every meaningful object family must have semantic status: `Keep`, `Fix`,
 `Consolidate`, `Delete candidate`, `More info needed`, or `Not applicable`.
 Do not mark a family complete when it has only inventory rows, dependency rows,
 or code hashes.
+
+## Semantic Model Protocol
+
+Use `semantic-model-protocol.md` after dependency mapping for conversion,
+media, ecommerce, lead, server-side, multi-market, custom-code, or complex
+cleanup tasks. Build the model internally before judging optimization patterns.
+
+At minimum, infer business objective, user action, event/context, GTM
+implementation, data source, destination payload, platform use, and evidence or
+blocker. Use the model to find missing business logic, such as lead type,
+product category, value model, item array, deduplication ID, consent forwarding,
+or market scope that the container appears to need but does not reliably
+provide.
+
+## Semantic Logic Consistency
+
+Use `semantic-logic-checks.md` before finalizing findings or cleanup operations
+for media, ecommerce, lead, conversion, custom-code, shared-variable, value, or
+quantity logic.
+
+At minimum, verify that:
+
+- variable names, source paths, formulas, output types, event context, and
+  consumers agree;
+- totals, quantities, values, item arrays, content IDs, lead types, and product
+  categories are not built from fixed indexes, stale dataLayer history, wrong
+  field types, or unrelated events;
+- a variable reused across vendors is valid for every consuming vendor field;
+- trigger and tag names do not promise a business action, country, product,
+  lead type, or consent state that the configuration does not enforce.
+
+Only report the result when it changes a finding, blocker, operation, or QA
+requirement. Do not expand stakeholder reports with scratch reasoning.
 
 ## Name-Based Scope Inference
 
@@ -482,329 +514,45 @@ objects obsolete than the first orphan scan reveals.
 
 ## Consent And Privacy
 
-Before judging consent, identify the consent model:
+Read `audit-consent-server.md` for CMP, consent mode, regional consent,
+pageview/base consistency, and browser-to-server consent checks. Use this rubric
+section to mark the workstream status and link findings back to the evidence.
 
-- CMP vendor and events;
-- consent mode basic or advanced for Google tags;
-- default consent state timing;
-- consent update timing;
-- native GTM consent settings;
-- firing/blocking triggers or trigger groups;
-- regional conditions and legal basis assumptions.
-
-Check:
-
-- Consent Overview enabled when applicable;
-- Consent Initialization tags fire before other tags;
-- Google consent mode default and update calls exist where Google tags rely on
-  consent mode;
-- marketing/analytics tags do not fire before required consent in regulated
-  regions;
-- pageview/base/config tags for the same vendor use coherent consent routing;
-- server-side forwarding honors the same consent and privacy rules;
-- PII is not sent to GA4, Ads, Meta, or other vendors.
-
-Flag mixed pageview consent patterns inside the same vendor family unless the
-timing rationale is documented.
-
-Common patterns:
-
-| Pattern | Use when | Watch out for |
-| --- | --- | --- |
-| Firing trigger plus blocking trigger | Consent state is reliable before the event fires. | Early pageviews may slip through if CMP is late. |
-| Trigger group: pageview/event plus consent-ready/granted | Event can happen before CMP resolves. | More objects to maintain. |
-| Native consent settings | Google tags with correctly initialized consent mode. | Does not replace a consent banner or legal decision. |
-| Direct CMP-ready firing | The tag intentionally fires once at consent resolution with stable page context. | Can miss original event context or duplicate pageviews. |
+Minimum outcome: every meaningful vendor family has consent status, evidence,
+risk, and blocker or no-change decision.
 
 ## Google Event Classification Baseline
 
-Universal Analytics is sunset, so do not assume a Google event is UA because it
-uses old event names or old ecommerce paths. Use this default:
+Read `audit-ga4-ecommerce.md` for Google-event classification, official GA4
+website/dataLayer contracts, GA4 tag checks, ecommerce variable checks, and
+missing-event readiness. Treat ambiguous Google analytics/ecommerce objects as
+GA4/current Google tag candidates unless evidence proves a UA exception.
 
-- Treat ambiguous Google Analytics events, Google ecommerce variables, and
-  Google event tags as GA4/current Google tag tracking.
-- Classify as UA only when the export shows a UA tag type, a `UA-` property ID,
-  an explicit legacy requirement from the user, or a verified mapper that
-  intentionally converts old UA Enhanced Ecommerce pushes to GA4 payloads.
-- Treat legacy event names such as `productDetailImpression`,
-  `purchaseImpression`, `addToCart`, `removeFromCart`, `checkout`, or
-  `checkoutOption` as migration candidates, not proof that the target should
-  remain UA.
-- Treat active paths such as `ecommerce.purchase.actionField.*`,
-  `ecommerce.purchase.products.*`, `ecommerce.add.products.*`,
-  `ecommerce.detail.products.*`, `ecommerce.checkout.products.*`, and
-  `ecommerce.impressions` as high-risk legacy sources when they feed GA4 or
-  media payloads without a verified mapper.
-- Prefer correcting the website/dataLayer contract to GA4 event-level fields
-  and `items` arrays over creating custom GTM variables that guess missing
-  values from old pushes.
-
-## Official GA4 DataLayer And Event Payload Contract
-
-For GA4, official documentation review must cover both:
-
-- the GA4 tag/event configuration in GTM; and
-- the website event payload or dataLayer format that feeds the tag.
-
-Do not treat a GA4 Event tag as correct merely because the event name is a
-standard GA4 event. First verify that the website/dataLayer event can produce the
-official GA4 payload at the outgoing GA4 boundary.
-
-For every GA4 standard or ecommerce event in the container, create a schema map:
-
-| Field | Required check |
-| --- | --- |
-| Implemented event | GTM tag event name and firing trigger event. |
-| Official event | GA4 standard/recommended event name from Google docs. |
-| Website/dataLayer event | Actual `dataLayer.push()` event name or runtime event source. |
-| Expected parameters | Official event-level parameters, such as `value`, `currency`, `transaction_id`, `tax`, `shipping`, `coupon`, `payment_type`, `shipping_tier`, `item_list_id`, or `item_list_name`. |
-| Expected items | Official `items` array of GA4 item objects. |
-| Expected item fields | `item_id`, `item_name`, `item_brand`, `item_category`, `item_category2`-`item_category5`, `item_variant`, `price`, `quantity`, `discount`, `coupon`, `index`, `item_list_id`, `item_list_name`, and other official item-scoped fields when present. |
-| GTM source paths | Data Layer Variable paths used by the tag, such as `ecommerce.items`, `ecommerce.value`, `ecommerce.currency`, or any house-style equivalent that maps to the same official payload. |
-| Legacy path risk | Any UA Enhanced Ecommerce path used, such as `ecommerce.purchase.actionField.*`, `ecommerce.purchase.products.*`, `ecommerce.add.products.*`, `ecommerce.detail.products.*`, `ecommerce.impressions`, or `ecommerce.currencyCode`. |
-| Outcome | Correct, GTM mapping fix, website/dataLayer fix required, or blocked pending Preview/debug evidence. |
-
-GA4 ecommerce audit rules:
-
-- Treat official GA4 event payloads as the target contract: event-level fields
-  plus an `items` array of GA4 item objects.
-- For GTM implementations, verify the dataLayer payload that fires the Custom
-  Event trigger. The event should carry or make available the same event-context
-  parameters expected by GA4.
-- If the tag uses Data Layer Variables, check the exact DLV paths and expected
-  output types. A GA4 item array should not be built from a scalar product ID or
-  a stale product-detail path.
-- Treat Universal Analytics Enhanced Ecommerce paths as migration evidence, not
-  proof of GA4 correctness. They are suspect until a documented mapper or
-  Preview/debug evidence proves that the outgoing GA4 payload contains official
-  GA4 fields.
-- Do not let UA sunset logic hide under neutral names such as `DL - Revenue`,
-  `GA4 - Items`, or `DL - Product ID`. Inspect the actual dataLayer path and
-  every consumer.
-- Do not create custom JavaScript to invent missing GA4 event parameters that
-  the website should send, such as `value`, `currency`, `transaction_id`, or
-  `items`. Mark the website/dataLayer contract as missing.
-- Helper variables are acceptable only when they transform a complete current
-  event payload into the official shape, normalize known field names, add null
-  guards, or avoid duplicated logic. They are not a substitute for missing
-  source data.
-- If the GA4 tag has `sendEcommerceData`/dataLayer-source behavior enabled, also
-  inspect any manually added event parameters. Manual overrides can point to
-  wrong old paths even when the tag is set to read ecommerce data.
-- Validate in GTM Preview/Tag Assistant and GA4 DebugView. DebugView should show
-  the event-level parameters and the `items` tab/array for ecommerce events.
-
-## GA4 And Google Tags
-
-Check:
-
-- Google-event classification: GA4/current Google tag by default, UA only as an
-  explicit, documented exception;
-- Google tag / GA4 configuration implementation path;
-- GA4 events fire after the required config/base behavior;
-- official GA4 recommended events and ecommerce event documentation is checked
-  before judging event names, dataLayer format, variables, and payloads;
-- each GA4 standard/ecommerce event has a schema map comparing official
-  parameters to actual dataLayer paths and outgoing GA4 payload;
-- transaction IDs, item arrays, currency, value, coupon, and affiliation are
-  populated consistently;
-- custom dimensions/parameters do not contain PII;
-- duplicate page_view or ecommerce events;
-- deprecated UA tags, UA variables, and UA-only ecommerce logic;
-- Google Ads conversion linker and Ads conversion tags when Ads is in scope;
-- consent mode behavior for Google tags in relevant regions.
-
-When legacy event migration is needed, validate against the actual dataLayer
-before applying the starter map:
-
-| Legacy event | GA4 candidate |
-| --- | --- |
-| productDetailImpression | view_item |
-| product listing | view_item_list |
-| addToCart | add_to_cart |
-| removeFromCart | remove_from_cart |
-| purchaseImpression | purchase |
-
-Validate ecommerce payload semantics, not only event names:
-
-- `items` should be an array of item objects for GA4 ecommerce events;
-- `value`, `tax`, `shipping`, and item prices should be numeric or numeric
-  strings according to the destination's accepted format;
-- `currency` should be an ISO currency code and should match the event value;
-- `transaction_id` should be stable and unique per purchase;
-- item category, ID, name, quantity, and price should come from the same event
-  context;
-- fixed-index variables such as product `0` or `1` are suspect for multi-item
-  carts unless the vendor requires a single item and the business accepts that
-  limitation.
-- variables that read UA Enhanced Ecommerce paths are suspect for GA4 until the
-  audit proves a valid mapping to official GA4 event-level and item-scoped
-  fields.
-- if an active Google tag or Google-named variable still reads a UA path after
-  cleanup, mark the cleanup incomplete unless the report includes the mapper,
-  outgoing payload proof, and owner-approved UA exception.
-
-Optional GA4 cleanup opportunity: identify missing standard or recommended events that
-would be useful for the business, such as ecommerce funnel events. Before
-proposing tag creation, verify whether the website/dataLayer already emits the
-needed event and parameters. If the dataLayer is not ready, report the missing
-event/dataLayer contract as the prerequisite instead of creating a tag that
-cannot send valid data.
-
-## Mandatory Standard Ecommerce Variable Checks
-
-Always review standard and frequently reused ecommerce variables, even when the
-container has many custom tags. These variables often power several vendors, so
-small logic errors can corrupt analytics, advertising, affiliate, and remarketing
-payloads at the same time.
-
-At minimum, identify variables for:
-
-- transaction ID, order ID, affiliation, coupon, currency, revenue, value, tax,
-  shipping, discount, subtotal, and total price;
-- total quantity, item count, cart size, and product quantity;
-- product/item IDs, SKUs, names, brands, categories, variants, prices,
-  quantities, images, URLs, and list positions;
-- `items`, `products`, checkout products, purchase products, add-to-cart
-  products, remove-from-cart products, and impression products;
-- derived helper variables used by Meta, TikTok, Pinterest, Google Ads,
-  Floodlight, affiliates, feeds, or custom HTML tags.
-
-For each standard ecommerce variable, check:
-
-- the dataLayer path or source event, including whether it reads the current
-  event or searches stale dataLayer history;
-- the expected output type: number, numeric string, scalar ID, array, object,
-  array of objects, JSON string, joined string, or boolean;
-- logical formula correctness, including whether total quantity reads quantity
-  fields instead of price fields and whether total price avoids duplicated
-  indexes or missing items;
-- multi-item support, including dynamic item loops instead of fixed product
-  `0`, `1`, `2` indexes when the destination expects all items;
-- null, missing value, empty array, parsing, and `NaN` handling;
-- currency/value consistency and whether price totals multiply unit price by
-  quantity where required;
-- every consuming tag field and whether that destination expects the same shape.
-
-Surface concrete logic errors as their own findings when they affect revenue,
-conversion, or remarketing quality. State the affected consumers and the logical
-consequence, for example: "total quantity sums one quantity and two prices, so
-the consuming vendor tag receives a quantity that can be larger than the number
-of cart items."
+Minimum outcome: GA4/current Google versus UA exceptions are explicit, official
+dataLayer payload shape is checked, and ecommerce value/item/quantity logic is
+validated before cleanup decisions.
 
 ## Server-Side GTM
 
-Only audit server-side GTM if in scope or visible in the evidence.
+Read `audit-consent-server.md` when server-side GTM, browser-to-server Google
+tags, first-party endpoints, media-named Google event tags, or server forwarding
+signals appear. Without server-container export/API evidence, network traces, or
+platform logs, classify uncertain transport tags as `server-container validation
+needed` rather than mutating IDs, consent triggers, or paused state.
 
-### Client-To-Server Google Tag Patterns
-
-In a web container that sends events to a server-side container, a browser
-Google tag or Google event tag can be a transport mechanism rather than the
-final analytics or media destination. Do not classify it as broken only because
-the client-side tag has a placeholder-looking ID, a non-final measurement ID, a
-media-oriented name, or no client-side blocking trigger.
-
-Treat the tag as `server-container validation needed` when any of these signals
-exist:
-
-- `server_container_url`, `transport_url`, first-party tagging endpoint, or an
-  S2S/gateway naming pattern;
-- Google tag or Google event tag type used with media/vendor naming;
-- placeholder-like destination such as `G-XXXXXX` together with a server
-  endpoint or routing parameters;
-- event parameters or settings that forward consent, CMP groups, cookie consent,
-  `ad_storage`, `analytics_storage`, `ad_user_data`, `ad_personalization`,
-  `event_id`, click IDs, user data, or vendor identifiers;
-- evidence that destination routing, consent checks, enrichment, or vendor
-  forwarding happens in the server container.
-
-Required checks before recommending mutation:
-
-- inspect the Google tag/event settings and event parameters for consent or
-  cookie-consent fields passed to the server container;
-- verify the browser-to-server endpoint receives the expected payload;
-- verify the server container client, tags, transformations, consent logic, and
-  server-to-vendor destination mapping;
-- confirm whether missing client-side blocking triggers are intentional because
-  consent is enforced server-side;
-- check deduplication and event IDs when browser and server tracking coexist.
-
-Without server-container export/API evidence, network traces, or platform logs,
-do not replace placeholder-looking IDs, add or remove blocking triggers, pause
-the tag, or classify the route as definitively broken. Report the residual risk
-and the exact server-side evidence needed.
-
-Check:
-
-- tagging server URL uses a same-origin or first-party custom domain where
-  appropriate;
-- endpoint is reachable and receives browser events;
-- CSP, firewall, or ad-blocking behavior blocks the endpoint;
-- production mode, server count/redundancy, monitoring, and alerting;
-- clients, tags, transformations, and forwarding rules;
-- consent and privacy configuration across browser-to-server and server-to-vendor
-  flows;
-- non-GA4/vendor-specific parameters are excluded or transformed before being
-  sent to GA4;
-- templates, clients, and server container runtime are current.
-
-Flag the old Google Optimize/server-side mixed check as obsolete. Optimize is a
-sunset product and should be handled as deprecated tag cleanup, not as a current
-server-side endpoint validation rule.
+Minimum outcome: client-side container risks are separated from server-side
+validation blockers.
 
 ## Vendor Pixels And Marketing Tags
 
-For Meta, LinkedIn, TikTok, Pinterest, Reddit, X/Twitter, affiliates, and other
-vendors:
-
-- identify base/config/loaders separately from event-specific conversion tags;
-- check that base tags fire before dependent events when required;
-- check duplicate pageview/conversion events;
-- do not preserve a page-specific duplicate `PageView` as a substitute for a
-  real funnel/conversion event. If checkout, lead, signup, or payment intent is
-  needed, use the vendor's official event when the dataLayer can support it; if
-  not, mark dataLayer/event readiness as the blocker.
-- prefer native tags or maintained templates where feasible;
-- verify consent gating and regional rules;
-- inspect payload fields for PII, incorrect value/currency, missing IDs, or
-  hardcoded product assumptions;
-- validate event ordering with Tag Assistant/network evidence when possible.
-
-For media/vendor payloads, verify field-level shape:
-
-- product IDs, content IDs, item IDs, categories, and item lists often need
-  arrays or objects, not one scalar dataLayer variable;
-- when the vendor expects an array/object, require a custom JS/helper variable or
-  template field that builds that shape from the current event's products/items;
-- verify the helper variable returns the expected type for empty carts, one item,
-  multiple items, missing fields, and special characters;
-- confirm IDs, names, categories, values, quantities, and currency all come from
-  the same ecommerce event context;
-- check that custom JS variables do not accidentally return `undefined`, `NaN`,
-  `[object Object]`, comma-joined values where arrays are expected, or stale data
-  from a previous dataLayer push.
-
-For each vendor, compare the implemented event names, base/event sequencing,
-required parameters, recommended parameters, and data types to official vendor
-documentation when available. Missing standard vendor events can be proposed as
-an optional cleanup opportunity only when the website/dataLayer can provide the required
-event context and parameters. If not, make the dataLayer or site event
-instrumentation the prerequisite.
-
-Use `vendor-playbooks.md` for vendor-specific checks, including Piano Analytics,
-consentmanager.net, Google Publisher Tag/Google Ad Manager, Marfeel, Outbrain,
-Logora, Criteo, Awin, and common media platforms. Use `source-map.md` for
+Read `audit-media-vendors.md` for media/vendor base tags, conversion events,
+payload shape, cross-vendor parity, and media signal quality. Read
+`vendor-playbooks.md` for vendor-specific details and `source-map.md` for
 official documentation entry points.
 
-Meta-specific checks:
-
-- base code is not mixed with `noscript` in a custom HTML tag unless there is a
-  documented reason;
-- PageView and base/init behavior are clearly separated or intentionally
-  combined;
-- event tags do not fire before the base/init dependency;
-- browser pixel and Conversions API/server-side duplicates use deduplication IDs
-  where applicable.
+Minimum outcome: event role, consent, sequencing, payload shape, value/currency,
+IDs, deduplication, and platform optimization use are checked or deferred with
+blockers.
 
 ## Cleanup Heuristics
 

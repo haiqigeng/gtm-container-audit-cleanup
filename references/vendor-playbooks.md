@@ -5,6 +5,24 @@ not a substitute for official documentation. Start with `source-map.md`, reopen
 official sources when current behavior matters, and record the official source
 used in the report.
 
+## Contents
+
+- Google Tag, GA4, Google Ads, And Floodlight
+- Meta Pixel And Conversions API
+- TikTok
+- Pinterest
+- Microsoft Advertising UET
+- LinkedIn Insight Tag
+- Criteo
+- Affiliate Platforms Such As Awin
+- Piano Analytics
+- CMPs: Didomi, OneTrust, Cookiebot, Axeptio, Consentmanager.net
+- Google Publisher Tag And Google Ad Manager
+- Marfeel
+- Outbrain
+- Logora
+- Unknown Or Unlisted Vendors
+
 For every vendor family, separate:
 
 - base/config/loader tags;

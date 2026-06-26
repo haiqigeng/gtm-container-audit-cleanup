@@ -16,13 +16,15 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from gtm_make_merge_patch import (
+from gtm_lib import (
     ID_KEYS,
     comparable_container,
     container_version,
     custom_template_id,
+    optional_object_id,
+)
+from gtm_make_merge_patch import (
     merge_patch,
-    object_id,
     reconstruct,
 )
 
@@ -33,9 +35,9 @@ NAME_PRESERVE_LAYERS = ("tag", "trigger", "variable", "folder", "customTemplate"
 def objects_by_id(cv: dict[str, Any], layer: str) -> dict[str, dict[str, Any]]:
     id_key = ID_KEYS[layer]
     return {
-        object_id(obj, id_key): obj
+        optional_object_id(obj, id_key): obj
         for obj in cv.get(layer, []) or []
-        if object_id(obj, id_key) is not None
+        if optional_object_id(obj, id_key) is not None
     }
 
 
@@ -96,7 +98,7 @@ def name_preserving_target(original_cv: dict[str, Any], optimized_cv: dict[str, 
         id_key = ID_KEYS[layer]
         old_names_by_id = layer_id_to_name.get(layer, {})
         for obj in target.get(layer, []) or []:
-            oid = object_id(obj, id_key)
+            oid = optional_object_id(obj, id_key)
             if oid in old_names_by_id:
                 obj["name"] = old_names_by_id[oid]
 

@@ -11,9 +11,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from gtm_lib import container_version, custom_template_id, refs, trigger_group_members
 
-REF_RE = re.compile(r"\{\{([^{}]+)\}\}")
-CUSTOM_TEMPLATE_RE = re.compile(r"^cvt_\d+_(\d+)$")
 ECOM_RE = re.compile(
     r"ecommerce|revenue|value|price|quantity|qty|currency|tax|shipping|"
     r"transaction|product|item|sku|category|coupon",
@@ -51,10 +50,6 @@ ECOM_ROLE_PATTERNS = [
 ]
 
 
-def container_version(data: dict[str, Any]) -> dict[str, Any]:
-    return data.get("containerVersion", data)
-
-
 def param_value(obj: dict[str, Any], key: str) -> Any:
     for param in obj.get("parameter", []) or []:
         if param.get("key") == key:
@@ -65,10 +60,6 @@ def param_value(obj: dict[str, Any], key: str) -> Any:
             if "map" in param:
                 return param["map"]
     return None
-
-
-def references(obj: Any) -> list[str]:
-    return sorted(set(REF_RE.findall(json.dumps(obj, ensure_ascii=False))))
 
 
 def stable_signature(obj: dict[str, Any], ignored: set[str]) -> str:
@@ -120,28 +111,13 @@ def consumers_by_variable(cv: dict[str, Any]) -> dict[str, list[dict[str, str | 
     )
     for layer, id_key, items in layers:
         for item in items:
-            for ref in references(item):
+            for ref in sorted(refs(item)):
                 if layer == "variable" and ref == item.get("name"):
                     continue
                 consumers[ref].append(
                     {"layer": layer, "id": item.get(id_key), "name": item.get("name")}
                 )
     return dict(sorted(consumers.items()))
-
-
-def trigger_group_members(trigger: dict[str, Any]) -> list[str]:
-    members = []
-    for group in trigger.get("parameter", []) or []:
-        if group.get("key") == "triggerIds":
-            for item in group.get("list", []) or []:
-                if item.get("value"):
-                    members.append(item["value"])
-    return members
-
-
-def custom_template_id(obj: dict[str, Any]) -> str | None:
-    match = CUSTOM_TEMPLATE_RE.match(str(obj.get("type", "")))
-    return match.group(1) if match else None
 
 
 def text_blob(obj: Any) -> str:
@@ -213,7 +189,7 @@ def main() -> int:
     builtin_names = {b.get("name") for b in builtins}
     all_variable_names = variable_names | builtin_names
 
-    all_refs = sorted(set(REF_RE.findall(json.dumps(cv, ensure_ascii=False))))
+    all_refs = sorted(refs(cv))
     undefined_refs = [ref for ref in all_refs if ref not in all_variable_names]
 
     tag_names = {t.get("name") for t in tags if t.get("name")}
@@ -335,7 +311,7 @@ def main() -> int:
                 **summary(tag),
                 "vendorFamily": vendor,
                 "likelyEventOrRole": likely_event_name(tag) or role,
-                "referencedVariables": references(tag),
+                "referencedVariables": sorted(refs(tag)),
                 "customTemplateId": custom_template_id(tag),
                 "customCodeRisks": custom_code_risks(tag),
                 "hasConsentSettings": bool(tag.get("consentSettings")),
@@ -352,7 +328,7 @@ def main() -> int:
                 "vendorFamily": detect_vendor(variable),
                 "ecommerceRole": detect_ecommerce_role(variable),
                 "dataLayerPath": param_value(variable, "name"),
-                "referencedVariables": references(variable),
+                "referencedVariables": sorted(refs(variable)),
                 "consumerCount": len(variable_consumers.get(variable.get("name"), [])),
                 "customTemplateId": custom_template_id(variable),
                 "customCodeRisks": custom_code_risks(variable),
