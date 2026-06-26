@@ -380,29 +380,40 @@ observed browser behavior over generic descriptions.
    vendor loader, or repeated one-tag-per-market/event pattern. Cluster exact
    duplicates, single-member trigger groups, and similar objects that could be
    consolidated safely.
-13. **Audit by risk area**. Review governance, implementation, security,
+13. **Classify client-to-server transport tags before judging Google IDs or
+   consent triggers**. If a Google tag or Google event tag has a
+   `server_container_url`, transport URL, first-party tagging endpoint, gateway
+   naming, S2S naming, placeholder-looking tag ID such as `G-XXXXXX`, or
+   event/settings parameters that forward consent, click IDs, event IDs, user
+   data, or media identifiers, treat it as a possible browser-to-server
+   transport tag. Do not mark the measurement ID or missing client-side blocking
+   trigger as broken solely from the web container export. Classify it as
+   `server-container validation needed` until the server container mapping,
+   transformations, consent enforcement, and server-to-vendor destination are
+   checked.
+14. **Audit by risk area**. Review governance, implementation, security,
    organization, setup hygiene, privacy/consent, GA4, server-side GTM, vendor
    pixels, and Google Ads.
-14. **Prioritize**. Rank findings by business impact, data quality impact,
+15. **Prioritize**. Rank findings by business impact, data quality impact,
    privacy risk, operational risk, performance impact, and cleanup complexity.
-15. **Stage cleanup decisions**. Separate objects that are currently unused from
+16. **Stage cleanup decisions**. Separate objects that are currently unused from
    objects that become obsolete only after an approved consolidation. Do not
    present the first orphan list as the final cleanup list.
-16. **Compile operations**. Convert findings into structured operations with
+17. **Compile operations**. Convert findings into structured operations with
    route, aggressiveness, dependencies, QA method, rollback, and blockers. Use
    `operation-schema.md`; do not jump from findings directly to writes.
-17. **Build the full cleanup set**. For cleanup or importable JSON,
+18. **Build the full cleanup set**. For cleanup or importable JSON,
    include every evidence-safe correction, consolidation, deletion candidate,
    naming/folder improvement, trigger cleanup, variable cleanup, tag
    payload fix, and custom code hardening. Do not stop at the first high-risk
    family.
-18. **Flatten single-member trigger groups before final naming**. For each
+19. **Flatten single-member trigger groups before final naming**. For each
    trigger group with exactly one child trigger, update consuming tags to use the
    child trigger directly, then delete the group in direct GTM/API or
    overwrite/new-container JSON. In same-container merge JSON, document that the
    merge patch can remap consumers but cannot reliably delete omitted existing
    objects; provide a direct/overwrite deletion path.
-19. **Apply naming last when behavior changes exist**. After payload fixes,
+20. **Apply naming last when behavior changes exist**. After payload fixes,
    consolidation, deletion, and folder moves are decided, rename remaining
    objects according to the final convention and produce a before/after naming
    map. Re-scan all `{{Variable Name}}` references, especially inside custom HTML

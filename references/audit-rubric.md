@@ -630,6 +630,44 @@ of cart items."
 
 Only audit server-side GTM if in scope or visible in the evidence.
 
+### Client-To-Server Google Tag Patterns
+
+In a web container that sends events to a server-side container, a browser
+Google tag or Google event tag can be a transport mechanism rather than the
+final analytics or media destination. Do not classify it as broken only because
+the client-side tag has a placeholder-looking ID, a non-final measurement ID, a
+media-oriented name, or no client-side blocking trigger.
+
+Treat the tag as `server-container validation needed` when any of these signals
+exist:
+
+- `server_container_url`, `transport_url`, first-party tagging endpoint, or an
+  S2S/gateway naming pattern;
+- Google tag or Google event tag type used with media/vendor naming;
+- placeholder-like destination such as `G-XXXXXX` together with a server
+  endpoint or routing parameters;
+- event parameters or settings that forward consent, CMP groups, cookie consent,
+  `ad_storage`, `analytics_storage`, `ad_user_data`, `ad_personalization`,
+  `event_id`, click IDs, user data, or vendor identifiers;
+- evidence that destination routing, consent checks, enrichment, or vendor
+  forwarding happens in the server container.
+
+Required checks before recommending mutation:
+
+- inspect the Google tag/event settings and event parameters for consent or
+  cookie-consent fields passed to the server container;
+- verify the browser-to-server endpoint receives the expected payload;
+- verify the server container client, tags, transformations, consent logic, and
+  server-to-vendor destination mapping;
+- confirm whether missing client-side blocking triggers are intentional because
+  consent is enforced server-side;
+- check deduplication and event IDs when browser and server tracking coexist.
+
+Without server-container export/API evidence, network traces, or platform logs,
+do not replace placeholder-looking IDs, add or remove blocking triggers, pause
+the tag, or classify the route as definitively broken. Report the residual risk
+and the exact server-side evidence needed.
+
 Check:
 
 - tagging server URL uses a same-origin or first-party custom domain where

@@ -115,8 +115,10 @@ Search both structured fields and text bodies:
   import validation;
 - folder IDs for organizational review;
 - event names in custom event triggers and dataLayer pushes;
-- vendor IDs, pixel IDs, conversion IDs, measurement IDs, and server container
-  URLs.
+- vendor IDs, pixel IDs, conversion IDs, measurement IDs, server container
+  URLs, transport URLs, and first-party tagging endpoints;
+- server-forwarded parameters such as consent state, CMP group values, cookie
+  consent, click IDs, event IDs, user data, and media/vendor identifiers.
 
 When object names are duplicated, rely on IDs/paths for dependency logic and
 flag duplicate names as a maintainability finding.
@@ -134,6 +136,9 @@ After the first inventory, create semantic groups before writing findings:
 - by name-inferred scope tokens, such as country codes, product ranges,
   campaign suffixes, or internal prefixes;
 - by consent vendor/purpose;
+- by client-to-server transport pattern, including Google tags or event tags
+  that use a server endpoint, gateway naming, S2S naming, placeholder-looking
+  destination IDs, or consent/routing parameters;
 - by custom code body hash and variable reference set;
 - by dataLayer path family, such as `ecommerce.purchase.products.*`;
 - by expected output type.
@@ -170,6 +175,13 @@ Flag active paths such as `ecommerce.purchase.actionField.*`,
 `ecommerce.detail.products.*`, `ecommerce.checkout.products.*`, and
 `ecommerce.impressions` when they feed GA4, Google, or media tags without a
 verified mapper.
+
+Do not treat a Google tag or Google event tag as broken solely because a
+placeholder-looking `G-XXXXXX` or non-final measurement ID appears in the web
+container when a server container URL, transport URL, first-party endpoint, S2S
+name, or server-forwarded consent/routing parameters are present. Mark it as a
+client-to-server candidate and require server container evidence before
+recommending ID replacement, blocking-trigger changes, or deactivation.
 
 ## Official Documentation Mapping
 
@@ -407,6 +419,8 @@ Exported JSON cannot fully prove:
 - CSP/browser blocking;
 - duplicate network hits;
 - whether server-side endpoints receive traffic;
+- whether server-side clients, transformations, consent checks, and
+  server-to-vendor destination mappings are configured as expected;
 - whether vendor platforms record conversions.
 
 Mark these as requiring Tag Assistant, browser/network, crawler, or platform

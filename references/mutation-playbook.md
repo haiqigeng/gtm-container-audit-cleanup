@@ -327,6 +327,16 @@ risk.
   inventing GTM-side values.
 - Do not treat Google analytics/ecommerce events as UA by default. UA is a
   sunset/deprecated exception that requires explicit evidence and reporting.
+- Do not mutate client-side Google tags or Google event tags that may be
+  browser-to-server transport tags until server-side evidence is available. A
+  placeholder-looking measurement ID, media-style tag name, or missing
+  browser-side blocking trigger is not sufficient when `server_container_url`,
+  transport URL, first-party endpoint, consent-forwarding parameters, event IDs,
+  click IDs, user data, or gateway/S2S naming indicate that destination routing
+  and consent enforcement may occur in the server container.
+- When the server-side route is plausible but unproven, create a validation
+  blocker instead of changing IDs, adding/removing blocking triggers, pausing the
+  tag, or deleting related helpers.
 - Before changing standard ecommerce variables such as total price, total
   quantity, revenue, tax, shipping, transaction ID, item IDs, categories, or
   item arrays, trace every consumer and verify the required output shape for

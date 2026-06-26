@@ -158,6 +158,15 @@ Use when server container evidence exists or migration is requested.
   and monitoring.
 - Validate browser-to-server and server-to-vendor payload contracts separately.
 - Check event deduplication IDs for browser/server dual tracking.
+- For web-container Google tags or Google event tags that appear to route into a
+  server container, use a validation operation before any mutation. A
+  placeholder-looking measurement ID, media-oriented Google event name, or
+  missing browser-side blocking trigger is not enough evidence to edit, pause,
+  or delete the tag when destination routing or consent enforcement may be
+  handled server-side.
+- Record the required proof: server container export/API readback, network
+  payload, consent parameters forwarded to the server, server transformations,
+  and final server-to-vendor destination mapping.
 
 ### Emergency Fix
 
@@ -180,6 +189,10 @@ Use when the user asks for a fast production repair.
   by configuration or renamed/deferred.
 - A custom HTML tag that only defines a function is a probable no-op unless
   runtime evidence proves an external caller.
+- A Google tag or Google event tag with server endpoint, S2S naming, routing
+  parameters, or consent-forwarding parameters is a client-to-server candidate;
+  classify uncertain destination IDs or missing browser-side blocking triggers
+  as server-side validation blockers, not automatic cleanup actions.
 - A JSON artifact is not complete until it is self-audited as a fresh export.
 
 ## Batch And QA Gates

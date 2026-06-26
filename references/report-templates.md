@@ -247,7 +247,8 @@ When creating a workbook or CSV set, use these stable tabs:
 - `05 Inventory - Variables`: name, ID, type, key/config summary, consumers,
   folder, usage status, notes.
 - `06 Consent & Routing`: CMP events, consent mode defaults/updates, blocking
-  triggers, trigger groups, vendor pageview patterns, exceptions.
+  triggers, trigger groups, vendor pageview patterns, client-to-server consent
+  forwarding, server-side validation blockers, exceptions.
 - `07 Semantic Review`: intended role, name-inferred scope, scope confidence,
   clarification needed, consumed variables, expected output shape, actual output
   risk, affected consumers, logical consequence, and context for important
