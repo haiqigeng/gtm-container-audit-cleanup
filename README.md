@@ -1,14 +1,15 @@
-# GTM Container Audit Cleanup
+# GTM Container Web Analyst
 
-Agent-neutral skill for deep Google Tag Manager container audits, cleanup
-planning, safe cleanup execution, and QA support. It is designed for Codex,
-Claude Code, Gemini, or any agent that can read Markdown instructions and work
-with exported GTM container JSON, GTM API/UI evidence, screenshots, or runtime
-observations.
+Agent-neutral web analyst skill for Google Tag Manager containers. It is built
+to understand the business objective behind tags, validate measurement logic,
+detect semantic tracking issues, prepare cleanup plans, support safe cleanup
+execution, and guide QA. It is designed for Codex, Claude Code, Gemini, or any
+agent that can read Markdown instructions and work with exported GTM container
+JSON, GTM API/UI evidence, screenshots, or runtime observations.
 
 ## What This Repository Contains
 
-- `SKILL.md`: the main agent workflow and operating rules.
+- `SKILL.md`: the main web analyst workflow and operating rules.
 - `agents/openai.yaml`: Codex skill metadata and default prompt.
 - `references/`: focused audit, cleanup, reporting, QA, and safety playbooks.
 - `scripts/`: optional deterministic helpers for GTM JSON inspection, diffs,
@@ -21,11 +22,15 @@ large-container analysis, but it is not required to read or apply the workflow.
 
 - Audit deeply by default; do not downgrade scope unless the user asks for a
   limited review.
+- Build an internal business and measurement model before judging meaningful
+  tags, triggers, variables, formulas, vendor fields, or cleanup candidates.
 - Complete required D1-D3 review from export, API, UI, source, or code evidence.
   Only D4 runtime proof may be deferred without making the audit incomplete.
 - Treat cleanup as one workflow covering naming, unused objects, duplicates,
   consolidation, consent, GA4/current Google tags, media/vendor payloads,
   ecommerce, custom code, server-side caution, folders, templates, and QA.
+- Treat cleanup as the consequence of analyst judgment, not as the goal by
+  itself.
 - Use official Google, CMP, and vendor documentation as the source of truth for
   standard events, payload shape, consent expectations, and validation methods.
 - Mutate GTM only after explicit approval, in a dedicated workspace, with a
@@ -102,7 +107,7 @@ Use Calendar Versioning for public releases:
 
 - Tag format: `vYYYY.MM.DD` for the first release of a day.
 - Same-day follow-up format: `vYYYY.MM.DD.N`, where `N` starts at `1`.
-- Release title format: `GTM Container Audit Cleanup vYYYY.MM.DD[.N]`.
+- Release title format: `GTM Container Web Analyst vYYYY.MM.DD[.N]`.
 - Release notes should summarize user-visible changes, safety/validation changes,
   and the validation commands that passed.
 

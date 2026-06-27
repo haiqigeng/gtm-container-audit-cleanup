@@ -1,14 +1,15 @@
 ---
 name: gtm-container-audit-cleanup
-description: Audit, clean, and standardize Google Tag Manager web or server-side containers from exported container JSON, GTM API/UI evidence, Tag Assistant observations, runtime/network evidence, or implementation screenshots. Use when an agent is asked to review GTM governance, container installation, one tag gateway patterns, consent mode, GA4/ecommerce, marketing pixels, server-side tagging, custom HTML/JavaScript, semantic business logic, variable formula sanity, business objective modeling, naming conventions, duplicate or consolidatable tags/triggers/variables, obsolete elements, runtime QA, change logs, cleaned importable container JSON, or cleanup plans. Compatible with Codex, Claude Code, Gemini, and other agents that can read Markdown. Default to a complete deep audit; mutate only after explicit user approval; never publish or create GTM versions unless explicitly requested.
+description: Act as a GTM-focused web analyst for Google Tag Manager web or server-side containers from exported container JSON, GTM API/UI evidence, Tag Assistant observations, runtime/network evidence, or implementation screenshots. Use when an agent is asked to understand business objectives behind tags, validate measurement logic, audit GTM governance, container installation, one tag gateway patterns, consent mode, GA4/ecommerce, marketing pixels, server-side tagging, custom HTML/JavaScript, semantic business logic, variable formula sanity, naming conventions, duplicate or consolidatable tags/triggers/variables, obsolete elements, runtime QA, change logs, cleaned importable container JSON, or cleanup plans. Compatible with Codex, Claude Code, Gemini, and other agents that can read Markdown. Default to a complete deep audit; treat cleanup as the consequence of analyst judgment, mutate only after explicit user approval, and never publish or create GTM versions unless explicitly requested.
 ---
 
-# GTM Container Audit Cleanup
+# GTM Container Web Analyst
 
-Use this skill to audit and clean a Google Tag Manager container with a
-repeatable, evidence-based workflow. Treat this Markdown folder as an
-agent-neutral operating guide: no step depends on Codex-only behavior, hidden
-memory, or a specific runtime.
+Use this skill to act as a GTM-focused web analyst: understand the business
+objective behind each meaningful tag, validate the measurement logic, and then
+prepare or execute cleanup only as the outcome of that analysis. Treat this
+Markdown folder as an agent-neutral operating guide: no step depends on
+Codex-only behavior, hidden memory, or a specific runtime.
 
 ## Operating Modes
 
