@@ -14,6 +14,7 @@ from pathlib import Path
 MAX_SKILL_LINES = 500
 LONG_REFERENCE_LINES = 100
 BLOCKLIST_FILE = "scripts/release_blocklist.txt"
+CALVER_TAG_PATTERN = re.compile(r"^v\d{4}\.\d{2}\.\d{2}(?:\.\d+)?$")
 
 
 def repo_root() -> Path:
@@ -159,12 +160,27 @@ def check_py_compile(root: Path) -> list[str]:
     return errors
 
 
+def check_release_tag(tag: str | None) -> list[str]:
+    if not tag:
+        return []
+    if CALVER_TAG_PATTERN.fullmatch(tag):
+        return []
+    return [
+        "Release tag must use vYYYY.MM.DD or vYYYY.MM.DD.N, "
+        f"found {tag!r}"
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--allow-untracked",
         action="store_true",
         help="Do not fail when referenced resources are not tracked by git.",
+    )
+    parser.add_argument(
+        "--tag",
+        help="Validate a proposed release tag against the public CalVer policy.",
     )
     args = parser.parse_args()
 
@@ -191,6 +207,7 @@ def main() -> int:
     errors.extend(check_reference_navigation(root))
     errors.extend(check_patterns(root, "blocklist", release_blocklist(root)))
     errors.extend(check_py_compile(root))
+    errors.extend(check_release_tag(args.tag))
 
     if errors:
         for error in errors:

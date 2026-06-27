@@ -4,3 +4,14 @@ __pycache__/
 *.tmp
 *.bak
 *.log
+.env
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+*.json
+*.zip
+artifacts/
+exports/
+reports/
+dist/

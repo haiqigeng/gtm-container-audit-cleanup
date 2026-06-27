@@ -1,122 +1,89 @@
-# GTM Container Audit Cleanup Skill
+# GTM Container Audit Cleanup
 
-Agent-neutral workflow for deep Google Tag Manager container audits and cleanup
-planning. It is designed for Codex, Claude Code, Gemini, or any agent that can
-read Markdown instructions and work with exported GTM container JSON.
+Agent-neutral skill for deep Google Tag Manager container audits, cleanup
+planning, safe cleanup execution, and QA support. It is designed for Codex,
+Claude Code, Gemini, or any agent that can read Markdown instructions and work
+with exported GTM container JSON, GTM API/UI evidence, screenshots, or runtime
+observations.
 
-## What It Does
+## What This Repository Contains
 
-- Audits web and server-side GTM containers from exported JSON, API/UI evidence,
-  Tag Assistant observations, screenshots, or implementation notes.
-- Builds full inventories for tags, triggers, variables, folders, templates,
-  consent settings, custom HTML/JavaScript, and dependencies.
-- Checks GA4/current Google tag implementations, consent mode, CMP routing,
-  server-side tagging, media pixels, custom code, naming, duplicates, and
-  consolidation opportunities.
-- Uses official Google and vendor documentation as the source of truth for
+- `SKILL.md`: the main agent workflow and operating rules.
+- `agents/openai.yaml`: Codex skill metadata and default prompt.
+- `references/`: focused audit, cleanup, reporting, QA, and safety playbooks.
+- `scripts/`: optional deterministic helpers for GTM JSON inspection, diffs,
+  artifact validation, workbook gates, and release checks.
+
+The skill is instruction-first. Python is recommended for repeatable
+large-container analysis, but it is not required to read or apply the workflow.
+
+## Core Behavior
+
+- Audit deeply by default; do not downgrade scope unless the user asks for a
+  limited review.
+- Complete required D1-D3 review from export, API, UI, source, or code evidence.
+  Only D4 runtime proof may be deferred without making the audit incomplete.
+- Treat cleanup as one workflow covering naming, unused objects, duplicates,
+  consolidation, consent, GA4/current Google tags, media/vendor payloads,
+  ecommerce, custom code, server-side caution, folders, templates, and QA.
+- Use official Google, CMP, and vendor documentation as the source of truth for
   standard events, payload shape, consent expectations, and validation methods.
-- Adds completion gates, limited-audit boundaries, severity calibration, vendor
-  playbooks, semantic modeling, semantic logic checks, optimization patterns,
-  execution assurance, centralized policies, runtime QA templates, route-aware
-  operation tables, importable JSON checks, and change logs without publishing
-  or creating GTM versions.
+- Mutate GTM only after explicit approval, in a dedicated workspace, with a
+  rollback export. Never publish or create GTM versions unless explicitly asked.
+- Keep user-facing cleanup plans and change logs concise and actionable. Keep
+  raw proof matrices, validator traces, and scratch reasoning in backing files
+  or hidden workbook tabs.
 
-## Core Principles
+## Quick Start
 
-- Audit deeply by default.
-- Complete required D1-D3 review from export/API/source evidence. Only D4
-  runtime proof can be deferred without making the audit incomplete.
-- Mutate only after explicit approval.
-- Prefer direct GTM API/MCP cleanup in a new workspace for in-place changes.
-- Use importable JSON only when that route is intentionally chosen.
-- Treat cleanup and optimization as one workflow.
-- Apply naming standardization as a mandatory cleanup step unless explicitly
-  excluded or blocked by unclear business meaning.
-- Keep proposed final names unique within each GTM layer.
-- Keep cleanup plans and change logs end-user readable. Put deep proof matrices,
-  raw code/config, validator traces, and scratch reasoning in backing files or
-  tabs.
-
-## Repository Structure
-
-```text
-SKILL.md                         Main agent workflow
-agents/openai.yaml               Codex skill metadata
-references/                      Audit, source, mutation, reporting guides
-scripts/                         Deterministic helper scripts for exports,
-                                  diffs, patches, validation, and self-tests
-```
-
-Key references:
-
-- `completion-gates.md`: mandatory workstreams, phase model, and definition of
-  done.
-- `execution-assurance.md`: proof artifacts, anti-skip rules, and validation
-  commands for full audits and workbooks.
-- `policy-register.md`: stable policy IDs for repeated safety, naming, JSON,
-  mutation, and reporting rules.
-- `limited-audit-protocol.md`: rules for explicitly limited audits.
-- `audit-rubric.md`: full audit checklist and semantic review rules.
-- `audit-domain-checks.md`: governance, implementation, security, hygiene, and
-  scenario-specific audit checklists.
-- `naming-standardization.md`: naming hierarchy, local convention adaptation,
-  case rules, uniqueness, and rename QA.
-- `audit-ga4-ecommerce.md`: GA4/current Google tag, dataLayer, ecommerce, and
-  standard variable checks.
-- `audit-consent-server.md`: CMP, consent mode, browser-to-server, and
-  server-side caution checks.
-- `audit-media-vendors.md`: media/vendor payload, signal quality, and
-  cross-vendor checks.
-- `vendor-playbooks.md`: vendor-specific payload and setup checks.
-- `semantic-model-protocol.md`: internal business objective and measurement
-  system model.
-- `semantic-object-matrix.md`: depth tiers, D1-D3 proof requirements, and
-  semantic coverage matrix.
-- `semantic-logic-checks.md`: internal graph, formula, context, and payload
-  contradiction checks.
-- `summary-quality.md`: semantic proof-summary levels and user-facing cleanup
-  plan/change-log boundaries.
-- `optimization-patterns.md`: hygiene-to-strategic optimization pattern library.
-- `import-json-policy.md`: same-container merge, View Changes, overwrite, and
-  schema-dependency rules for importable JSON.
-- `runtime-qa-templates.md`: Tag Assistant, browser, network, consent, and
-  server-side QA templates.
-- `severity-calibration.md`: severity, priority, and confidence calibration.
-- `operation-schema.md`: cleanup aggressiveness, route, and operation schema.
-- `mutation-playbook.md`: pre-write and mutation safety rules.
-- `report-templates.md`: workbook/report/change-log schemas.
-- `workbook-architecture.md`: compact visible workbook tabs, hidden proof tabs,
-  duplicate-column discipline, and workbook validation.
-- `change-log-template.md`: post-cleanup change-log schema and coherence rules.
-
-## Using The Skill
-
-Give the agent:
-
-- GTM export JSON, or GTM API/UI evidence.
-- Website domain and business model.
-- Web/server-side scope.
-- CMP and consent assumptions.
-- Whether the task is audit-only, cleanup planning, direct cleanup, or JSON.
-
-Example:
+Ask the agent to use this skill with the available GTM evidence and context:
 
 ```text
 Use this skill to audit GTM-XXXXXXX_workspace123.json for https://example.com.
-It is a web GTM container, lead-generation site, OneTrust CMP. Do audit first,
-then prepare a cleanup plan. Do not modify GTM yet.
+It is a web GTM container for a lead-generation site with OneTrust CMP.
+Prepare the audit and cleanup plan only. Do not modify GTM yet.
 ```
 
-For direct cleanup, create a new GTM workspace first and keep a rollback export.
-Do not publish unless explicitly requested.
+For approved cleanup, choose the route before any operation is generated:
 
-## Helper Scripts
+- Direct GTM API/MCP cleanup in a new workspace for readable in-place changes.
+- Importable JSON only when that route is explicitly chosen and validated.
+- Runtime QA when browser, Tag Assistant, network, consent, or vendor-platform
+  proof is required.
 
-The bundled Python scripts are optional accelerators. They use exported GTM JSON
-to inspect inventories, produce diffs, generate same-container patches, and
-validate artifacts.
+## Reference Map
 
-Useful commands:
+| File | Purpose |
+| --- | --- |
+| `references/completion-gates.md` | Mandatory workstreams, phase model, and definition of done. |
+| `references/execution-assurance.md` | Anti-skip rules, proof artifacts, and validation gates. |
+| `references/policy-register.md` | Stable policy IDs for repeatable safety and reporting rules. |
+| `references/limited-audit-protocol.md` | Boundaries for explicitly limited audits. |
+| `references/audit-rubric.md` | Full audit checklist and semantic review rules. |
+| `references/audit-domain-checks.md` | Governance, implementation, security, hygiene, and scenario checks. |
+| `references/container-json-guide.md` | GTM export parsing, dependency mapping, and object inventory guidance. |
+| `references/source-map.md` | Official documentation sources and source refresh workflow. |
+| `references/naming-standardization.md` | Naming hierarchy, local convention adaptation, case rules, uniqueness, and QA. |
+| `references/audit-ga4-ecommerce.md` | GA4/current Google tag, dataLayer, ecommerce, and standard variable checks. |
+| `references/audit-consent-server.md` | CMP, consent mode, browser-to-server, and server-side caution checks. |
+| `references/audit-media-vendors.md` | Media/vendor payload, signal quality, and cross-vendor checks. |
+| `references/vendor-playbooks.md` | Vendor-specific setup and payload checks. |
+| `references/semantic-model-protocol.md` | Internal business objective and measurement system model. |
+| `references/semantic-object-matrix.md` | Depth tiers, D1-D3 proof requirements, and semantic coverage matrix. |
+| `references/semantic-logic-checks.md` | Internal graph, formula, context, and payload contradiction checks. |
+| `references/summary-quality.md` | Proof-summary levels and user-facing report boundaries. |
+| `references/optimization-patterns.md` | Cleanup pattern library from hygiene to strategic redesign. |
+| `references/import-json-policy.md` | Same-container merge, View Changes, overwrite, and schema-dependency rules. |
+| `references/runtime-qa-templates.md` | Tag Assistant, browser, network, consent, and server-side QA templates. |
+| `references/severity-calibration.md` | Severity, priority, and confidence calibration. |
+| `references/operation-schema.md` | Cleanup aggressiveness, route, and operation table schema. |
+| `references/mutation-playbook.md` | Pre-write and mutation safety rules. |
+| `references/report-templates.md` | Audit, cleanup plan, workbook, and change-log schemas. |
+| `references/workbook-architecture.md` | Compact visible workbook tabs, hidden proof tabs, and workbook validation. |
+| `references/change-log-template.md` | Post-cleanup change-log schema and coherence rules. |
+| `references/forward-test-prompts.md` | Regression prompts for future skill execution tests. |
+
+## Helper Commands
 
 ```powershell
 python scripts/gtm_export_inspect.py path\to\container.json
@@ -129,23 +96,50 @@ python scripts/gtm_self_test.py
 python scripts/check_release.py
 ```
 
-Python is not required to understand or apply the skill instructions, but it is
-recommended for repeatable large-container analysis.
+## Release And Versioning
+
+Use Calendar Versioning for public releases:
+
+- Tag format: `vYYYY.MM.DD` for the first release of a day.
+- Same-day follow-up format: `vYYYY.MM.DD.N`, where `N` starts at `1`.
+- Release title format: `GTM Container Audit Cleanup vYYYY.MM.DD[.N]`.
+- Release notes should summarize user-visible changes, safety/validation changes,
+  and the validation commands that passed.
+
+Historical timestamped tags are kept for traceability. New releases should use
+the CalVer pattern above.
+
+Optional release check:
+
+```powershell
+python scripts/check_release.py --tag v2026.06.28
+```
+
+## Privacy And Repository Hygiene
+
+This repository should contain only reusable skill instructions and generic
+helper scripts. Do not commit client-specific GTM exports, audit workbooks,
+container IDs, domains, emails, screenshots, or generated reports.
+
+Before release:
+
+```powershell
+python scripts/check_release.py --tag vYYYY.MM.DD
+git status --short
+```
 
 ## Safety Notes
 
-- Do not publish GTM versions from this skill unless explicitly requested.
 - Do not delete objects based on age alone.
 - Do not rewrite custom HTML by replacing GTM variable references with hardcoded
   values.
 - Do not treat Universal Analytics as the default for ambiguous Google events.
-- Do not mark required D3 work as blocked when the export contains code, source
-  paths, lookup rows, trigger filters, or tag/template parameters.
-- Do not use same-container JSON imports for readable broad rename reviews; use
+- Do not mark required D3 work as blocked when export/source/code evidence is
+  available.
+- Do not use same-container JSON imports for broad readable rename reviews; use
   direct GTM API/MCP or a name-preserving review artifact instead.
 
-## Status
+## Project Status
 
-This repository contains the reusable skill and generic helper scripts only. It
-should not contain client-specific exports, audit workbooks, IDs, domains,
-emails, or test artifacts.
+Public reusable skill package. No license has been selected in this repository;
+choose one intentionally before granting external redistribution rights.
