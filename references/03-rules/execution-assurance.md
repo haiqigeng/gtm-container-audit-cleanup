@@ -46,6 +46,8 @@ A completed full audit or cleanup plan must include or generate:
   expected data contract;
 - Semantic Object Matrix rows for all high-impact active tags/variables and all
   reviewed meaningful families;
+- D1-D3 proof queue status showing that required export/API/config/code review
+  was completed before findings and cleanup operations were finalized;
 - Custom Code Semantic Review rows for active, referenced, risky, unused, or
   cleanup-relevant Custom HTML, Custom JavaScript, and custom templates;
 - Official Docs Map rows for material vendor/event/CMP families;
@@ -95,6 +97,12 @@ These behaviors are failed execution, not harmless limitations:
 - D3 evidence is limited to a hash, code length, URL list, or generic static
   scan without explaining inputs, logic, output/side effect, consumer
   expectation, and correctness decision;
+- D3 evidence categorizes behavior without literal object usage, such as
+  `returns computed value`, `payload transformer`, or `browser side effect`;
+- a cleanup operation is created for a meaningful object whose D1-D3 proof queue
+  row is unresolved;
+- a cleanup operation is created before the relevant semantic graph path from
+  trigger/source/code to consumer/destination is complete or explicitly blocked;
 - D2/D3 proof uses generic phrases such as `custom code inspected`,
   `configuration reviewed`, `external URL found`, `dataLayer push detected`,
   `no obvious browser side effect`, `see config`, or `see export` instead of a

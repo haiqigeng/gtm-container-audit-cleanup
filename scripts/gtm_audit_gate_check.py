@@ -103,12 +103,25 @@ D3_REQUIRED_FIELDS = [
     "d3_correctness_decision",
 ]
 
+COMPACT_D3_FIELDS = [
+    "literal_behavior",
+    "consumer_context",
+    "analyst_judgment",
+    "cleanup_implication",
+    "evidence_or_qa_blocker",
+]
+
 SEMANTIC_SUMMARY_FIELDS = [
     "configuration_logic_status",
     "source_or_code_logic_status",
     "d3_logic_summary",
     "d3_output_or_side_effect",
     "d3_correctness_decision",
+    "literal_behavior",
+    "consumer_context",
+    "analyst_judgment",
+    "cleanup_implication",
+    "evidence_or_qa_blocker",
 ]
 
 CUSTOM_CODE_SUMMARY_FIELDS = [
@@ -139,6 +152,7 @@ GENERIC_SUMMARY_PATTERNS = [
     re.compile(r"\bconfiguration\s+reviewed\b", re.I),
     re.compile(r"\bcode\s+scanned\b", re.I),
     re.compile(r"\bexternal\s+url\s+found\b", re.I),
+    re.compile(r"\bno\s+external\s+urls?\s+detected\b", re.I),
     re.compile(r"\bdatalayer\s+push\s+detected\b", re.I),
     re.compile(r"\bno\s+obvious\s+browser\s+side\s+effect\b", re.I),
     re.compile(r"\bno\s+issue\s+found\b", re.I),
@@ -146,6 +160,15 @@ GENERIC_SUMMARY_PATTERNS = [
     re.compile(r"\bsee\s+(?:the\s+)?export\b", re.I),
     re.compile(r"\bstatic\s+scan\s+completed\b", re.I),
     re.compile(r"\breviewed\s+manually\b", re.I),
+    re.compile(r"\breturns?\s+(?:a\s+)?computed\s+values?\b", re.I),
+    re.compile(r"\bcomputed\s+scalar\s*/\s*object\b", re.I),
+    re.compile(r"\bbrowser\s+side\s+effects?\b", re.I),
+    re.compile(r"\bpayload\s+transformer\b", re.I),
+    re.compile(r"\bvendor\s+loader\b", re.I),
+    re.compile(r"\baccording\s+to\s+(?:its\s+)?configured\s+type\b", re.I),
+    re.compile(r"\bobject\s+configuration,\s*GTM\s+event,\s*browser,\s*DOM,\s*storage,\s*or\s*template\s+fields\b", re.I),
+    re.compile(r"\bloads,\s*writes,\s*pushes,\s*or\s*mutates\s+browser\s+state\b", re.I),
+    re.compile(r"\btags\s+and\s+downstream\s+reports\s+need\s+event\s+context\b", re.I),
 ]
 
 GENERIC_D3_VALUES = {
@@ -163,6 +186,142 @@ GENERIC_D3_VALUES = {
     "blocked",
     "pending",
 }
+
+SOURCE_SIGNAL_PATTERNS = [
+    re.compile(pattern, re.I)
+    for pattern in (
+        r"\breads?\b",
+        r"\buses?\b",
+        r"\bsource\b",
+        r"\bfrom\b",
+        r"\bdatalayer\b",
+        r"\bdl[v ]?\b",
+        r"\{\{",
+        r"\bcookies?\b",
+        r"\bstorage\b",
+        r"\burl\b",
+        r"\bdom\b",
+        r"\bcmp\b",
+        r"\btemplate\b",
+        r"\bfields?\b",
+        r"\bparameters?\b",
+        r"\btriggers?\b",
+        r"\bevents?\b",
+    )
+]
+
+LOGIC_ACTION_PATTERNS = [
+    re.compile(pattern, re.I)
+    for pattern in (
+        r"\breads?\b",
+        r"\bmaps?\b",
+        r"\breturns?\b",
+        r"\bbuilds?\b",
+        r"\blistens?\b",
+        r"\bpush(?:es)?\b",
+        r"\bloads?\b",
+        r"\bsets?\b",
+        r"\bextracts?\b",
+        r"\bjoins?\b",
+        r"\bcalculat(?:es|ing)\b",
+        r"\bforwards?\b",
+        r"\bsends?\b",
+        r"\btriggers?\b",
+        r"\bfilters?\b",
+        r"\bmatches?\b",
+        r"\bchecks?\b",
+        r"\bcalls?\b",
+        r"\bwrites?\b",
+        r"\bnormaliz(?:es|ing)\b",
+        r"\bparses?\b",
+        r"\bstores?\b",
+        r"\bupdates?\b",
+        r"\bblocks?\b",
+        r"\bfires?\b",
+        r"\bevaluates?\b",
+    )
+]
+
+OUTPUT_SIGNAL_PATTERNS = [
+    re.compile(pattern, re.I)
+    for pattern in (
+        r"\breturns?\b",
+        r"\boutputs?\b",
+        r"\bproduces?\b",
+        r"\bpush(?:es)?\b",
+        r"\bloads?\b",
+        r"\bsends?\b",
+        r"\bfires?\b",
+        r"\bblocks?\b",
+        r"\bsets?\b",
+        r"\bwrites?\b",
+        r"\bmutates?\b",
+        r"\bside[- ]effects?\b",
+        r"\bpayload\b",
+        r"\bevents?\b",
+        r"\bvalues?\b",
+        r"\barrays?\b",
+        r"\bobjects?\b",
+        r"\bbooleans?\b",
+        r"\bstrings?\b",
+        r"\bnumbers?\b",
+        r"\bcookies?\b",
+        r"\bstorage\b",
+        r"\bdatalayer\b",
+        r"\brequests?\b",
+        r"\bnetwork\b",
+    )
+]
+
+CONSUMER_SIGNAL_PATTERNS = [
+    re.compile(pattern, re.I)
+    for pattern in (
+        r"\bconsumed\s+by\b",
+        r"\bused\s+by\b",
+        r"\bexpected\s+by\b",
+        r"\bfeeds?\b",
+        r"\bconsumers?\b",
+        r"\bdestinations?\b",
+        r"\btags?\b",
+        r"\btriggers?\b",
+        r"\bvariables?\b",
+        r"\bvendors?\b",
+        r"\bplatforms?\b",
+        r"\bga4\b",
+        r"\bgoogle\b",
+        r"\bpiano\b",
+        r"\bmeta\b",
+        r"\bpixels?\b",
+        r"\bconsent\b",
+        r"\bservers?\b",
+    )
+]
+
+DECISION_SIGNAL_PATTERNS = [
+    re.compile(pattern, re.I)
+    for pattern in (
+        r"\bcoherent\b",
+        r"\bissues?\b",
+        r"\blikely\s+issue\b",
+        r"\bmismatch\b",
+        r"\bcorrect\b",
+        r"\bincorrect\b",
+        r"\bfix\b",
+        r"\bkeep\b",
+        r"\bconsolidate\b",
+        r"\bdelete\s+candidate\b",
+        r"\bruntime\s+qa\b",
+        r"\bowner\b",
+        r"\bblockers?\b",
+        r"\bdeferred\b",
+        r"\bneeds?\b",
+        r"\bsafe\b",
+        r"\brisky\b",
+        r"\bunclear\b",
+        r"\bfunctional\b",
+        r"\bnot\s+functional\b",
+    )
+]
 
 
 def to_int(row: Dict[str, Any], field: str) -> Tuple[int, str | None]:
@@ -408,10 +567,119 @@ def generic_or_blank(value: Any) -> bool:
     return text in GENERIC_D3_VALUES
 
 
+def compact_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def has_signal(value: Any, patterns: List[re.Pattern[str]]) -> bool:
+    text = str(value or "")
+    return any(pattern.search(text) for pattern in patterns)
+
+
+def word_count(value: Any) -> int:
+    return len(re.findall(r"\b[\w{}.-]+\b", str(value or "")))
+
+
+def d3_proof_errors(row: Dict[str, Any], label: str, index: int) -> List[str]:
+    errors: List[str] = []
+    available = set(row)
+    if any(field in available for field in COMPACT_D3_FIELDS):
+        missing = [field for field in COMPACT_D3_FIELDS if field not in available]
+        if missing:
+            return [
+                f"{label} row {index}: compact D3 proof is missing columns: "
+                f"{', '.join(missing)}"
+            ]
+        return compact_d3_proof_errors(row, label, index)
+
+    field_values = {field: str(row.get(field) or "").strip() for field in D3_REQUIRED_FIELDS}
+
+    for field, text in field_values.items():
+        if generic_or_blank(text):
+            errors.append(f"{label} row {index}: D3 field {field} is blank or generic")
+        elif word_count(text) < 5:
+            errors.append(
+                f"{label} row {index}: D3 field {field} is too short to prove "
+                "source, logic, output, consumer expectation, or judgment"
+            )
+
+    normalized_to_fields: Dict[str, List[str]] = {}
+    for field, text in field_values.items():
+        normalized = compact_text(text)
+        if normalized:
+            normalized_to_fields.setdefault(normalized, []).append(field)
+    for fields in normalized_to_fields.values():
+        if len(fields) > 1:
+            errors.append(
+                f"{label} row {index}: D3 fields repeat the same content: "
+                f"{', '.join(fields)}"
+            )
+
+    signal_checks = [
+        ("d3_inputs_or_sources", SOURCE_SIGNAL_PATTERNS, "a concrete source/input"),
+        ("d3_logic_summary", LOGIC_ACTION_PATTERNS, "a logic/action verb"),
+        ("d3_output_or_side_effect", OUTPUT_SIGNAL_PATTERNS, "an output or side-effect signal"),
+        ("d3_consumer_expectation", CONSUMER_SIGNAL_PATTERNS, "a consumer/destination signal"),
+        ("d3_correctness_decision", DECISION_SIGNAL_PATTERNS, "a correctness judgment"),
+    ]
+    for field, patterns, requirement in signal_checks:
+        if field in field_values and not has_signal(field_values[field], patterns):
+            errors.append(f"{label} row {index}: D3 field {field} lacks {requirement}")
+    return errors
+
+
+def d3_proof_complete(row: Dict[str, Any]) -> bool:
+    return not d3_proof_errors(row, "semantic row", 0)
+
+
+def compact_d3_proof_errors(row: Dict[str, Any], label: str, index: int) -> List[str]:
+    errors: List[str] = []
+    values = {field: str(row.get(field) or "").strip() for field in COMPACT_D3_FIELDS}
+    for field, text in values.items():
+        if generic_or_blank(text):
+            errors.append(f"{label} row {index}: compact D3 field {field} is blank or generic")
+        elif word_count(text) < 5:
+            errors.append(
+                f"{label} row {index}: compact D3 field {field} is too short to prove "
+                "literal behavior, consumer context, judgment, or cleanup implication"
+            )
+        for pattern in GENERIC_SUMMARY_PATTERNS:
+            if pattern.search(text):
+                errors.append(
+                    f"{label} row {index} field {field}: generic or fake-precision "
+                    f"phrase {pattern.pattern!r}"
+                )
+
+    normalized_to_fields: Dict[str, List[str]] = {}
+    for field, text in values.items():
+        normalized = compact_text(text)
+        if normalized:
+            normalized_to_fields.setdefault(normalized, []).append(field)
+    for fields in normalized_to_fields.values():
+        if len(fields) > 1:
+            errors.append(
+                f"{label} row {index}: compact D3 fields repeat the same content: "
+                f"{', '.join(fields)}"
+            )
+
+    checks = [
+        ("literal_behavior", LOGIC_ACTION_PATTERNS, "literal object behavior"),
+        ("consumer_context", CONSUMER_SIGNAL_PATTERNS, "actual consumer/context"),
+        ("analyst_judgment", DECISION_SIGNAL_PATTERNS, "analyst judgment"),
+        ("cleanup_implication", DECISION_SIGNAL_PATTERNS + LOGIC_ACTION_PATTERNS, "cleanup implication"),
+        ("evidence_or_qa_blocker", SOURCE_SIGNAL_PATTERNS + DECISION_SIGNAL_PATTERNS, "evidence or QA blocker"),
+    ]
+    for field, patterns, requirement in checks:
+        if not has_signal(values[field], patterns):
+            errors.append(f"{label} row {index}: compact D3 field {field} lacks {requirement}")
+    return errors
+
+
 def validate_semantic_depth_rows(rows: List[Dict[str, Any]], label: str) -> List[str]:
     errors: List[str] = []
     available = set(rows[0]) if rows else set()
     missing_d3_columns = [field for field in D3_REQUIRED_FIELDS if field not in available]
+    missing_compact_d3_columns = [field for field in COMPACT_D3_FIELDS if field not in available]
 
     for index, row in enumerate(rows, start=2):
         required = depth_tokens(row.get("depth_required"))
@@ -432,17 +700,15 @@ def validate_semantic_depth_rows(rows: List[Dict[str, Any]], label: str) -> List
                 )
 
         if "D3" in required:
-            if missing_d3_columns:
+            if missing_d3_columns and missing_compact_d3_columns:
                 errors.append(
-                    f"{label} row {index}: D3 required but matrix is missing columns: "
-                    f"{', '.join(missing_d3_columns)}"
+                    f"{label} row {index}: D3 required but matrix is missing both "
+                    "legacy and compact D3 proof columns"
                 )
                 continue
             if "D3" not in completed:
                 continue
-            for field in D3_REQUIRED_FIELDS:
-                if generic_or_blank(row.get(field)):
-                    errors.append(f"{label} row {index}: D3 field {field} is blank or generic")
+            errors.extend(d3_proof_errors(row, label, index))
     return errors
 
 
@@ -497,6 +763,13 @@ def validate_custom_code_rows(rows: List[Dict[str, Any]], label: str) -> List[st
             )
         if semantic_status in {"", "review later", "pending", "pending review"}:
             errors.append(f"{label} row {index}: semantic_status is not a decision")
+        if review_status == "yes" and semantic_status not in {"not applicable", "n/a"}:
+            output_text = row.get("expected_output_or_side_effect", "")
+            if word_count(output_text) < 5 or not has_signal(output_text, OUTPUT_SIGNAL_PATTERNS):
+                errors.append(
+                    f"{label} row {index}: expected_output_or_side_effect must describe "
+                    "what the code returns, pushes, loads, writes, calls, or mutates"
+                )
     errors.extend(validate_summary_quality(rows, CUSTOM_CODE_SUMMARY_FIELDS, label))
     return errors
 
@@ -520,6 +793,26 @@ def validate_placeholder_language(
                             f"deferred audit-work placeholder {pattern.pattern!r}"
                         )
     return errors
+
+
+def workbook_architecture_warnings(workbook_rows: Dict[str, List[Dict[str, Any]]]) -> List[str]:
+    warnings: List[str] = []
+    if len(workbook_rows) > 8:
+        warnings.append(
+            f"workbook architecture: {len(workbook_rows)} tabs found; compact "
+            "stakeholder outputs should normally stay at 7-8 tabs or fewer"
+        )
+    for sheet_name, rows in workbook_rows.items():
+        if not rows:
+            continue
+        column_count = len(rows[0])
+        if column_count > 8:
+            warnings.append(
+                f"workbook architecture: sheet {sheet_name!r} has {column_count} "
+                "columns; compact stakeholder/proof tabs should normally stay "
+                "around 5-6 useful columns unless this is a technical appendix"
+            )
+    return warnings
 
 
 def validate_strict_evidence(path: Path, reconciliation_rows: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
@@ -561,6 +854,7 @@ def validate_strict_evidence(path: Path, reconciliation_rows: List[Dict[str, Any
         errors.extend(validate_custom_code_rows(custom_rows, f"{custom_name}"))
 
     errors.extend(validate_placeholder_language(workbook_rows))
+    warnings.extend(workbook_architecture_warnings(workbook_rows))
     if not custom_code_required(reconciliation_rows) and not custom_name:
         warnings.append("strict evidence: no custom-code review sheet found; treated as not in scope")
 

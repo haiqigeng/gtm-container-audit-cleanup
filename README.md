@@ -33,7 +33,9 @@ large-container analysis, but it is not required to read or apply the workflow.
   decision outcome, conversion hierarchy, platform role, and expected data
   contract.
 - Complete required D1-D3 review from export, API, UI, source, or code evidence.
-  Only D4 runtime proof may be deferred without making the audit incomplete.
+  D3 starts with literal object behavior and actual consumers before category or
+  judgment. Only D4 runtime proof may be deferred without making the audit
+  incomplete.
 - Treat cleanup as one workflow covering naming, unused objects, duplicates,
   consolidation, consent, GA4/current Google tags, media/vendor payloads,
   ecommerce, custom code, server-side caution, folders, templates, and QA.
@@ -43,9 +45,13 @@ large-container analysis, but it is not required to read or apply the workflow.
   standard events, payload shape, consent expectations, and validation methods.
 - Mutate GTM only after explicit approval, in a dedicated workspace, with a
   rollback export. Never publish or create GTM versions unless explicitly asked.
-- Keep user-facing cleanup plans and change logs concise and actionable. Keep
+- Keep user-facing cleanup plans and post-execution change logs concise and
+  actionable. Keep
   raw proof matrices, validator traces, and scratch reasoning in backing files
   or hidden workbook tabs.
+- Produce a real change log only after cleanup execution or generated cleanup
+  artifact creation. Before execution, use a planned change preview or clearly
+  simulated log.
 
 ## Quick Start
 
@@ -197,9 +203,10 @@ work together in the simplest, most readable, and easiest-to-maintain way.
 
 Inputs may include exported GTM JSON, GTM API/UI evidence, screenshots, Tag
 Assistant/network observations, website context, CMP details, and official
-vendor documentation. Outputs are audit reports, cleanup plans, change logs,
-runtime QA plans, and optional GTM-compatible artifacts when explicitly
-approved. A completed result must demonstrate D1-D3 configuration logic and
+vendor documentation. Outputs are audit reports, cleanup plans, planned change
+previews, post-cleanup change logs, runtime QA plans, and optional
+GTM-compatible artifacts when explicitly approved. A completed result must
+demonstrate literal D3 behavior, actual consumer context, object synergy, and
 custom-code/template behavior clearly enough that the user understands the
 functionality and impact, not just that an object was "reviewed."
 

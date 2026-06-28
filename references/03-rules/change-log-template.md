@@ -15,6 +15,12 @@ review log.
 The cleanup plan is the decision source. The change log is the execution record.
 Do not make the change log a second audit or a place for new analysis.
 
+Produce a real change log only after direct GTM cleanup, importable JSON
+generation, or another concrete cleanup execution has occurred. Before
+execution, use `planned change preview`. When the user explicitly asks for a
+test artifact "as if cleanup was done", label it `simulated post-cleanup change
+log` and mark rows as simulated/not verified.
+
 The change log should contain only what changed, why it changed, impact, QA,
 owner/status, and rollback/evidence notes needed for review. It must be
 granular enough for the user to understand the applied change without opening

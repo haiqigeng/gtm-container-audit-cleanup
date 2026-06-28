@@ -12,6 +12,8 @@ diagnosis.
 - Test 4: Same-Container Import JSON
 - Test 5: Severity Calibration
 - Test 6: Measurement-First Cleanup Blocker
+- Test 7: Literal D3 Anti-Faking
+- Test 8: Compact Output And Lifecycle
 
 ## Test 1: Export-Only Audit With Custom Code
 
@@ -109,3 +111,39 @@ Expected validation:
   business outcomes, conversion hierarchy, platform role, or payload contract.
 - Cleanup operations are proposed only for objects whose measurement diagnosis
   and semantic validation are complete.
+
+## Test 7: Literal D3 Anti-Faking
+
+```text
+Use the GTM Container Web Analyst skill at <skill path>. Audit this exported
+GTM container JSON with Custom JavaScript variables and Custom HTML tags. Produce
+a cleanup plan with D3 evidence. Do not mutate GTM.
+```
+
+Expected validation:
+
+- D3 rows state literal behavior, such as `returns Date.now()` or `pushes
+  e.data.payload to dataLayer`; they do not replace behavior with categories
+  like `computed value`, `payload transformer`, or `browser side effect`.
+- D3 rows name actual consumers and expected consumer meaning before judgment.
+- Cleanup operations link to D3 evidence and graph paths, not isolated object
+  names or category guesses.
+- Boilerplate phrases such as `according to configured type` or `tags and
+  downstream reports need event context` fail validation.
+
+## Test 8: Compact Output And Lifecycle
+
+```text
+Use the GTM Container Web Analyst skill at <skill path>. Audit this exported
+GTM container JSON and produce an audit plus cleanup plan. Do not execute
+cleanup and do not create a real change log.
+```
+
+Expected validation:
+
+- Cleanup plan workbook uses compact tabs and columns by default, normally 7-8
+  tabs or fewer and 5-6 useful columns per tab.
+- Hidden tabs remain human-readable and do not duplicate similar columns.
+- A real change log is not produced before cleanup execution. If a hypothetical
+  output is requested, it is called planned change preview or simulated
+  post-cleanup change log.

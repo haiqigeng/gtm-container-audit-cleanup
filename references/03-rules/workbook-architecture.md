@@ -27,28 +27,24 @@ them.
 
 ## Default Visible Tabs
 
-A normal cleanup-plan workbook should open on two visible tabs:
+A normal cleanup-plan workbook should open on two visible tabs and should not
+exceed 7-8 total tabs, hidden tabs included, unless the user requests a
+technical appendix or the validator explicitly requires an expanded artifact.
 
-- `01 Executive Decision Summary`: overall status, top risks, recommended
+- `01 Summary`: overall status, top risks, recommended
   route, cleanup level, safe-now work, blocked work, owner decisions, validation
   status, and next step.
-- `02 Cleanup Action Plan`: one operational table that consolidates findings,
+- `02 Cleanup Plan`: one operational table that consolidates findings,
   roadmap, operations, deferred blockers, runtime QA, route, and naming into
   actionable rows.
 
-Default `02 Cleanup Action Plan` columns:
+Default `02 Cleanup Plan` columns:
 
 - `ID`
-- `Phase`
-- `Priority`
-- `Area`
-- `Affected objects`
-- `Decision`
-- `Reason / impact`
+- `Affected object(s)`
+- `Issue / opportunity`
 - `Recommended action`
-- `Before action requirement`
-- `QA method`
-- `Route`
+- `QA / blocker`
 - `Status`
 
 Add extra visible tabs only when the user asks, the execution route needs a
@@ -57,22 +53,17 @@ table harder to use.
 
 ## Hidden Proof Tabs
 
-Common hidden proof tabs:
+Recommended compact hidden/supporting tabs:
 
-- `03 Inventory - Tags`
-- `04 Inventory - Triggers`
-- `05 Inventory - Variables`
-- `06b Measurement Diagnosis`
-- `07 Semantic Object Matrix`
-- `07b Custom Code Semantic Review`
-- `08 Official Docs Map`
-- `08b Vendor Playbook Coverage`
-- `09 GA4 DataLayer Contracts` when not material to the decision view
-- `10 Consolidation Map`
-- `11 Naming Standardization`
-- `18 Completion Ledger`
-- `18b Workstream Reconciliation`
-- `19 Generated JSON QA`
+- `03 D3 Evidence`
+- `04 Inventory & Dependencies`
+- `05 Synergy & Consolidation`
+- `06 QA & Blockers`
+- `07 References & Validation`
+
+Split these tabs only when the user asks for a technical workbook, a validator
+requires the older schema, or a container is too large for readable compact
+tabs. Even hidden tabs must remain human-readable when unhidden.
 
 Hidden proof tabs must also be information-clean:
 
@@ -99,6 +90,13 @@ Before delivery:
 - keep operation IDs and finding IDs visible when they trace to proof rows;
 - keep raw code, raw template fields, hashes, full dependency graphs, and
   validator traces out of user-facing tabs.
+- keep visible and hidden tabs around 5-6 useful columns by default. If more
+  columns are required for a technical appendix, hide or move the appendix out
+  of the main user-facing workbook.
+- consolidate columns that answer the same question. For example, merge D3
+  source, logic, output, consumer, and decision fields into `Literal behavior`,
+  `Consumer / context`, `Analyst judgment`, `Cleanup implication`, and
+  `Evidence / QA blocker`.
 
 ## Validation
 

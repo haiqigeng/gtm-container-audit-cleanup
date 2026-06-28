@@ -369,6 +369,45 @@ Use a concrete action, not a generic closing sentence:
 
 ## Spreadsheet-Friendly Tabs
 
+Default stakeholder workbooks should use compact tabs, usually no more than
+7-8 total tabs and 5-6 decision columns per tab. Use expanded technical tabs
+only when the user asks for them or a validation workflow requires them.
+
+Recommended compact audit/cleanup plan tabs:
+
+- `01 Summary`
+- `02 Cleanup Plan`
+- `03 D3 Evidence`
+- `04 Inventory & Dependencies`
+- `05 Synergy & Consolidation`
+- `06 QA & Blockers`
+- `07 References & Validation`
+
+Recommended `02 Cleanup Plan` columns:
+
+```text
+ID:
+Affected object(s):
+Issue / opportunity:
+Recommended action:
+QA / blocker:
+Status:
+```
+
+Recommended `03 D3 Evidence` columns:
+
+```text
+Object:
+Literal behavior:
+Consumer / context:
+Analyst judgment:
+Cleanup implication:
+Evidence / QA blocker:
+```
+
+Use the larger legacy tab list below only for technical appendices, validator
+fixtures, or explicit user requests.
+
 When creating a workbook or CSV set, use these stable tabs:
 
 - `00 Method`: scope, source exports/workspaces, evidence freshness, analysis
@@ -493,13 +532,33 @@ Follow the user's requested format. If unspecified:
 Do not assume a cloud destination. Do not include reusable skill examples with
 client-specific IDs, names, URLs, or paths.
 
+When both an audit/cleanup plan and a change log are requested, produce separate
+deliverables by default because they belong to different lifecycle moments:
+
+- an audit/cleanup plan workbook or report after the audit, for decisions and
+  proof;
+- a standalone change log workbook or CSV only after cleanup execution or
+  generated cleanup artifact creation.
+
+Only combine them when the user explicitly requests one file. If combined, the
+change-log tab must still follow `change-log-template.md` exactly and the
+workbook must open on the decision layer, not on proof or raw-change tabs.
+If no cleanup was executed, do not call the artifact a real change log. Use
+`planned change preview` or `simulated post-cleanup change log`, depending on
+the user's request.
+
 ## Required Closing Question
 
-End audit and cleanup results with:
+End audit and cleanup-plan results with a concrete next execution decision, for
+example:
 
 ```text
-Would you like me to prepare a change log? I can use Excel if it is available,
-Google Sheets if Drive/Sheets is connected, or CSV as a fallback. I can first
-propose a client-readable format that tracks every change without making the file
-too dense.
+Recommended next step: approve the cleanup route. I can either create a new GTM
+workspace and apply the approved operations directly, or prepare an importable
+JSON if you prefer manual import. A real change log will be produced after
+cleanup execution.
 ```
+
+Offer a planned change preview before execution only when it helps approval.
+Do not ask to create a real change log until cleanup was executed or a generated
+cleanup artifact was produced.

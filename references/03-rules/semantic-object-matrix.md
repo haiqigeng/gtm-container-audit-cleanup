@@ -10,6 +10,8 @@ raw GTM configuration dumps.
 - Principle
 - Depth Tiers
 - Required Depth Rule
+- D1-D3 Proof Queue
+- D1-D3 Proof Contract
 - Required Matrix Columns
 - Execution Guarantee
 - Status Vocabulary
@@ -70,6 +72,77 @@ blocked` and identify the missing source. In a normal GTM export, Custom HTML,
 Custom JavaScript, DLV paths, lookup/regex tables, trigger filters, and tag
 parameters are scannable.
 
+## D1-D3 Proof Queue
+
+Before writing findings, operations, cleanup plans, or change logs, build an
+internal queue of every object or object family that requires D1, D2, or D3.
+The queue must include object ID/name, layer, required depth, reason for depth,
+consumer count or family coverage, and queue status.
+
+Do not compile cleanup operations for a meaningful object while its D1-D3 queue
+row is unresolved. Queue rows may be closed only as:
+
+- `Complete`: D1-D3 evidence is recorded in the matrix or custom-code review.
+- `Not applicable`: the object is outside the business/scope and documented.
+- `User-excluded`: the user explicitly limited the scope.
+- `Incomplete / blocked`: source evidence is missing or unreadable.
+
+D4 runtime uncertainty is not a D1-D3 blocker. If runtime proof is needed, first
+complete D1-D3 from export/API/config/code evidence, then mark only the runtime
+proof as required.
+
+## D1-D3 Proof Contract
+
+D1-D3 proof must be evidence-first. Do not start D3 by categorizing the object.
+Start by stating the exact literal behavior visible in the export, API,
+template parameters, trigger filters, or custom code.
+
+For D3, record this sequence:
+
+```text
+literal behavior -> actual inputs -> actual logic/action
+-> actual output or side effect -> actual consumers and expected meaning
+-> analyst judgment -> cleanup implication
+```
+
+Examples of acceptable literal behavior:
+
+- `Returns Date.now(), a millisecond timestamp.`
+- `Reads {{Click URL}} and extracts split('vertex_doc_id=')[1].split('&')[0].`
+- `Listens to window message events and pushes e.data.payload to dataLayer when
+  e.data.type equals cta_tracking.`
+- `Loads https://sdk.mrf.io/statics/marfeel-sdk.js?id=2152 and sets
+  window.marfeel.config.accountId to 2152.`
+- `Injects CSS that changes .tp-modal and .tp-backdrop z-index values.`
+
+Use categories only after literal behavior is stated. `Payload transformer`,
+`vendor loader`, `computed value`, `browser side effect`, or `server enrichment`
+are not D3 proof by themselves.
+
+Use this contract by object type:
+
+- **Template tag or variable**: record the concrete event name, trigger context,
+  template fields, variable sources, outgoing value/behavior, destination field,
+  official/vendor expectation, and judgment.
+- **Custom HTML / Custom JavaScript**: record exact reads, conditions, function
+  calls, returns, writes, pushes, loaded URLs, cookie/storage/DOM/network
+  effects, consumers, expected consumer meaning, and judgment.
+- **Trigger**: record the GTM event, exact filters, variables used in
+  conditions, firing/blocking role, consuming tags, expected page/user-action
+  context, and judgment.
+- **Lookup / regex / table / formula helper**: record source key, mapping rows
+  or formula, fallback behavior, output type, consumers, expected consumer
+  meaning, and judgment.
+- **Custom template**: record exposed fields, permissions, destination behavior,
+  template consumers, risk/maintenance judgment, and whether official/vendor
+  documentation supports the pattern.
+
+Generic statements such as `custom code inspected`, `configuration reviewed`,
+`returns computed value`, `browser side effect`, `according to configured type`,
+`static scan completed`, or `no issue found` are not proof. A row may mention
+that a scan happened, but it still needs literal behavior, consumers, judgment,
+and cleanup implication.
+
 ## Required Matrix Columns
 
 For full audits, create a `semantic_object_matrix` table or workbook tab. For
@@ -99,18 +172,24 @@ Minimum columns:
 - `runtime_qa_required`
 - `blocker_or_next_evidence`
 
-For any row where `depth_required` includes `D3`, also include:
+For any row where `depth_required` includes `D3`, prefer compact columns:
 
-- `d3_inputs_or_sources`
-- `d3_logic_summary`
-- `d3_output_or_side_effect`
-- `d3_consumer_expectation`
-- `d3_correctness_decision`
+- `literal_behavior`
+- `consumer_context`
+- `analyst_judgment`
+- `cleanup_implication`
+- `evidence_or_qa_blocker`
+
+Legacy matrix columns such as `d3_inputs_or_sources`,
+`d3_logic_summary`, `d3_output_or_side_effect`,
+`d3_consumer_expectation`, and `d3_correctness_decision` may still be used by
+older validators, but user-facing or expert-review workbooks should consolidate
+them into the compact five-column format when possible.
 
 Use short judgment values, not parameter dumps. Follow `summary-quality.md`:
-each D2/D3 proof summary should state category, source/input, logic/action,
-output or side effect, and judgment. Put raw extracted parameters, code
-snippets, or full payloads in separate technical tabs only when needed.
+each D2/D3 proof summary should state exact behavior, consumer context,
+judgment, and cleanup implication. Put raw extracted parameters, code snippets,
+or full payloads in separate technical artifacts only when truly needed.
 
 ## Execution Guarantee
 

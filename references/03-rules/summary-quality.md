@@ -20,7 +20,7 @@ Use the smallest summary level that supports the audience and decision.
 | Level | Use for | Must include |
 | --- | --- | --- |
 | L1 Category | Inventory rows, repeated low-risk families, normal helpers. | Object role and source family. |
-| L2 Logic | Semantic Object Matrix and Custom Code Review proof. | Source/input, action/formula/config, output or side effect, consumer expectation. |
+| L2 Logic | Semantic Object Matrix and Custom Code Review proof. | Literal behavior, actual source/input, action/formula/config, output or side effect, consumer/context. |
 | L3 Judgment | Findings, operations, blockers, cleanup plan rows. | What is wrong or changing, why it matters, recommended action, QA/blocker. |
 
 Do not use L1 where D2/D3 is required. A D3 row needs L2 proof plus an L3
@@ -31,7 +31,7 @@ correctness decision when the object drives a finding, operation, or blocker.
 For proof tabs, write compact semantic summaries with this shape:
 
 ```text
-category -> source/input -> logic/action -> output/side effect -> judgment
+literal behavior -> consumer/context -> judgment -> cleanup implication
 ```
 
 Examples of valid proof summaries:
@@ -116,9 +116,19 @@ summary:
 - `see export`
 - `static scan completed`
 - `reviewed manually`
+- `returns computed value`
+- `computed scalar/object`
+- `browser side effect`
+- `payload transformer`
+- `vendor loader`
+- `according to its configured type`
+- `object configuration, GTM event, browser, DOM, storage, or template fields`
+- `loads, writes, pushes, or mutates browser state`
+- `tags and downstream reports need event context`
 
-These are evidence signals, not summaries. Replace them with the object role,
-source/input, logic/action, output or side effect, and judgment.
+These are evidence signals or categories, not D3 proof. Replace them with the
+exact literal behavior, actual consumers, judgment, and cleanup implication.
+Categories may appear only after literal behavior is stated.
 
 ## Examples
 

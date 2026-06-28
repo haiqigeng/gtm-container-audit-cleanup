@@ -23,6 +23,7 @@ Possible outputs:
 
 - audit summary;
 - cleanup action plan;
+- planned change preview when requested before execution;
 - measurement diagnosis evidence;
 - semantic object matrix;
 - custom code semantic review;
@@ -31,6 +32,20 @@ Possible outputs:
 - deferred blocker list;
 - importable GTM JSON when explicitly requested;
 - post-cleanup change log.
+
+Lifecycle rules:
+
+- `audit_cleanup_plan`: produced after the audit. It is a decision document for
+  proposed changes, blockers, QA, and execution route.
+- `planned_change_preview`: optional, produced only when the user asks to see
+  what would change before execution.
+- `change_log`: produced after cleanup execution or generated cleanup artifact
+  creation. It is an execution record of what actually changed.
+
+Do not integrate the change log into the cleanup plan by default. When the user
+asks for both, produce separate deliverables. If no real cleanup was executed
+but the user asks to act "as if" cleanup happened, label the file and status as
+simulated or virtual, not as a verified GTM change log.
 
 ## Change Log Granularity
 

@@ -18,8 +18,10 @@ from typing import Any, Iterable
 
 from gtm_audit_gate_check import (
     CUSTOM_CODE_SUMMARY_FIELDS,
+    COMPACT_D3_FIELDS,
     D3_REQUIRED_FIELDS,
     SEMANTIC_SUMMARY_FIELDS,
+    d3_proof_complete,
     depth_tokens,
     generic_or_blank,
     validate_semantic_depth_rows,
@@ -106,9 +108,12 @@ def semantic_decision_complete(row: dict[str, Any]) -> bool:
     if "D3" in required_depths:
         if "D3" not in completed_depths:
             return False
-        for field in D3_REQUIRED_FIELDS:
-            if field not in row or generic_or_blank(row.get(field)):
-                return False
+        has_legacy = all(field in row and not generic_or_blank(row.get(field)) for field in D3_REQUIRED_FIELDS)
+        has_compact = all(field in row and not generic_or_blank(row.get(field)) for field in COMPACT_D3_FIELDS)
+        if not has_legacy and not has_compact:
+            return False
+        if not d3_proof_complete(row):
+            return False
     return True
 
 

@@ -29,6 +29,11 @@ user asks for traceability.
 
 ## Semantic Graph
 
+Build the graph only after D3 literal behavior facts are extracted for the
+objects that need D3. The graph should connect exact behavior, not broad
+categories. For example, connect `returns Date.now()` to the consuming
+`device_local_hour` field; do not connect only `computed value` to `Piano`.
+
 Build a graph for meaningful tags, triggers, variables, folders, templates, and
 custom code:
 
@@ -49,6 +54,25 @@ For each edge, infer:
   objects, JSON string, boolean, URL, or side effect;
 - consumer expectation: vendor field, GA4 parameter, trigger condition, custom
   HTML placeholder, setup/teardown reference, or report-only metadata.
+
+Do not create a cleanup operation from an isolated object row when the relevant
+graph path is unknown. A cleanup decision must be supported by one of these:
+
+- complete graph path from business action to destination field;
+- complete graph path from trigger to code/side effect and consumer;
+- complete graph path proving an object is unused, duplicated, or replaced;
+- explicit blocker explaining which graph edge cannot be proven.
+
+Use the graph to detect synergy issues:
+
+- same business action sent to the same vendor with different payloads;
+- same source variable consumed by incompatible vendor fields;
+- client and server events duplicated without deduplication evidence;
+- consent state mapped differently inside the same vendor family;
+- loader tags that can overlap on the same route;
+- trigger names that imply a context not enforced by filters or downstream
+  parameters;
+- naming/consolidation proposals that would hide different business meanings.
 
 ## Formula Sanity
 

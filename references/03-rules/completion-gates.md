@@ -28,6 +28,8 @@ Every deliverable must account for:
   hierarchy, vendor/platform roles, and expected data contracts for meaningful
   object families;
 - semantic validation status for every meaningful object family;
+- D1-D3 proof queue status for every meaningful object or family requiring
+  export/API/config/code review;
 - semantic model coverage for meaningful conversion, media, ecommerce, lead,
   custom-code, server-side, and multi-market object families;
 - semantic logic consistency for conversion, media, ecommerce, lead, shared
@@ -85,8 +87,11 @@ required phase is `Done`, `Not applicable`, or `User-excluded`.
   effects, runtime risk, and export-level code/config inspection evidence.
   Required D1-D3 depth must be completed when the source evidence is available;
   only D4 runtime proof may remain deferred. D2/D3 summaries must follow
-  `summary-quality.md`: category, source/input, logic/action, output or side
-  effect, and judgment.
+  `summary-quality.md`: literal behavior, actual source/input, logic/action,
+  output or side effect, consumer/context, judgment, and cleanup implication.
+  D3 is incomplete when it categorizes the object without stating exact
+  behavior, such as `returns Date.now()` or `pushes e.data.payload to
+  dataLayer`.
 - `Semantic model`: meaningful object families have inferred business
   objective, user action, event/context, GTM implementation, data source,
   payload contract, platform use, and evidence/blockers where applicable.
@@ -159,10 +164,15 @@ deliver `Incomplete / blocked` with the failed rows.
 Before final delivery, verify:
 
 - no mandatory workstream is blank or silently skipped;
+- the D1-D3 proof queue is closed or explicitly marked incomplete before
+  cleanup operations are compiled;
 - every layer has changes, findings, or a documented reason for no change;
 - no meaningful object family is inventory-only or dependency-only;
 - no cleanup-ready claim exists for a meaningful family missing measurement
   diagnosis;
+- no cleanup operation exists for a D3 object unless literal behavior and the
+  relevant trigger/tag/variable/source/destination graph path are complete or
+  explicitly blocked;
 - semantic model checks have been completed or deferred for conversion, media,
   ecommerce, lead, server-side, and complex consolidation candidates;
 - Custom HTML, Custom JavaScript, and custom templates have object-level purpose,
@@ -175,8 +185,8 @@ Before final delivery, verify:
   tier, trigger-context status, configuration/source logic status,
   consent/server status, evidence level, and semantic status;
 - every row whose required depth includes D3 has D3 completion evidence:
-  inputs/sources, logic summary, output or side effect, consumer expectation,
-  and correctness decision;
+  literal behavior, actual inputs, logic/action, output or side effect,
+  consumer/context, analyst judgment, and cleanup implication;
 - proof summaries do not rely on generic evidence signals such as `custom code
   inspected`, `configuration reviewed`, `external URL found`, `dataLayer push
   detected`, `no obvious browser side effect`, `see config`, or `see export`;

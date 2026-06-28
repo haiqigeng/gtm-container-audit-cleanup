@@ -256,39 +256,46 @@ observed browser behavior over generic descriptions.
 7. **Build the semantic model**. Model business objective, user action,
    event/context, GTM implementation, data source, destination payload, platform
    use, and evidence/blockers for meaningful object families.
-8. **Populate the semantic object matrix**. For meaningful tags, triggers,
-   variables, custom templates, and custom code, assign a depth tier and record
-   business role, trigger context, config/code logic, source/output type,
-   consent/server status, evidence level, semantic status, blockers, and linked
-   findings or operations. Use `semantic-object-matrix.md`. High-impact active
-   tags and variables need object rows; repeated low-risk families may use
-   family rows plus anomaly rows. A row is not complete when only the name, hash,
-   or risk category is filled.
-9. **Run semantic logic checks**. Build the internal graph from business action
-   to trigger, tag, variable/helper, source path/formula, vendor field, consent,
-   and server routing. Surface only actionable findings, blockers, operations,
-   documented exceptions, or runtime QA; keep normal config details in the
-   matrix, not the cleanup plan.
-10. **Validate GA4 dataLayer format before variables**. Compare GA4/current
+8. **Build the D1-D3 proof queue and extract literal behavior first**. For
+   meaningful tags, triggers, variables, custom templates, and custom code,
+   assign a depth tier before writing findings or operations. For D3 objects,
+   record the exact object-specific behavior before categorizing it: actual
+   inputs, actual logic, actual output or side effect, actual consumers, and
+   expected consumer meaning. Close each queue row only when this evidence is
+   recorded in the matrix or custom-code review. Do not replace literal behavior
+   with broad categories such as `computed value`, `browser side effect`, or
+   `payload transformer`.
+9. **Trace consumer context and build the synergy graph**. Build the internal
+   graph from business action to trigger, tag, variable/helper, source
+   path/formula, custom-code side effect, vendor field, destination, consent,
+   and server routing. Use the graph to detect contradictions, duplicate
+   signals, shared-variable misuse, loader overlap, consent inconsistency,
+   browser/server duplication, and consolidation opportunities. Cleanup
+   operations are not allowed until the relevant graph path is understood or
+   explicitly blocked.
+10. **Run semantic logic checks**. Surface only actionable findings, blockers,
+   operations, documented exceptions, or runtime QA; keep normal config details
+   in compact proof rows, not the cleanup plan.
+11. **Validate GA4 dataLayer format before variables**. Compare GA4/current
    Google events to official schemas before judging GTM variables. For ecommerce,
    verify event-level fields and `items` array shape in the current event
    context. Treat UA Enhanced Ecommerce paths as migration evidence unless a
    verified mapper proves the outgoing GA4 payload is correct.
-11. **Validate standard ecommerce logic**. Always inspect common ecommerce
+12. **Validate standard ecommerce logic**. Always inspect common ecommerce
    variables such as revenue, total price, total quantity, tax, shipping,
    transaction ID, product IDs, names, categories, item arrays, checkout
    products, and purchase products. Confirm paths, formulas, output types,
    multi-item handling, null/`NaN` behavior, and every consuming tag field.
-12. **Audit missing standard events and dataLayer readiness**. For GA4 and each
+13. **Audit missing standard events and dataLayer readiness**. For GA4 and each
    vendor with official event documentation, identify missing useful standard
    events and whether the website/dataLayer already provides the required
    event, item, value, currency, ID, and consent data. Treat missing dataLayer
    readiness as a blocker before creating tags.
-13. **Infer naming scope carefully**. Use object names to detect country, market,
+14. **Infer naming scope carefully**. Use object names to detect country, market,
    language, product range, campaign, or audience scope, but do not assume
    unclear tokens are understood. Ask the user about ambiguous labels such as
    product-range or internal campaign prefixes before judging correctness.
-14. **Define the naming convention**. If the user provides a house style or
+15. **Define the naming convention**. If the user provides a house style or
    examples, follow them. Otherwise, infer the container's dominant convention
    from existing names before using the default patterns. Preserve meaningful
    local acronyms and casing when they are consistently used and semantically
@@ -296,97 +303,91 @@ observed browser behavior over generic descriptions.
    Use `naming-standardization.md`; decide final names before creating helpers,
    reusable triggers, or replacement tags, and validate proposed names for
    uniqueness within each layer before publishing artifacts.
-15. **Detect gateway and consolidation patterns**. Identify whether the container
+16. **Detect gateway and consolidation patterns**. Identify whether the container
    uses a one tag gateway, server-side gateway, lookup-table gateway, shared
    vendor loader, or repeated one-tag-per-market/event pattern. Cluster exact
    duplicates, single-member trigger groups, and similar objects that could be
    consolidated safely.
-16. **Select optimization patterns**. Use `optimization-patterns.md` to evaluate
+17. **Select optimization patterns**. Use `optimization-patterns.md` to evaluate
    hygiene, structural, semantic, and strategic optimization ideas without
    flattening business meaning or over-consolidating.
-17. **Classify client-to-server transport tags before judging Google IDs or
+18. **Classify client-to-server transport tags before judging Google IDs or
    consent triggers**. Server URLs, first-party endpoints, S2S naming,
    placeholder IDs, or consent/routing parameters make Google tags possible
    browser-to-server transport tags. Require server-container validation before
    editing IDs, blocking triggers, paused state, or destination assumptions.
-18. **Audit by risk area**. Review governance, implementation, security,
+19. **Audit by risk area**. Review governance, implementation, security,
    organization, setup hygiene, privacy/consent, GA4, server-side GTM, vendor
    pixels, and Google Ads.
-19. **Prioritize**. Rank findings by business impact, data quality impact,
+20. **Prioritize**. Rank findings by business impact, data quality impact,
    privacy risk, operational risk, performance impact, and cleanup complexity.
-20. **Stage cleanup decisions**. Separate objects that are currently unused from
+21. **Stage cleanup decisions**. Separate objects that are currently unused from
    objects that become obsolete only after an approved consolidation. Do not
    present the first orphan list as the final cleanup list.
-21. **Compile operations**. Convert findings into structured operations with
+22. **Compile operations**. Convert findings into structured operations with
    route, aggressiveness, dependencies, QA method, rollback, and blockers. Use
    `operation-schema.md`; do not compile cleanup operations for meaningful
    objects whose business/measurement role has not been diagnosed.
-22. **Build the full cleanup set**. For cleanup or importable JSON,
+23. **Build the full cleanup set**. For cleanup or importable JSON,
    include every evidence-safe correction, consolidation, deletion candidate,
    naming/folder improvement, trigger cleanup, variable cleanup, tag
    payload fix, and custom code hardening. Do not stop at the first high-risk
    family.
-23. **Flatten single-member trigger groups before final naming**. For each
+24. **Flatten single-member trigger groups before final naming**. For each
    trigger group with exactly one child trigger, update consuming tags to use the
    child trigger directly, then delete the group in direct GTM/API or
    overwrite/new-container JSON. In same-container merge JSON, document that the
    merge patch can remap consumers but cannot reliably delete omitted existing
    objects; provide a direct/overwrite deletion path.
-24. **Apply naming last when behavior changes exist**. After payload fixes,
+25. **Apply naming last when behavior changes exist**. After payload fixes,
    consolidation, deletion, and folder moves are decided, rename remaining
    objects according to the final convention and produce a before/after naming
    map. Re-scan all `{{Variable Name}}` references, especially inside custom HTML
    and custom JavaScript, plus setup/teardown `tagName` references after tag
    renames.
-25. **Recommend next actions**. Separate no-write recommendations,
+26. **Recommend next actions**. Separate no-write recommendations,
    user/business decisions, consolidation candidates, and approved mutation
    candidates.
-26. **Confirm execution route**. When the user approves cleanup, ask whether
+27. **Confirm execution route**. When the user approves cleanup, ask whether
    they want direct GTM execution through available
    tools/MCP/API or a GTM-compatible import JSON file they can import manually.
-27. **Select route-specific cleanup strategy**. For direct GTM/MCP/API cleanup,
+28. **Select route-specific cleanup strategy**. For direct GTM/MCP/API cleanup,
    preserve and modify existing objects in place when safe. For manual
    same-container import JSON, use a conflict-aware replacement/additive strategy
    when it reduces GTM import conflicts, emit only changed objects in the import
    file, and document old-to-new decommission mapping. For overwrite/new-container
    JSON, direct object updates/deletions may be appropriate.
-28. **Stop before writes**. If mutation is requested, read
+29. **Stop before writes**. If mutation is requested, read
    `mutation-playbook.md`, prepare a plan, and ask for explicit approval unless
    approval has already been given for the exact operations.
-29. **Self-QA generated outputs**. Before delivering an importable JSON, inspect
+30. **Self-QA generated outputs**. Before delivering an importable JSON, inspect
    the generated file as if it were a fresh export: run inventory, dependency,
    duplicate, unused, naming, GA4 dataLayer, and residual-issue checks. This is
    a self-audit gate, not an external workspace/export check.
-30. **Reconcile completion gates**. Before final delivery, check the ledger
+31. **Reconcile completion gates**. Before final delivery, check the ledger
    against `completion-gates.md` and `execution-assurance.md`; run the package
    and gate validators when their inputs exist. If a gate fails, label the
    deliverable `Incomplete / blocked` with failed rows, blockers, risk, required
    evidence, and next action.
-31. **Apply summary-quality discipline**. Use `summary-quality.md` before
+32. **Apply summary-quality discipline**. Use `summary-quality.md` before
    delivering Semantic Object Matrix rows, Custom Code Review rows, cleanup
    plans, change logs, or handoffs. Proof summaries must say category,
    source/input, logic/action, output or side effect, and judgment. User-facing
    plans should show only what the user needs to decide, approve, debug, or QA.
-32. **Optimize workbook information architecture**. For XLSX cleanup plans,
-   default to the compact human view: one visible executive decision summary
-   tab and one visible cleanup action plan tab. Add extra visible tabs only when
-   the user asks, the workflow truly needs them, or the file is a technical
-   appendix rather than an approval plan. Hide proof/technical tabs with normal
-   Excel `hidden` state, not `veryHidden`, so validators, future agents, and
-   expert reviewers can unhide them. Consolidate findings, roadmap, operations,
-   blockers, runtime QA, route, and naming into the action plan. Remove or hide
-   duplicated, constant, blank, or validator-only columns from user-facing
-   views. Hidden tabs must also be information-clean: remove or hide blank and
-   constant proof-only columns where the schema allows it, and rewrite columns
-   with repeated text so each retained field has a distinct purpose. Keep
-   required proof columns in backing tabs only when validators or cross-agent
-   handoff require the schema, and never use that exception to leave duplicate
-   human-facing content unchanged.
-33. **State the next step**. After each completed audit or workflow phase,
+33. **Optimize workbook information architecture**. For XLSX cleanup plans,
+   default to a compact human view: `Summary`, `Cleanup Plan`, compact `D3
+   Evidence`, `Inventory & Dependencies`, `Synergy & Consolidation`, `QA &
+   Blockers`, and `References & Validation` when needed. Keep total tabs around
+   7-8 and columns around 5-6 unless the user explicitly asks for a technical
+   appendix. Hidden tabs must also be information-clean; do not hide duplicated
+   machine scaffolding and call it solved. Consolidate similar D3 fields into
+   `Literal behavior`, `Consumer / context`, `Analyst judgment`, `Cleanup
+   implication`, and `Evidence / QA blocker`.
+34. **State the next step**. After each completed audit or workflow phase,
    state the concrete next step, including whether the user must approve a
    route, decide an owner/business question, provide evidence, or allow
    execution.
-34. **Report clearly**. Use `report-templates.md` and provide a reproducible
+35. **Report clearly**. Use `report-templates.md` and provide a reproducible
    audit trail.
 
 ## Non-Negotiable Safety Rules
@@ -488,4 +489,6 @@ wording. Keep cleanup plans and change logs end-user facing; put matrices,
 raw code/config, validator traces, and scratch reasoning in proof artifacts.
 Expose evidence freshness, coverage, semantic status, blockers, QA, route,
 rollback/publish status, deferred decisions, and a concrete `Recommended next
-step`. End audit and cleanup handoffs with the change-log question.
+step`. End audit and cleanup-plan handoffs with the next execution decision.
+Produce a real change log only after cleanup execution; before execution, offer
+a planned change preview only when useful.

@@ -16,6 +16,10 @@ The skill is not:
   or internal reasoning;
 - a tool that invents GTM-side custom JavaScript when the correct fix is a
   website/dataLayer contract.
+- a tool that replaces literal object behavior with broad categories such as
+  "computed value", "payload transformer", or "browser side effect";
+- a tool that creates a real post-cleanup change log before cleanup execution.
+  Before execution, use `planned change preview` or clearly mark simulated logs.
 
 When a request falls outside these boundaries, record the blocker, owner, or
 external work needed.
