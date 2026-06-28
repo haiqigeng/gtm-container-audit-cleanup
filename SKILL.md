@@ -77,7 +77,7 @@ deferred only when the user explicitly excludes it or when unclear business
 tokens make safe renaming impossible; in that case, document the blocker and the
 exact names that need owner clarification.
 
-Use `references/naming-standardization.md` for naming hierarchy, local
+Use `references/03-rules/naming-standardization.md` for naming hierarchy, local
 convention detection, case rules, uniqueness, blockers, and rename QA. Every
 proposed final name must be unique within its GTM object layer.
 
@@ -108,7 +108,7 @@ operations.
 
 For every audit, cleanup plan, cleanup run, importable JSON run, final handoff,
 or change log, maintain a completion ledger. Read
-`references/completion-gates.md` for the required workstreams, phase model,
+`references/03-rules/completion-gates.md` for the required workstreams, phase model,
 definition of done, reconciliation counts, and failed-gate handling. Do not rely
 on an implied checklist.
 
@@ -162,19 +162,20 @@ Load only the files required by scope:
 
 | Need | Read/use |
 | --- | --- |
-| Every full audit, cleanup plan, cleanup run, JSON artifact, handoff, or change log | `references/completion-gates.md`, `references/execution-assurance.md`, `references/audit-rubric.md`, `references/audit-domain-checks.md`, `references/policy-register.md` |
-| Explicitly quick, sample, narrow, or limited audit | `references/limited-audit-protocol.md` |
-| GA4/current Google tag, ecommerce, standard variables, missing events | `references/audit-ga4-ecommerce.md`, `references/source-map.md`, `references/vendor-playbooks.md` |
-| CMP, consent mode, browser-to-server transport, server-side caution | `references/audit-consent-server.md`, `references/runtime-qa-templates.md` |
-| Media/vendor pixels, affiliate, publisher ads, payload quality | `references/audit-media-vendors.md`, `references/vendor-playbooks.md`, `references/source-map.md` |
-| Exported JSON inventory, dependency graph, and scalable source tables | `references/container-json-guide.md`, `scripts/gtm_export_inspect.py` |
-| Semantic business logic and object-depth evidence | `references/semantic-model-protocol.md`, `references/semantic-object-matrix.md`, `references/semantic-logic-checks.md` |
-| Naming review, rename map, case/acronym rules, rename QA | `references/naming-standardization.md` |
-| Cleanup patterns, route choice, aggressiveness, operations, mutation, JSON | `references/optimization-patterns.md`, `references/operation-schema.md`, `references/import-json-policy.md`, `references/mutation-playbook.md` |
-| Client-facing severity, reports, workbooks, cleanup plans | `references/severity-calibration.md`, `references/report-templates.md`, `references/workbook-architecture.md` |
-| Semantic summaries, proof tabs, cleanup-plan readability | `references/summary-quality.md`, `references/workbook-architecture.md` |
-| Change logs | `references/change-log-template.md` |
-| Forward-testing | `references/forward-test-prompts.md` |
+| Skill purpose, users, questions resolved, inputs, outputs, acceptance criteria, non-goals | `references/01-skill/purpose.md`, `references/01-skill/users-and-questions.md`, `references/01-skill/inputs-outputs.md`, `references/01-skill/acceptance-criteria.md`, `references/01-skill/non-goals.md` |
+| Every full audit, cleanup plan, cleanup run, JSON artifact, handoff, or change log | `references/03-rules/completion-gates.md`, `references/03-rules/execution-assurance.md`, `references/03-rules/audit-rubric.md`, `references/03-rules/audit-domain-checks.md`, `references/03-rules/policy-register.md` |
+| Explicitly quick, sample, narrow, or limited audit | `references/03-rules/limited-audit-protocol.md` |
+| GA4/current Google tag, ecommerce, standard variables, missing events | `references/03-rules/audit-ga4-ecommerce.md`, `references/03-rules/source-map.md`, `references/03-rules/vendor-playbooks.md` |
+| CMP, consent mode, browser-to-server transport, server-side caution | `references/03-rules/audit-consent-server.md`, `references/02-commands/runtime-qa-templates.md` |
+| Media/vendor pixels, affiliate, publisher ads, payload quality | `references/03-rules/audit-media-vendors.md`, `references/03-rules/vendor-playbooks.md`, `references/03-rules/source-map.md` |
+| Exported JSON inventory, dependency graph, and scalable source tables | `references/03-rules/container-json-guide.md`, `scripts/gtm_export_inspect.py` |
+| Semantic business logic and object-depth evidence | `references/03-rules/semantic-model-protocol.md`, `references/03-rules/semantic-object-matrix.md`, `references/03-rules/semantic-logic-checks.md` |
+| Naming review, rename map, case/acronym rules, rename QA | `references/03-rules/naming-standardization.md` |
+| Cleanup patterns, route choice, aggressiveness, operations, mutation, JSON | `references/03-rules/optimization-patterns.md`, `references/03-rules/operation-schema.md`, `references/03-rules/import-json-policy.md`, `references/03-rules/mutation-playbook.md` |
+| Client-facing severity, reports, workbooks, cleanup plans | `references/03-rules/severity-calibration.md`, `references/03-rules/report-templates.md`, `references/03-rules/workbook-architecture.md` |
+| Semantic summaries, proof tabs, cleanup-plan readability | `references/03-rules/summary-quality.md`, `references/03-rules/workbook-architecture.md` |
+| Change logs | `references/03-rules/change-log-template.md` |
+| Validation commands, forward-testing, and runtime QA | `references/02-commands/validation-commands.md`, `references/02-commands/forward-test-prompts.md`, `references/02-commands/runtime-qa-templates.md` |
 
 Use scripts as deterministic gates or transformers:
 `scripts/gtm_audit_gate_check.py` for reconciliation and `--strict-evidence`,

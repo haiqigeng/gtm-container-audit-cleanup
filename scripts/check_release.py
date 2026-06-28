@@ -14,6 +14,11 @@ from pathlib import Path
 MAX_SKILL_LINES = 500
 LONG_REFERENCE_LINES = 100
 BLOCKLIST_FILE = "scripts/release_blocklist.txt"
+REFERENCE_BRANCHES = (
+    "references/01-skill",
+    "references/02-commands",
+    "references/03-rules",
+)
 CALVER_TAG_PATTERN = re.compile(r"^v\d{4}\.\d{2}\.\d{2}(?:\.\d+)?$")
 RELEASE_NOTE_HEADINGS = (
     "why this release matters",
@@ -30,7 +35,7 @@ def repo_root() -> Path:
 
 def text_files(root: Path) -> list[Path]:
     paths = [root / "SKILL.md", root / "README.md", root / "agents" / "openai.yaml"]
-    paths.extend(sorted((root / "references").glob("*.md")))
+    paths.extend(sorted((root / "references").rglob("*.md")))
     paths.extend(sorted((root / "scripts").glob("*.py")))
     return [path for path in paths if path.exists()]
 
@@ -117,11 +122,28 @@ def check_orphan_resources(root: Path, referenced: set[str]) -> list[str]:
     }
     routed = referenced | imported | exempt
 
-    for folder, suffix in (("references", "*.md"), ("scripts", "*.py")):
-        for path in sorted((root / folder).glob(suffix)):
-            rel = path.relative_to(root).as_posix()
-            if rel not in routed:
-                errors.append(f"{rel} is not referenced, imported, or explicitly exempted")
+    for path in sorted((root / "references").rglob("*.md")):
+        rel = path.relative_to(root).as_posix()
+        if rel not in routed:
+            errors.append(f"{rel} is not referenced, imported, or explicitly exempted")
+    for path in sorted((root / "scripts").glob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        if rel not in routed:
+            errors.append(f"{rel} is not referenced, imported, or explicitly exempted")
+    return errors
+
+
+def check_reference_branches(root: Path) -> list[str]:
+    errors = []
+    for rel in REFERENCE_BRANCHES:
+        if not (root / rel).is_dir():
+            errors.append(f"Missing required reference branch: {rel}")
+
+    allowed_prefixes = tuple(f"{rel}/" for rel in REFERENCE_BRANCHES)
+    for path in sorted((root / "references").rglob("*.md")):
+        rel = path.relative_to(root).as_posix()
+        if not rel.startswith(allowed_prefixes):
+            errors.append(f"{rel} is outside the required reference branches")
     return errors
 
 
@@ -135,7 +157,7 @@ def git_ls_files(root: Path) -> set[str]:
 
 def check_reference_navigation(root: Path) -> list[str]:
     errors = []
-    for path in sorted((root / "references").glob("*.md")):
+    for path in sorted((root / "references").rglob("*.md")):
         lines = path.read_text(encoding="utf-8").splitlines()
         if len(lines) > LONG_REFERENCE_LINES and "## Contents" not in lines[:25]:
             errors.append(
@@ -232,6 +254,7 @@ def main() -> int:
 
     refs, missing_refs = referenced_resources(root)
     errors.extend(missing_refs)
+    errors.extend(check_reference_branches(root))
     errors.extend(check_orphan_resources(root, refs))
 
     tracked = git_ls_files(root)

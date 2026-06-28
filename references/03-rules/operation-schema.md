@@ -76,12 +76,14 @@ Do not allow a family with missing measurement diagnosis to become
 cleanup-ready; keep it unresolved or deferred with the exact owner, runtime,
 server, or dataLayer blocker.
 
-For families with no mutation, create a report-only `Document exception` or
-`Defer` row so the user can see that the family was reviewed. For unresolved
-families, include the failed phase, affected objects, blocker, required next
-evidence, risk, and recommended next action. A cleanup plan with unresolved
-families may still be useful, but it must be labeled `Incomplete / blocked` and
-must not claim full cleanup readiness.
+For families with no mutation, record a report-only `Document exception`,
+`Keep`, or proof/reconciliation row so coverage is auditable. Surface it in the
+visible cleanup plan only when the no-change decision is material to approval,
+debugging, QA, owner follow-up, or risk acceptance. For unresolved families,
+include the failed phase, affected objects, blocker, required next evidence,
+risk, and recommended next action. A cleanup plan with unresolved families may
+still be useful, but it must be labeled `Incomplete / blocked` and must not
+claim full cleanup readiness.
 
 Do not convert missing audit work into a cleanup operation. Actions such as
 `review custom code`, `perform line-level review`, `check variable config`, or

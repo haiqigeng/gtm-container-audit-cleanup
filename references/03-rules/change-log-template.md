@@ -16,7 +16,9 @@ The cleanup plan is the decision source. The change log is the execution record.
 Do not make the change log a second audit or a place for new analysis.
 
 The change log should contain only what changed, why it changed, impact, QA,
-owner/status, and rollback/evidence notes needed for review.
+owner/status, and rollback/evidence notes needed for review. It must be
+granular enough for the user to understand the applied change without opening
+GTM View Changes, while still avoiding raw JSON, code dumps, and proof matrices.
 
 ## Required Columns
 
@@ -46,6 +48,11 @@ Owner / blocker
 Status
 ```
 
+`Before state / value` and `After state / value` must describe the behavior,
+name, dependency, trigger routing, payload field, variable source, consent
+setting, or folder/template relationship that actually changed. Do not fill
+them with generic text such as `updated`, `reviewed`, or `see GTM`.
+
 Recommended action values:
 
 - `Created`
@@ -72,6 +79,8 @@ Before delivering both cleanup plan and change log:
 - deferred semantic issues appear as deferred/blocker operations, not as changed
   rows;
 - naming, JSON route, and rollback notes match the selected execution route.
+- the row can be understood on its own by an analytics or business owner who
+  has not opened GTM View Changes.
 
 ## Output Boundary
 

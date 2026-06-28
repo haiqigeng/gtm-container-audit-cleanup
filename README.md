@@ -11,7 +11,12 @@ JSON, GTM API/UI evidence, screenshots, or runtime observations.
 
 - `SKILL.md`: the main web analyst workflow and operating rules.
 - `agents/openai.yaml`: Codex skill metadata and default prompt.
-- `references/`: focused audit, cleanup, reporting, QA, and safety playbooks.
+- `references/01-skill/`: purpose, users, questions resolved, inputs,
+  outputs, acceptance criteria, and non-goals.
+- `references/02-commands/`: checks, validation commands, runtime QA prompts,
+  and forward-test prompts.
+- `references/03-rules/`: workload rules for audit, semantic review, cleanup,
+  reporting, mutation safety, and workbook design.
 - `scripts/`: optional deterministic helpers for GTM JSON inspection, diffs,
   artifact validation, workbook gates, and release checks.
 
@@ -63,33 +68,39 @@ For approved cleanup, choose the route before any operation is generated:
 
 | File | Purpose |
 | --- | --- |
-| `references/completion-gates.md` | Mandatory workstreams, phase model, and definition of done. |
-| `references/execution-assurance.md` | Anti-skip rules, proof artifacts, and validation gates. |
-| `references/policy-register.md` | Stable policy IDs for repeatable safety and reporting rules. |
-| `references/limited-audit-protocol.md` | Boundaries for explicitly limited audits. |
-| `references/audit-rubric.md` | Full audit checklist and semantic review rules. |
-| `references/audit-domain-checks.md` | Governance, implementation, security, hygiene, and scenario checks. |
-| `references/container-json-guide.md` | GTM export parsing, dependency mapping, and object inventory guidance. |
-| `references/source-map.md` | Official documentation sources and source refresh workflow. |
-| `references/naming-standardization.md` | Naming hierarchy, local convention adaptation, case rules, uniqueness, and QA. |
-| `references/audit-ga4-ecommerce.md` | GA4/current Google tag, dataLayer, ecommerce, and standard variable checks. |
-| `references/audit-consent-server.md` | CMP, consent mode, browser-to-server, and server-side caution checks. |
-| `references/audit-media-vendors.md` | Media/vendor payload, signal quality, and cross-vendor checks. |
-| `references/vendor-playbooks.md` | Vendor-specific setup and payload checks. |
-| `references/semantic-model-protocol.md` | Internal business objective and measurement system model. |
-| `references/semantic-object-matrix.md` | Depth tiers, D1-D3 proof requirements, and semantic coverage matrix. |
-| `references/semantic-logic-checks.md` | Internal graph, formula, context, and payload contradiction checks. |
-| `references/summary-quality.md` | Proof-summary levels and user-facing report boundaries. |
-| `references/optimization-patterns.md` | Cleanup pattern library from hygiene to strategic redesign. |
-| `references/import-json-policy.md` | Same-container merge, View Changes, overwrite, and schema-dependency rules. |
-| `references/runtime-qa-templates.md` | Tag Assistant, browser, network, consent, and server-side QA templates. |
-| `references/severity-calibration.md` | Severity, priority, and confidence calibration. |
-| `references/operation-schema.md` | Cleanup aggressiveness, route, and operation table schema. |
-| `references/mutation-playbook.md` | Pre-write and mutation safety rules. |
-| `references/report-templates.md` | Audit, cleanup plan, workbook, and change-log schemas. |
-| `references/workbook-architecture.md` | Compact visible workbook tabs, hidden proof tabs, and workbook validation. |
-| `references/change-log-template.md` | Post-cleanup change-log schema and coherence rules. |
-| `references/forward-test-prompts.md` | Regression prompts for future skill execution tests. |
+| `references/01-skill/purpose.md` | North Star and analyst posture. |
+| `references/01-skill/users-and-questions.md` | Target users and questions the skill resolves. |
+| `references/01-skill/inputs-outputs.md` | Supported evidence inputs and deliverable outputs. |
+| `references/01-skill/acceptance-criteria.md` | Delivery criteria, D1-D3 clarity rules, and failure criteria. |
+| `references/01-skill/non-goals.md` | Boundaries the skill must not cross. |
+| `references/03-rules/completion-gates.md` | Mandatory workstreams, phase model, and definition of done. |
+| `references/03-rules/execution-assurance.md` | Anti-skip rules, proof artifacts, and validation gates. |
+| `references/03-rules/policy-register.md` | Stable policy IDs for repeatable safety and reporting rules. |
+| `references/03-rules/limited-audit-protocol.md` | Boundaries for explicitly limited audits. |
+| `references/03-rules/audit-rubric.md` | Full audit checklist and semantic review rules. |
+| `references/03-rules/audit-domain-checks.md` | Governance, implementation, security, hygiene, and scenario checks. |
+| `references/03-rules/container-json-guide.md` | GTM export parsing, dependency mapping, and object inventory guidance. |
+| `references/03-rules/source-map.md` | Official documentation sources and source refresh workflow. |
+| `references/03-rules/naming-standardization.md` | Naming hierarchy, local convention adaptation, case rules, uniqueness, and QA. |
+| `references/03-rules/audit-ga4-ecommerce.md` | GA4/current Google tag, dataLayer, ecommerce, and standard variable checks. |
+| `references/03-rules/audit-consent-server.md` | CMP, consent mode, browser-to-server, and server-side caution checks. |
+| `references/03-rules/audit-media-vendors.md` | Media/vendor payload, signal quality, and cross-vendor checks. |
+| `references/03-rules/vendor-playbooks.md` | Vendor-specific setup and payload checks. |
+| `references/03-rules/semantic-model-protocol.md` | Internal business objective and measurement system model. |
+| `references/03-rules/semantic-object-matrix.md` | Depth tiers, D1-D3 proof requirements, and semantic coverage matrix. |
+| `references/03-rules/semantic-logic-checks.md` | Internal graph, formula, context, and payload contradiction checks. |
+| `references/03-rules/summary-quality.md` | Proof-summary levels and user-facing report boundaries. |
+| `references/03-rules/optimization-patterns.md` | Cleanup pattern library from hygiene to strategic redesign. |
+| `references/03-rules/import-json-policy.md` | Same-container merge, View Changes, overwrite, and schema-dependency rules. |
+| `references/02-commands/runtime-qa-templates.md` | Tag Assistant, browser, network, consent, and server-side QA templates. |
+| `references/03-rules/severity-calibration.md` | Severity, priority, and confidence calibration. |
+| `references/03-rules/operation-schema.md` | Cleanup aggressiveness, route, and operation table schema. |
+| `references/03-rules/mutation-playbook.md` | Pre-write and mutation safety rules. |
+| `references/03-rules/report-templates.md` | Audit, cleanup plan, workbook, and change-log schemas. |
+| `references/03-rules/workbook-architecture.md` | Compact visible workbook tabs, hidden proof tabs, and workbook validation. |
+| `references/03-rules/change-log-template.md` | Post-cleanup change-log schema and coherence rules. |
+| `references/02-commands/validation-commands.md` | Local validation and release-check commands. |
+| `references/02-commands/forward-test-prompts.md` | Regression prompts for future skill execution tests. |
 
 ## Helper Commands
 
@@ -175,6 +186,26 @@ git status --short
   available.
 - Do not use same-container JSON imports for broad readable rename reviews; use
   direct GTM API/MCP or a name-preserving review artifact instead.
+
+## Skill Contract
+
+Primary users are web analysts, analytics engineers, tagging consultants, and
+AI agents assisting them. The skill answers whether a GTM container measures the
+right business actions with the right data, whether each tag/trigger/variable is
+coherent with its business and platform role, and whether the container objects
+work together in the simplest, most readable, and easiest-to-maintain way.
+
+Inputs may include exported GTM JSON, GTM API/UI evidence, screenshots, Tag
+Assistant/network observations, website context, CMP details, and official
+vendor documentation. Outputs are audit reports, cleanup plans, change logs,
+runtime QA plans, and optional GTM-compatible artifacts when explicitly
+approved. A completed result must demonstrate D1-D3 configuration logic and
+custom-code/template behavior clearly enough that the user understands the
+functionality and impact, not just that an object was "reviewed."
+
+Non-goals include replacing legal/privacy review, guessing missing business
+intent, auditing server containers without server evidence, publishing GTM
+versions, or flooding user-facing files with internal proof details.
 
 ## Project Status
 

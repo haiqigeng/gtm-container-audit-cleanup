@@ -465,13 +465,21 @@ hold raw D1/D2/D3 evidence.
 ## Change Log Columns
 
 Use `change-log-template.md` for the required change-log columns, action
-values, coherence rules, and output boundary.
+values, coherence rules, and output boundary. The change log must explain the
+human-visible before/after behavior of each applied or generated change well
+enough that an analytics owner can review what happened without opening GTM
+View Changes.
 
 ## Cleanup Plan And Change Log Coherence
 
 The cleanup plan is the decision source and the change log is the execution
 record. Before delivering both files, apply the coherence checks in
 `change-log-template.md`.
+
+Do not let the two files drift: operation IDs, object IDs, before/after names,
+reason, functional impact, QA method, blocker, and status must tell the same
+story. If execution discovers new facts, update the cleanup plan first and then
+mirror the final change-log row.
 
 ## Output Format Selection
 

@@ -202,7 +202,7 @@ Before final delivery, verify:
   residual duplicate/unused/name/logic issues;
 - same-container JSON respects import conflict constraints, folder dependencies,
   custom-template dependencies, and built-in variable preservation;
-- change-log columns match `report-templates.md` when a change log is produced.
+- change-log columns match `change-log-template.md` when a change log is produced.
 - cleanup plan and change log rows use the same operation IDs and do not contain
   conflicting object, reason, impact, QA, or status information.
 - cleanup plans and change logs expose decisions, impact, QA/debug steps,
