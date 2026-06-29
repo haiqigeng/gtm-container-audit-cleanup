@@ -256,26 +256,30 @@ observed browser behavior over generic descriptions.
 7. **Build the semantic model**. Model business objective, user action,
    event/context, GTM implementation, data source, destination payload, platform
    use, and evidence/blockers for meaningful object families.
-8. **Build the D1-D3 proof queue and extract literal behavior first**. For
-   meaningful tags, triggers, variables, custom templates, and custom code,
-   assign a depth tier before writing findings or operations. For D3 objects,
-   record the exact object-specific behavior before categorizing it: actual
-   inputs, actual logic, actual output or side effect, actual consumers, and
-   expected consumer meaning. Close each queue row only when this evidence is
-   recorded in the matrix or custom-code review. Do not replace literal behavior
-   with broad categories such as `computed value`, `browser side effect`, or
-   `payload transformer`.
-9. **Trace consumer context and build the synergy graph**. Build the internal
-   graph from business action to trigger, tag, variable/helper, source
-   path/formula, custom-code side effect, vendor field, destination, consent,
-   and server routing. Use the graph to detect contradictions, duplicate
-   signals, shared-variable misuse, loader overlap, consent inconsistency,
+8. **Build the full D1-D3 proof queue and extract literal behavior first**. For
+   a full audit, every tag, trigger, variable, custom template, and referenced
+   configuration branch requires D3 export/API/config/code review. Record exact
+   object-specific behavior before categorizing it: actual inputs, actual logic,
+   actual output or side effect, actual consumers, and expected consumer
+   meaning. Close a queue row only when this evidence is recorded in the matrix
+   or custom-code review. Do not replace literal behavior with broad categories
+   such as `computed value`, `browser side effect`, or `payload transformer`.
+9. **Trace recursively and build the synergy graph**. Build the internal graph
+   from business action to trigger, tag, variable/helper, source path/formula,
+   custom-code side effect, vendor field, destination, consent, and server
+   routing. Do not stop at `tag uses variable X`: trace every tag field,
+   trigger filter, variable reference, lookup input, custom-code placeholder,
+   and template field to its terminal source or a D4-only runtime blocker. Use
+   the graph to detect contradictions, duplicate/similar conditions,
+   shared-variable misuse, loader overlap, consent inconsistency,
    browser/server duplication, and consolidation opportunities. Cleanup
    operations are not allowed until the relevant graph path is understood or
    explicitly blocked.
-10. **Run semantic logic checks**. Surface only actionable findings, blockers,
-   operations, documented exceptions, or runtime QA; keep normal config details
-   in compact proof rows, not the cleanup plan.
+10. **Run semantic logic and sibling-field checks**. Compare resolved sibling
+   fields and sibling objects by source, condition, return type, consumer
+   meaning, and official/vendor/business expectation. Surface every actionable
+   object-level finding, blocker, operation, documented exception, or runtime QA;
+   keep normal config details in compact proof rows, not the cleanup plan.
 11. **Validate GA4 dataLayer format before variables**. Compare GA4/current
    Google events to official schemas before judging GTM variables. For ecommerce,
    verify event-level fields and `items` array shape in the current event
@@ -382,7 +386,13 @@ observed browser behavior over generic descriptions.
    appendix. Hidden tabs must also be information-clean; do not hide duplicated
    machine scaffolding and call it solved. Consolidate similar D3 fields into
    `Literal behavior`, `Consumer / context`, `Analyst judgment`, `Cleanup
-   implication`, and `Evidence / QA blocker`.
+   implication`, and `Evidence / QA blocker`. In the visible cleanup plan, use
+   parent/detail rows when several findings share one category: a `Summary` row
+   followed immediately by `Detail` rows for each concrete object finding. Do
+   not collapse distinct object issues into one vague family row. Generic
+   hygiene buckets such as unused-object deletion, exact duplicates, naming
+   convention, or folder moves may stay as one row when evidence, action, QA,
+   and rollback are identical for the whole set.
 34. **State the next step**. After each completed audit or workflow phase,
    state the concrete next step, including whether the user must approve a
    route, decide an owner/business question, provide evidence, or allow

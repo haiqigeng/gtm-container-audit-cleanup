@@ -3,8 +3,9 @@
 
 This checker is intentionally mechanical. It does not decide whether the audit
 judgments are correct; it catches execution failures such as missing semantic
-rows for high-impact objects, missing custom-code export review, missing
-reconciliation rows, and placeholder operations that defer audit work.
+rows for tag/trigger/variable/template objects, missing custom-code export
+review, missing reconciliation rows, and placeholder operations that defer
+audit work.
 """
 
 from __future__ import annotations
@@ -29,8 +30,8 @@ from gtm_audit_gate_check import (
     validate_rows,
     validate_summary_quality,
 )
-from gtm_lib import container_version, custom_template_id
-from gtm_taxonomy import is_high_impact, object_text
+from gtm_lib import container_version
+from gtm_taxonomy import object_text
 from gtm_workbook import find_sheet, load_xlsx_workbook
 
 
@@ -45,10 +46,6 @@ def object_id(obj: dict[str, Any], id_key: str) -> str:
 
 def has_parameter(obj: dict[str, Any], key: str) -> bool:
     return any(param.get("key") == key for param in obj.get("parameter", []) or [])
-
-
-def active_tag(tag: dict[str, Any]) -> bool:
-    return str(tag.get("paused", "")).lower() != "true" and tag.get("paused") is not True
 
 
 def is_custom_html_tag(tag: dict[str, Any]) -> bool:
@@ -210,34 +207,30 @@ def duplicate_column_warnings(workbook: dict[str, list[dict[str, Any]]]) -> list
     return warnings
 
 
-def custom_templates_in_scope(cv: dict[str, Any]) -> list[dict[str, Any]]:
-    templates = {str(t.get("templateId")): t for t in cv.get("customTemplate", []) or []}
-    used_ids = set()
-    for layer in ("tag", "variable"):
-        for obj in cv.get(layer, []) or []:
-            template_id = custom_template_id(obj)
-            if template_id:
-                used_ids.add(str(template_id))
-    return [templates[template_id] for template_id in sorted(used_ids) if template_id in templates]
-
-
 def source_objects(cv: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    high_impact: list[dict[str, str]] = []
+    semantic_scope: list[dict[str, str]] = []
     custom_code: list[dict[str, str]] = []
 
     for tag in cv.get("tag", []) or []:
-        if not active_tag(tag):
-            continue
         row = {
             "layer": "tag",
             "id": object_id(tag, "tagId"),
             "name": object_name(tag),
             "type": str(tag.get("type") or ""),
         }
-        if is_high_impact(tag):
-            high_impact.append(row)
+        semantic_scope.append(row)
         if is_custom_html_tag(tag):
             custom_code.append(row)
+
+    for trigger in cv.get("trigger", []) or []:
+        semantic_scope.append(
+            {
+                "layer": "trigger",
+                "id": object_id(trigger, "triggerId"),
+                "name": object_name(trigger),
+                "type": str(trigger.get("type") or ""),
+            }
+        )
 
     for variable in cv.get("variable", []) or []:
         row = {
@@ -246,22 +239,21 @@ def source_objects(cv: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[
             "name": object_name(variable),
             "type": str(variable.get("type") or ""),
         }
-        if is_high_impact(variable):
-            high_impact.append(row)
+        semantic_scope.append(row)
         if is_custom_js_variable(variable):
             custom_code.append(row)
 
-    for template in custom_templates_in_scope(cv):
-        custom_code.append(
-            {
-                "layer": "template",
-                "id": object_id(template, "templateId"),
-                "name": object_name(template),
-                "type": "customTemplate",
-            }
-        )
+    for template in cv.get("customTemplate", []) or []:
+        row = {
+            "layer": "template",
+            "id": object_id(template, "templateId"),
+            "name": object_name(template),
+            "type": "customTemplate",
+        }
+        semantic_scope.append(row)
+        custom_code.append(row)
 
-    return high_impact, custom_code
+    return semantic_scope, custom_code
 
 
 def validate_semantic_sheet(name: str | None, rows: list[dict[str, Any]]) -> list[str]:
@@ -294,15 +286,15 @@ def validate_reconciliation(
     return errors, warnings
 
 
-def validate_high_impact_coverage(
-    high_impact: list[dict[str, str]], semantic_rows: list[dict[str, Any]], limited: bool
+def validate_semantic_object_coverage(
+    semantic_scope: list[dict[str, str]], semantic_rows: list[dict[str, Any]], limited: bool
 ) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    for obj in high_impact:
+    for obj in semantic_scope:
         if not semantic_row_complete(semantic_rows, obj["layer"], obj["id"], obj["name"]):
             message = (
-                f"missing complete semantic row for high-impact {obj['layer']} "
+                f"missing complete semantic row for {obj['layer']} "
                 f"{obj['id']} {obj['name']!r}"
             )
             if limited:
@@ -354,7 +346,7 @@ def validate_package(export_path: Path, workbook_path: Path, limited: bool) -> t
 
     cv = container_version(json.loads(export_path.read_text(encoding="utf-8")))
     workbook = load_xlsx_workbook(workbook_path)
-    high_impact, custom_code = source_objects(cv)
+    semantic_scope, custom_code = source_objects(cv)
 
     semantic_name, semantic_rows = find_sheet(workbook, ["semantic", "matrix"])
     custom_name, custom_rows = find_sheet(workbook, ["custom", "code"])
@@ -367,8 +359,8 @@ def validate_package(export_path: Path, workbook_path: Path, limited: bool) -> t
     errors.extend(rec_errors)
     warnings.extend(rec_warnings)
 
-    coverage_errors, coverage_warnings = validate_high_impact_coverage(
-        high_impact, semantic_rows, limited
+    coverage_errors, coverage_warnings = validate_semantic_object_coverage(
+        semantic_scope, semantic_rows, limited
     )
     errors.extend(coverage_errors)
     warnings.extend(coverage_warnings)
@@ -377,7 +369,7 @@ def validate_package(export_path: Path, workbook_path: Path, limited: bool) -> t
     errors.extend(validate_placeholder_language(workbook))
     warnings.append(
         "source summary: "
-        f"{len(high_impact)} high-impact active tag/variable object(s), "
+        f"{len(semantic_scope)} tag/trigger/variable/template object(s), "
         f"{len(custom_code)} custom-code/template object(s)"
     )
     warnings.extend(duplicate_column_warnings(workbook))
@@ -391,7 +383,7 @@ def main() -> int:
     parser.add_argument(
         "--limited",
         action="store_true",
-        help="Treat high-impact coverage misses as warnings for explicitly limited audits.",
+        help="Treat full object-level semantic coverage misses as warnings for explicitly limited audits.",
     )
     args = parser.parse_args()
 

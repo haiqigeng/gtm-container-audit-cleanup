@@ -11,7 +11,9 @@ A complete audit or cleanup plan must show:
 - measurement diagnosis for meaningful object families;
 - a D1-D3 proof queue closed before findings and cleanup operations are
   finalized;
-- D1-D3 semantic review from available export/API/source evidence;
+- recursive D1-D3 semantic review from available export/API/source evidence for
+  every tag, trigger, variable, custom template, and referenced configuration
+  branch in a full audit;
 - official documentation basis for material GA4, CMP, vendor, ecommerce, and
   server-side judgments;
 - cleanup decisions for each material family: keep, fix, consolidate, delete
@@ -24,7 +26,8 @@ A complete audit or cleanup plan must show:
 D1-D3 review is acceptable only when it demonstrates the object's actual
 functionality. Generic proof that an object was checked does not count.
 
-For every meaningful object, the review must explain:
+For every tag, trigger, variable, custom template, and referenced configuration
+branch in a full audit, the review must explain:
 
 - what the object is supposed to do;
 - what input or source it uses;
@@ -36,6 +39,18 @@ For every meaningful object, the review must explain:
   on it;
 - whether the functionality is coherent with the name, event context, business
   role, platform role, and official documentation.
+
+The review must recursively trace references. A tag field or trigger condition
+that points to a GTM variable is not reviewed until the variable's source path,
+code/configuration, return value, output type, and consumer expectation are
+also reviewed. A variable that points to another variable, lookup table,
+dataLayer path, built-in, URL/cookie/DOM source, or custom code must be traced
+to that terminal source or to a D4-only runtime blocker.
+
+The review must compare sibling fields and sibling objects. If two different
+semantic outputs use identical or near-identical logic, such as two Consent Mode
+signals using the same CMP purpose condition, the audit must surface it as a
+finding, documented exception, or owner/D4 blocker.
 
 The D1-D3 proof is not acceptable unless another analyst can read the matrix or
 custom-code review row and understand the exact object functionality without
@@ -105,8 +120,13 @@ a hypothetical or test artifact, label it as a `planned change preview` or
 Mark the deliverable `Incomplete / blocked` when:
 
 - D1-D3 work is missing while source evidence is available;
+- a full audit lacks D3 rows for tags, triggers, variables, or custom
+  templates;
 - the D1-D3 queue is unresolved or missing before cleanup operations are
   compiled;
+- D3 stops at a variable/reference name instead of recursively tracing source
+  logic and consumer meaning;
+- sibling fields with duplicated or near-duplicated logic are not compared;
 - measurement diagnosis is missing for meaningful affected families;
 - custom code is not inspected at export/config level;
 - cleanup actions require future audit work to decide correctness;

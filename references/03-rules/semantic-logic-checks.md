@@ -8,7 +8,7 @@ makes business and data sense as a whole.
 ## Contents
 
 - Principle
-- Semantic Graph
+- Recursive Semantic Graph
 - Formula Sanity
 - Context Consistency
 - Contradiction Patterns
@@ -27,15 +27,16 @@ Only surface the result when it changes a finding, operation, blocker, or QA
 step. Keep scratch reasoning internal or in a technical workbook tab when the
 user asks for traceability.
 
-## Semantic Graph
+## Recursive Semantic Graph
 
-Build the graph only after D3 literal behavior facts are extracted for the
-objects that need D3. The graph should connect exact behavior, not broad
-categories. For example, connect `returns Date.now()` to the consuming
-`device_local_hour` field; do not connect only `computed value` to `Piano`.
+Build the graph only after D3 literal behavior facts are extracted for every
+tag, trigger, variable, custom template, and referenced configuration branch in
+a full audit. The graph should connect exact behavior, not broad categories.
+For example, connect `returns Date.now()` to the consuming `device_local_hour`
+field; do not connect only `computed value` to `Piano`.
 
-Build a graph for meaningful tags, triggers, variables, folders, templates, and
-custom code:
+Build a graph for tags, triggers, variables, folders, templates, and custom
+code:
 
 ```text
 business action -> trigger/event context -> tag -> vendor field
@@ -55,6 +56,19 @@ For each edge, infer:
 - consumer expectation: vendor field, GA4 parameter, trigger condition, custom
   HTML placeholder, setup/teardown reference, or report-only metadata.
 
+Trace recursively:
+
+```text
+tag field -> referenced variable -> variable config/code/source path
+trigger filter -> referenced variable -> variable config/code/source path
+custom HTML/CJS placeholder -> referenced variable -> source path/code
+lookup/regex table -> input variable -> terminal source
+```
+
+Stop only at a terminal source, such as a dataLayer path, URL component,
+built-in value, cookie, DOM selector, constant, external endpoint, or a D4
+runtime-only availability question. Do not stop at the variable name.
+
 Do not create a cleanup operation from an isolated object row when the relevant
 graph path is unknown. A cleanup decision must be supported by one of these:
 
@@ -69,6 +83,9 @@ Use the graph to detect synergy issues:
 - same source variable consumed by incompatible vendor fields;
 - client and server events duplicated without deduplication evidence;
 - consent state mapped differently inside the same vendor family;
+- different semantic fields using the same source condition without a documented
+  reason, such as `ad_storage` and `analytics_storage` both granted by the same
+  CMP purpose;
 - loader tags that can overlap on the same route;
 - trigger names that imply a context not enforced by filters or downstream
   parameters;
@@ -152,6 +169,32 @@ variables:
 - compare each consumer's expected type and business meaning;
 - split, rename, or defer when one helper is serving incompatible semantics;
 - avoid "fixing" a shared variable for one vendor in a way that breaks another.
+
+## Sibling Logic Checks
+
+For every tag or template with multiple meaningful fields, compare sibling
+fields after resolving their referenced variables:
+
+- field name and expected semantic meaning;
+- referenced variable or constant;
+- terminal dataLayer/cookie/URL/DOM/source path;
+- custom-code condition or lookup rows;
+- returned value and output type;
+- official/vendor expectation or business meaning.
+
+Flag as a finding, documented exception, or owner blocker when:
+
+- two different semantic fields use identical or near-identical logic;
+- fields that should be distinct use the same source path or CMP purpose;
+- one field combines multiple conditions while a sibling uses only one without
+  a clear reason;
+- a variable name says one meaning while the consuming field expects another;
+- a family-level pattern is mostly consistent but one object deviates.
+
+This check is mandatory for consent, GA4/current Google, ecommerce, lead,
+media, affiliate, server-side transport, publisher ads, and any vendor template
+with configurable event/payload fields. It is also useful for simple tags
+because it reveals consolidation opportunities.
 
 ## Media Signal Quality
 

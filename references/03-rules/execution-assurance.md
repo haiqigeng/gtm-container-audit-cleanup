@@ -24,13 +24,14 @@ source export/API evidence -> inventory/dependency facts
 ```
 
 The user-facing cleanup plan should remain concise, but the backing workbook or
-CSV package must prove that high-impact objects, custom code, vendor payloads,
-triggers, and variables were actually reviewed.
+CSV package must prove that every tag, trigger, variable, custom template, and
+referenced configuration branch was actually reviewed in a full audit.
 
-Required D1-D3 work is never optional in a complete audit. When the source export
-or API contains the object configuration, code, trigger filters, variable paths,
-lookup rows, or template settings, the agent must inspect them. Only D4 runtime
-proof may be blocked by lack of browser, server, CMP, or vendor-platform access.
+Required D1-D3 work is never optional in a complete full audit. When the source
+export or API contains the object configuration, code, trigger filters,
+variable paths, lookup rows, or template settings, the agent must inspect them
+recursively. Only D4 runtime proof may be blocked by lack of browser, server,
+CMP, or vendor-platform access.
 
 ## Required Proof Artifacts
 
@@ -44,10 +45,11 @@ A completed full audit or cleanup plan must include or generate:
 - Measurement Diagnosis rows or fields for meaningful object families, covering
   business model, decision outcome, conversion hierarchy, platform role, and
   expected data contract;
-- Semantic Object Matrix rows for all high-impact active tags/variables and all
-  reviewed meaningful families;
+- Semantic Object Matrix rows for all tags, triggers, variables, custom
+  templates, and reviewed meaningful families;
 - D1-D3 proof queue status showing that required export/API/config/code review
-  was completed before findings and cleanup operations were finalized;
+  and recursive variable/trigger/source tracing were completed before findings
+  and cleanup operations were finalized;
 - Custom Code Semantic Review rows for active, referenced, risky, unused, or
   cleanup-relevant Custom HTML, Custom JavaScript, and custom templates;
 - Official Docs Map rows for material vendor/event/CMP families;
@@ -81,7 +83,8 @@ to approve or verify.
 
 These behaviors are failed execution, not harmless limitations:
 
-- high-impact objects appear in the export but not in the Semantic Object Matrix;
+- tags, triggers, variables, or custom templates appear in the export but not in
+  the Semantic Object Matrix for a full audit;
 - meaningful object families move to cleanup operations without measurement
   diagnosis;
 - Custom HTML/JS exists but the Custom Code Semantic Review tab is missing or
@@ -90,6 +93,14 @@ These behaviors are failed execution, not harmless limitations:
   later when that review is needed to judge correctness now;
 - a variable/tag is accepted as correct because names look similar, without
   inspecting the source path, formula, output type, and consumers;
+- a tag field is accepted as correct because it points to a named variable,
+  without recursively inspecting that variable's source logic and every relevant
+  consumer/field expectation;
+- a trigger is accepted as correct because its name looks right, without
+  inspecting its filter variables, operators, values, consuming tags, and
+  referenced variable configuration;
+- duplicated or near-duplicated source logic is left as a generic validation
+  note instead of a concrete finding, documented exception, or D4-only blocker;
 - runtime uncertainty is used to skip export-level analysis instead of marking
   only runtime proof as blocked;
 - required D3 rows say D3 is blocked even though the export contains the code,
@@ -103,6 +114,8 @@ These behaviors are failed execution, not harmless limitations:
   row is unresolved;
 - a cleanup operation is created before the relevant semantic graph path from
   trigger/source/code to consumer/destination is complete or explicitly blocked;
+- a cleanup plan collapses several distinct object-level issues into a family
+  heading without detail rows or object-specific findings beneath it;
 - D2/D3 proof uses generic phrases such as `custom code inspected`,
   `configuration reviewed`, `external URL found`, `dataLayer push detected`,
   `no obvious browser side effect`, `see config`, or `see export` instead of a

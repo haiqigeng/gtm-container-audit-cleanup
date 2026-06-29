@@ -1,15 +1,16 @@
 # Semantic Object Matrix
 
 Use this reference after inventory and dependency mapping. It turns semantic
-review into a scalable gate: every meaningful object is classified, high-impact
-objects are traced deeply, and the stakeholder report shows decisions instead of
-raw GTM configuration dumps.
+review into a scalable gate: every configurable GTM object is traced deeply in a
+full audit, and the stakeholder report shows decisions instead of raw GTM
+configuration dumps.
 
 ## Contents
 
 - Principle
 - Depth Tiers
 - Required Depth Rule
+- Recursive D3 Trace
 - D1-D3 Proof Queue
 - D1-D3 Proof Contract
 - Required Matrix Columns
@@ -41,23 +42,31 @@ business intent -> decision outcome -> platform role -> trigger context
 
 ## Depth Tiers
 
-Assign the minimum depth needed for each object or object family.
+For a full audit, assign D3 to every configurable/executable object: tags,
+triggers, variables, custom templates, consent settings, and any referenced
+template field or custom-code/configuration branch. D1/D2 are still recorded,
+but they are not a stopping point. Only metadata-only objects with no execution
+logic, such as folders, may remain D1/D2 unless naming, dependency, or cleanup
+logic depends on them.
+
+For an explicitly limited audit, assign the minimum depth needed for the limited
+scope and label the deliverable limited.
 
 | Tier | Use for | Required work |
 | --- | --- | --- |
-| D1 Classification | Low-risk helpers, folders, obvious constants, low-risk unused objects. | Identify role, family, consumers, and semantic status. |
-| D2 Configuration logic | Active template tags, triggers, DLVs, lookup/regex tables, standard variables. | Check event name, trigger context, meaningful fields, variable paths, output type, and consumer expectation. |
-| D3 Source/code logic | Consent, conversion, ecommerce, lead, media, identity, server-side, pageview, ad revenue, and any risky/shared/custom-code object. | Inspect source DLV path, formula, lookup, custom JS, custom HTML, storage/cookie/DOM/network side effects, and type compatibility. |
+| D1 Classification | Every object. | Identify role, family, consumers, and semantic status. |
+| D2 Configuration logic | Every tag, trigger, variable, template, and consent/server configuration. | Check event name, trigger context, meaningful fields, variable paths, output type, and consumer expectation. |
+| D3 Source/code/configuration logic | Every tag, trigger, variable, custom template, custom HTML, custom JavaScript, lookup/regex table, DLV, URL/DOM/cookie variable, consent helper, and referenced configuration branch in a full audit. | Recursively inspect source DLV path, formula, lookup rows, custom JS, custom HTML, trigger filters, template fields, storage/cookie/DOM/network side effects, and type compatibility until terminal sources are reached. |
 | D4 Runtime proof | Async pages, SPA/infinite scroll, DOM scraping, CMP timing, server routing, ad slots, vendor acceptance, and any context not provable from export/API. | Define exact Tag Assistant, browser/network, vendor-platform, or owner evidence required. |
 
 Depth is cumulative. A D3 object must also satisfy D1 and D2.
 
 ## Required Depth Rule
 
-Required depth is an execution requirement. If an object requires D1, D2, or D3
-and the export, API, custom template configuration, or supplied evidence contains
-the needed information, complete that depth during the audit. Do not report it
-as required-but-not-done.
+Required depth is an execution requirement. In a full audit, every tag, trigger,
+variable, and custom template requires D3 when the export, API, custom template
+configuration, or supplied evidence contains its configuration. Complete that
+depth during the audit. Do not report it as required-but-not-done.
 
 Only D4 runtime proof may be deferred. D4 covers behavior that cannot be proven
 from export/API evidence, such as browser timing, DOM availability, CMP order,
@@ -69,20 +78,75 @@ must prove it with source/code evidence. Phrases such as `D3/D4 blocked`,
 `D3 required` do not count as D3 completion. If D3 cannot be done because the
 source/config is genuinely unavailable, mark the workstream `Incomplete /
 blocked` and identify the missing source. In a normal GTM export, Custom HTML,
-Custom JavaScript, DLV paths, lookup/regex tables, trigger filters, and tag
-parameters are scannable.
+Custom JavaScript, DLV paths, lookup/regex tables, trigger filters, tag
+parameters, template fields, and variable references are scannable.
+
+## Recursive D3 Trace
+
+D3 is not complete when the row stops at "tag uses variable X" or "trigger uses
+condition Y". For each object, recursively trace every referenced object until
+the source reaches a terminal value or a D4 runtime-only blocker.
+
+Required trace by layer:
+
+- **Tag**: tag type/template, event name or command, firing and blocking
+  triggers, setup/teardown references, every meaningful template field, every
+  variable reference inside parameters or custom HTML, outgoing vendor/server
+  fields, and expected destination meaning.
+- **Trigger**: GTM event type, custom event name, every filter variable, filter
+  operator/value, trigger-group children, consuming tags, firing/blocking role,
+  and expected page/action context.
+- **Variable**: variable type, source path or code/config, lookup/regex input
+  and rows, default/fallback, returned value type, every consumer field or
+  trigger condition, and whether the variable name matches its source and
+  consumers.
+- **Variable configuration**: if a variable reads another variable, dataLayer
+  path, built-in, cookie, DOM, URL component, table, constant, or custom code,
+  continue the trace into that source. Stop only at a terminal source such as a
+  concrete dataLayer path, built-in value, URL/cookie/DOM source, constant, or
+  custom-code return/side effect.
+- **Custom template**: fields exposed to tags/variables, permissions, external
+  destinations, consumers, and whether configured fields match official/vendor
+  expectations.
+
+For each traced edge, compare meaning, not just syntax:
+
+```text
+consumer field meaning -> referenced object -> source logic
+-> returned value/side effect -> output type -> sibling/peer fields
+-> official/vendor/business expectation
+```
+
+Actively detect:
+
+- different semantic fields using identical or near-identical source logic
+  without a documented reason, such as two Consent Mode signals using the same
+  CMP purpose;
+- one variable reused by consumers with incompatible expected types or business
+  meanings;
+- triggers with similar filters that can be merged, or triggers whose names
+  imply a context not enforced by filters/source variables;
+- variables whose names imply totals, quantities, prices, consent, country,
+  product, lead type, or page type but whose source logic returns another
+  meaning;
+- duplicate or similar custom-code branches, DLV paths, lookup rows, trigger
+  conditions, or vendor payload mappings that can be consolidated after
+  dependency QA.
 
 ## D1-D3 Proof Queue
 
 Before writing findings, operations, cleanup plans, or change logs, build an
-internal queue of every object or object family that requires D1, D2, or D3.
-The queue must include object ID/name, layer, required depth, reason for depth,
-consumer count or family coverage, and queue status.
+internal queue of every tag, trigger, variable, custom template, and referenced
+configuration branch that requires D1, D2, or D3. The queue must include object
+ID/name, layer, required depth, reason for depth, consumer count, parent/child
+references, and queue status.
 
-Do not compile cleanup operations for a meaningful object while its D1-D3 queue
-row is unresolved. Queue rows may be closed only as:
+Do not compile cleanup operations for an object while its own D1-D3 queue row or
+any referenced child row required to judge it is unresolved. Queue rows may be
+closed only as:
 
-- `Complete`: D1-D3 evidence is recorded in the matrix or custom-code review.
+- `Complete`: D1-D3 evidence is recorded in the matrix or custom-code review,
+  including the recursive source/consumer trace.
 - `Not applicable`: the object is outside the business/scope and documented.
 - `User-excluded`: the user explicitly limited the scope.
 - `Incomplete / blocked`: source evidence is missing or unreadable.
@@ -197,11 +261,11 @@ The matrix is a completion artifact, not an optional appendix. An audit or
 cleanup plan that claims complete semantic coverage must be able to point to a
 matrix row or explicit workstream blocker for every meaningful object family.
 
-For high-impact active objects, use object-level rows. High-impact includes
-consent, GA4/current Google tags, ecommerce, conversion, lead, media, ad revenue,
-server-side routing, identity, shared variables, custom code, and any tag whose
-name implies a business outcome. Repeated low-risk helpers may use family rows,
-but anomalies and cleanup candidates need object-level rows.
+Use object-level rows for every tag, trigger, variable, and custom template in a
+full audit. Family rows may summarize repeated patterns only after the
+underlying object-level D3 rows exist. Repeated low-risk helpers may be grouped
+in the user-facing summary, but their proof rows must still exist in the matrix
+or package.
 
 Do not count a row as complete when it only contains inventory facts such as
 name, ID, type, hash, duplicate group, or connected trigger. A complete row must
@@ -270,11 +334,19 @@ wrong or changing, affected objects, impact, recommendation, QA/debug method,
 blocker/owner, status, and next action. Keep raw D3 proof in the matrix or
 Custom Code Review tab.
 
+Do not over-expand purely mechanical hygiene buckets. Straightforward unused
+object deletion candidates, exact duplicate removals, one naming-convention
+batch, and folder organization can stay as one cleanup-plan row when every
+object in the bucket has the same evidence, action, QA, and rollback. Semantic
+or business-logic findings must stay object-level or use a parent `Summary` row
+with immediate child `Detail` rows.
+
 ## Completion Gate
 
 A semantic review is incomplete when:
 
-- high-impact active tags have no matrix row;
+- any tag, trigger, variable, or custom template in a full audit has no D3
+  matrix/proof row or explicit limited-scope exclusion;
 - `depth_required` includes D1, D2, or D3 but `depth_completed` does not include
   the same tier;
 - `depth_required` includes D3 but the D3 proof fields are missing, blank, or
@@ -283,6 +355,9 @@ A semantic review is incomplete when:
   logic/action, output or side effect, consumer expectation, and judgment;
 - a tag is called semantically validated but its trigger context, key payload
   fields, variable/source logic, or consent/server status are blank;
+- a tag field, trigger filter, or variable consumer is called semantically
+  validated while a referenced variable/configuration source was not recursively
+  traced;
 - a custom-code object is only risk-flagged and has no purpose, output/side
   effect, consumer context, semantic status, or blocker;
 - a custom-code row says that line-level/config review still needs to be done

@@ -25,6 +25,8 @@ Other references may cite these policy IDs instead of restating the full rule.
 | POL-009 | Export-level semantic review cannot be deferred to cleanup execution. Runtime proof may be deferred before mutation, but audited tags, variables, triggers, custom code, and templates must have semantic evidence or an `Incomplete / blocked` status. |
 | POL-010 | Required D1-D3 depth must be completed from available export/API/source evidence. Only D4 runtime proof may be deferred; missing D1-D3 work keeps the audit unresolved/incomplete. |
 | POL-011 | Cleanup is downstream of measurement diagnosis. Diagnose business model, decision outcome, conversion hierarchy, platform role, and expected data contract before judging meaningful objects or compiling cleanup operations. |
+| POL-012 | In a full audit, every tag, trigger, variable, custom template, and referenced configuration branch requires recursive D3 tracing to terminal source/config/code evidence. Do not stop at a referenced variable or trigger name. |
+| POL-013 | Compare sibling fields and sibling objects after resolving their sources. Identical or near-identical logic behind different semantic outputs must become a finding, documented exception, or explicit owner/D4 blocker. |
 
 ## Cleanup And Mutation Policies
 
@@ -69,3 +71,4 @@ Other references may cite these policy IDs instead of restating the full rule.
 | POL-306 | Cleanup plans must expose only what the user needs to decide, approve, debug, or QA; keep raw proof, code/config dumps, dependency graphs, hashes, and validator mechanics in proof tabs or technical appendices. |
 | POL-307 | XLSX cleanup plans should use compact human-readable workbooks by default, normally 7-8 total tabs or fewer and 5-6 useful columns per tab. Keep proof available but consolidated; do not hide duplicated machine scaffolding and call it solved. |
 | POL-308 | Visible and hidden workbook columns must earn their place for real human use: approval, debugging, assignment, QA, impact, or next action. Merge similar columns and remove blank, constant, duplicate, validator-only, or raw-proof columns from the user-facing package. |
+| POL-309 | Compact cleanup plans may use `Summary` rows plus immediate `Detail` rows for grouped semantic findings. Generic hygiene buckets such as unused objects, exact duplicates, naming, or folder moves may stay as one row when evidence, action, QA, and rollback are identical. |

@@ -32,10 +32,12 @@ large-container analysis, but it is not required to read or apply the workflow.
 - Complete the measurement diagnosis gate before cleanup: business model,
   decision outcome, conversion hierarchy, platform role, and expected data
   contract.
-- Complete required D1-D3 review from export, API, UI, source, or code evidence.
-  D3 starts with literal object behavior and actual consumers before category or
-  judgment. Only D4 runtime proof may be deferred without making the audit
-  incomplete.
+- Complete recursive D1-D3 review from export, API, UI, source, or code
+  evidence. In a full audit, every tag, trigger, variable, custom template, and
+  referenced configuration branch is traced to terminal source/config/code
+  evidence. D3 starts with literal object behavior and actual consumers before
+  category or judgment. Only D4 runtime proof may be deferred without making the
+  audit incomplete.
 - Treat cleanup as one workflow covering naming, unused objects, duplicates,
   consolidation, consent, GA4/current Google tags, media/vendor payloads,
   ecommerce, custom code, server-side caution, folders, templates, and QA.
@@ -46,9 +48,11 @@ large-container analysis, but it is not required to read or apply the workflow.
 - Mutate GTM only after explicit approval, in a dedicated workspace, with a
   rollback export. Never publish or create GTM versions unless explicitly asked.
 - Keep user-facing cleanup plans and post-execution change logs concise and
-  actionable. Keep
-  raw proof matrices, validator traces, and scratch reasoning in backing files
-  or hidden workbook tabs.
+  actionable without hiding concrete findings. Use summary/detail rows for
+  grouped semantic issues, and keep one-line rows for truly generic hygiene
+  batches such as unused objects, exact duplicates, naming, or folder moves.
+  Keep raw proof matrices, validator traces, and scratch reasoning in backing
+  files or hidden workbook tabs.
 - Produce a real change log only after cleanup execution or generated cleanup
   artifact creation. Before execution, use a planned change preview or clearly
   simulated log.
@@ -206,9 +210,10 @@ Assistant/network observations, website context, CMP details, and official
 vendor documentation. Outputs are audit reports, cleanup plans, planned change
 previews, post-cleanup change logs, runtime QA plans, and optional
 GTM-compatible artifacts when explicitly approved. A completed result must
-demonstrate literal D3 behavior, actual consumer context, object synergy, and
-custom-code/template behavior clearly enough that the user understands the
-functionality and impact, not just that an object was "reviewed."
+demonstrate literal D3 behavior, recursive trigger/tag/variable/source tracing,
+actual consumer context, object synergy, and custom-code/template behavior
+clearly enough that the user understands the functionality and impact, not just
+that an object was "reviewed."
 
 Non-goals include replacing legal/privacy review, guessing missing business
 intent, auditing server containers without server evidence, publishing GTM

@@ -94,18 +94,20 @@ For every audit, cover:
 - exact duplicates and near duplicates across tags, triggers, variables, custom
   code, templates, folders, and naming patterns;
 - currently unused objects and objects that become obsolete after consolidation;
-- object semantics, consumer dependencies, output shape, and trigger context for
-  every high-risk or shared object;
-- semantic-object matrix rows for meaningful/high-impact objects, with depth
-  tier, trigger-context status, configuration/source logic status,
-  consent/server status, evidence level, semantic status, and blocker or linked
-  finding/operation;
+- object semantics, consumer dependencies, output shape, trigger context, and
+  recursive source/configuration trace for every tag, trigger, variable, custom
+  template, and referenced configuration branch in a full audit;
+- semantic-object matrix rows for every tag, trigger, variable, and custom
+  template in a full audit, with depth tier, trigger/consumer context status,
+  configuration/source logic status, consent/server status, evidence level,
+  semantic status, and blocker or linked finding/operation;
 - standard ecommerce variables and all consuming tags;
 - custom HTML/JavaScript reference safety;
 - gateway and consolidation opportunities where repeated patterns exist.
 
-Sampling is allowed only to explain repeated low-risk hygiene patterns in the
-report. It is not a reason to skip dependency mapping or cleanup eligibility
+Sampling is allowed only in explicitly limited audits or to summarize repeated
+low-risk hygiene patterns in the report after object-level proof exists. It is
+not a reason to skip dependency mapping, recursive D3, or cleanup eligibility
 checks for the full container.
 
 Semantic completion gate: a workstream is not complete until semantic

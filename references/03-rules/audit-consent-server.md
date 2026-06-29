@@ -8,6 +8,7 @@ and server-side GTM caution checks. Apply `POL-004`, `POL-008`, `POL-108`, and
 
 - Consent And Privacy
 - Consent Timing Patterns
+- Consent Signal Field Trace
 - Client-To-Server Google Tag Patterns
 - Server-Side GTM Checks
 
@@ -34,6 +35,24 @@ timing rationale is documented.
 | Trigger group: pageview/event plus consent-ready/granted | Event can happen before CMP resolves. | More objects to maintain. |
 | Native consent settings | Google tags with correctly initialized consent mode. | Does not replace a consent banner or legal decision. |
 | Direct CMP-ready firing | The tag intentionally fires once at consent resolution with stable page context. | Can miss original event context or duplicate pageviews. |
+
+## Consent Signal Field Trace
+
+For every Consent Mode or CMP-to-consent mapping tag, run a field-level D3
+trace before writing findings:
+
+```text
+consent field -> GTM variable -> source variable/path/code
+-> condition logic -> returned granted/denied value
+-> official Google/CMP meaning -> sibling-field comparison
+```
+
+Required fields include `ad_storage`, `analytics_storage`, `ad_user_data`,
+`ad_personalization`, `personalization_storage`, and any vendor-specific consent
+or privacy fields. If two different consent signals use the same source
+condition, such as the same CMP purpose ID, surface it as a finding or
+documented exception. Do not hide it inside a generic "validate consent values"
+row.
 
 ## Client-To-Server Google Tag Patterns
 

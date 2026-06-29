@@ -387,12 +387,23 @@ Recommended `02 Cleanup Plan` columns:
 
 ```text
 ID:
+Level: Summary | Detail | Single
 Affected object(s):
-Issue / opportunity:
+Issue / evidence:
 Recommended action:
-QA / blocker:
-Status:
+QA / status:
 ```
+
+Use `Summary` rows only as visual parents. Put concrete object findings
+directly beneath them as `Detail` rows with IDs such as `F001.1`, `F001.2`, and
+so on. Use `Single` when the row is already object-specific. Do not collapse
+distinct object-level findings into a family row without detail rows.
+
+Use one `Single` row for generic hygiene batches when the whole batch has the
+same evidence, action, QA, and rollback: unused variables/triggers/tags, exact
+duplicates, naming convention, folder organization, and other mechanical
+cleanup. Split into detail rows as soon as the business logic, dependency risk,
+or recommended action differs by object.
 
 Recommended `03 D3 Evidence` columns:
 
@@ -427,7 +438,9 @@ When creating a workbook or CSV set, use these stable tabs:
 - `06b Measurement Diagnosis`: business model, decision outcome, conversion
   hierarchy, vendor/platform role, expected event/payload contract,
   intent blockers, linked semantic rows, and linked operations.
-- `07 Semantic Object Matrix`: one row per meaningful object or reviewed family:
+- `07 Semantic Object Matrix`: in a full audit, one row per tag, trigger,
+  variable, custom template, and referenced configuration branch; in a limited
+  audit, one row per scoped object or reviewed family:
   object ID/name/layer, vendor/family, inferred business role, decision outcome,
   conversion hierarchy, platform role, expected data contract, depth required and
   completed, trigger-context status, configuration/code logic status,

@@ -168,11 +168,13 @@ Compile audit findings into operations in this order:
 3. Attach official documentation contracts to GA4 and vendor-event findings.
 4. Reconcile material object families against the audit ledger and identify any
    family that is still inventory-only or dependency-only.
-5. Populate the semantic object matrix for meaningful/high-impact objects or
-   repeated families. Finish semantic validation, or mark unresolved rows
-   deferred with blockers.
-6. Build the semantic model for meaningful object families and link findings or
-   operations back to matrix rows or documented exceptions.
+5. Populate the semantic object matrix for every tag, trigger, variable, custom
+   template, and referenced configuration branch in a full audit. Finish
+   recursive D3 semantic validation, or mark unresolved rows incomplete/blocked
+   with evidence.
+6. Build the semantic model for meaningful object families and link every
+   finding or operation back to object-level matrix rows or documented
+   exceptions.
 7. Run semantic logic checks for value, quantity, item, lead, media, shared
    variable, and custom-code logic.
 8. Select applicable optimization patterns without flattening business meaning.

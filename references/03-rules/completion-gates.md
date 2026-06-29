@@ -27,9 +27,10 @@ Every deliverable must account for:
 - measurement diagnosis: business model, decision outcomes, conversion
   hierarchy, vendor/platform roles, and expected data contracts for meaningful
   object families;
-- semantic validation status for every meaningful object family;
-- D1-D3 proof queue status for every meaningful object or family requiring
-  export/API/config/code review;
+- semantic validation status for every tag, trigger, variable, custom template,
+  and meaningful object family;
+- D1-D3 proof queue status for every tag, trigger, variable, custom template,
+  and referenced configuration branch in full audits;
 - semantic model coverage for meaningful conversion, media, ecommerce, lead,
   custom-code, server-side, and multi-market object families;
 - semantic logic consistency for conversion, media, ecommerce, lead, shared
@@ -74,31 +75,37 @@ required phase is `Done`, `Not applicable`, or `User-excluded`.
 
 - `Full inventory`: source counts reconcile to object rows, and every object has
   an ID/path and name or a documented missing identifier.
-- `Dependency map`: every relevant trigger, variable, folder, setup/teardown,
-  template, and custom-code reference is mapped or explicitly blocked.
+- `Dependency map`: every trigger, variable, folder, setup/teardown, template,
+  and custom-code reference is mapped or explicitly blocked.
 - `Measurement diagnosis`: every meaningful conversion, media, ecommerce, lead,
   server-side, custom-code, multi-market, gateway, or consolidation candidate has
   a business model or family context, decision outcome, conversion hierarchy,
   vendor/platform role, expected event/payload contract, and intent blocker when
   ambiguous. Cleanup operations are not ready when this diagnosis is missing.
-- `Semantic validation`: every meaningful object or family has purpose,
-  expected behavior, evidence, risk, confidence, semantic status, and affected
-  consumers. Custom code also requires role category, consent assumption, side
-  effects, runtime risk, and export-level code/config inspection evidence.
-  Required D1-D3 depth must be completed when the source evidence is available;
-  only D4 runtime proof may remain deferred. D2/D3 summaries must follow
-  `summary-quality.md`: literal behavior, actual source/input, logic/action,
-  output or side effect, consumer/context, judgment, and cleanup implication.
-  D3 is incomplete when it categorizes the object without stating exact
-  behavior, such as `returns Date.now()` or `pushes e.data.payload to
-  dataLayer`.
+- `Semantic validation`: every tag, trigger, variable, custom template, and
+  meaningful family has purpose, expected behavior, evidence, risk, confidence,
+  semantic status, and affected consumers. Custom code also requires role
+  category, consent assumption, side effects, runtime risk, and export-level
+  code/config inspection evidence. Required D1-D3 depth must be completed when
+  the source evidence is available; only D4 runtime proof may remain deferred.
+  D2/D3 summaries must follow `summary-quality.md`: literal behavior, actual
+  source/input, logic/action, output or side effect, consumer/context, judgment,
+  and cleanup implication. D3 is incomplete when it categorizes the object
+  without stating exact behavior, such as `returns Date.now()` or `pushes
+  e.data.payload to dataLayer`.
+- `Recursive D3`: every tag field, trigger filter, variable reference, lookup
+  input, custom-code variable reference, and template field needed to understand
+  an object has been traced to its terminal source or to a D4-only runtime
+  blocker. A row that stops at "uses variable X" is not complete. Sibling fields
+  with identical or near-identical logic must be compared for semantic
+  compatibility and surfaced as findings or documented exceptions.
 - `Semantic model`: meaningful object families have inferred business
   objective, user action, event/context, GTM implementation, data source,
   payload contract, platform use, and evidence/blockers where applicable.
-- `Semantic logic consistency`: meaningful formulas, source paths, output
-  shapes, trigger contexts, and consumers have been checked for contradictions
-  or explicitly marked incomplete. Runtime/business proof can be deferred only
-  after D1-D3 semantic logic was completed from available evidence.
+- `Semantic logic consistency`: formulas, source paths, output shapes, trigger
+  contexts, and consumers have been checked for contradictions or explicitly
+  marked incomplete. Runtime/business proof can be deferred only after D1-D3
+  semantic logic was completed from available evidence.
 - `Official documentation`: every meaningful vendor/event/CMP family has an
   official source checked or a documented failed official-source lookup.
 - `Ecommerce/dataLayer`: every standard ecommerce event and frequently reused
@@ -166,13 +173,15 @@ Before final delivery, verify:
 - no mandatory workstream is blank or silently skipped;
 - the D1-D3 proof queue is closed or explicitly marked incomplete before
   cleanup operations are compiled;
+- the D1-D3 proof queue covers every tag, trigger, variable, custom template,
+  and referenced configuration branch in full audits;
 - every layer has changes, findings, or a documented reason for no change;
 - no meaningful object family is inventory-only or dependency-only;
 - no cleanup-ready claim exists for a meaningful family missing measurement
   diagnosis;
 - no cleanup operation exists for a D3 object unless literal behavior and the
-  relevant trigger/tag/variable/source/destination graph path are complete or
-  explicitly blocked;
+  full trigger/tag/variable/source/destination graph path are complete or
+  explicitly blocked at D4 only;
 - semantic model checks have been completed or deferred for conversion, media,
   ecommerce, lead, server-side, and complex consolidation candidates;
 - Custom HTML, Custom JavaScript, and custom templates have object-level purpose,
@@ -181,12 +190,19 @@ Before final delivery, verify:
 - active, referenced, risky, or cleanup-relevant custom-code rows show that
   exported code/config was inspected before delivery; missing runtime proof is
   allowed only as a runtime QA blocker before mutation;
-- high-impact tags and variables have Semantic Object Matrix rows with depth
-  tier, trigger-context status, configuration/source logic status,
-  consent/server status, evidence level, and semantic status;
+- all tags, triggers, variables, and custom templates have Semantic Object
+  Matrix rows with depth tier, trigger-context or consumer-context status,
+  configuration/source logic status, consent/server status where applicable,
+  evidence level, and semantic status;
 - every row whose required depth includes D3 has D3 completion evidence:
   literal behavior, actual inputs, logic/action, output or side effect,
   consumer/context, analyst judgment, and cleanup implication;
+- every D3 row that references another GTM object has a child trace or linked
+  evidence row for that referenced object; stopping at the reference name fails
+  the gate;
+- sibling fields or sibling objects with identical/near-identical logic have
+  been compared and either surfaced as a finding, marked as an explicit
+  documented exception, or justified by official/business evidence;
 - proof summaries do not rely on generic evidence signals such as `custom code
   inspected`, `configuration reviewed`, `external URL found`, `dataLayer push
   detected`, `no obvious browser side effect`, `see config`, or `see export`;
@@ -219,6 +235,10 @@ Before final delivery, verify:
   blockers, owners, and status, while raw D1-D3 proof, code bodies, parameter
   dumps, dependency graphs, hashes, validator traces, and normal no-action rows
   stay in backing proof tabs or technical appendices.
+- compact cleanup plans preserve every actionable object-level anomaly. Family
+  summary rows may be used, but each detailed object finding must appear
+  directly beneath its family row or as its own row; do not merge away distinct
+  object findings into a single vague category row.
 - XLSX cleanup plans open on a compact human decision view by default: one
   executive decision summary tab and one cleanup action plan tab. Inventories,
   semantic matrices, custom-code proof, full rename maps, completion ledgers,

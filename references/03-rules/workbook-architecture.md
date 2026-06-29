@@ -34,22 +34,43 @@ technical appendix or the validator explicitly requires an expanded artifact.
 - `01 Summary`: overall status, top risks, recommended
   route, cleanup level, safe-now work, blocked work, owner decisions, validation
   status, and next step.
-- `02 Cleanup Plan`: one operational table that consolidates findings,
-  roadmap, operations, deferred blockers, runtime QA, route, and naming into
-  actionable rows.
+- `02 Cleanup Plan`: one operational table that organizes findings, roadmap,
+  operations, deferred blockers, runtime QA, route, and naming into actionable
+  rows. Consolidate visually, not semantically: do not hide distinct
+  object-level findings inside one broad category row.
 
 Default `02 Cleanup Plan` columns:
 
 - `ID`
+- `Level`
 - `Affected object(s)`
-- `Issue / opportunity`
+- `Issue / evidence`
 - `Recommended action`
-- `QA / blocker`
-- `Status`
+- `QA / status`
 
 Add extra visible tabs only when the user asks, the execution route needs a
 separate working tracker, or merging unrelated audiences would make the visible
 table harder to use.
+
+Use parent/detail rows when several findings share one category or family:
+
+- parent row: `Level = Summary`, ID such as `F001`, family/category scope, and
+  the overall action;
+- detail rows immediately below: `Level = Detail`, IDs such as `F001.1`,
+  `F001.2`, one object or tightly coupled object pair per row, concrete
+  evidence, action, QA/status;
+- do not use a parent row without detail rows when the underlying issue affects
+  multiple objects differently;
+- do not merge away a concrete object-level anomaly merely because the visible
+  sheet is compact.
+
+Generic hygiene findings may stay as one `Single` row when the evidence,
+decision, action, QA, and rollback are identical for the whole set. This
+applies to straightforward unused-object deletion candidates, exact duplicate
+objects, one naming-convention batch, folder moves, and other mechanical
+cleanup buckets. Use detail rows when any object in the bucket has a different
+semantic reason, different dependency risk, different owner blocker, or
+different recommended action.
 
 ## Hidden Proof Tabs
 
@@ -88,6 +109,8 @@ Before delivery:
 - merge columns that answer the same human question;
 - hide or remove blank and constant columns unless a validator requires them;
 - keep operation IDs and finding IDs visible when they trace to proof rows;
+- keep parent/detail IDs visible when a summary row represents several object
+  findings;
 - keep raw code, raw template fields, hashes, full dependency graphs, and
   validator traces out of user-facing tabs.
 - keep visible and hidden tabs around 5-6 useful columns by default. If more

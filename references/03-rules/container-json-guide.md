@@ -399,16 +399,18 @@ For large containers:
    object matrix.
 4. Cluster exact duplicates and similar consolidatable objects by normalized
    name, type, event, vendor ID, market, dataLayer path family, and code hash.
-5. Audit high-risk families first: consent, GA4/ecommerce, Ads/Meta conversions,
-   server-side forwarding, custom HTML/JS.
+5. Prioritize high-risk families first for attention and reporting order:
+   consent, GA4/ecommerce, Ads/Meta conversions, server-side forwarding,
+   custom HTML/JS. Do not use this priority order to skip object-level D3 in a
+   full audit.
 6. Design consolidation candidates before finalizing cleanup candidates.
 7. Recompute what becomes obsolete after the consolidation design.
-8. Convert triage clusters into object-level or family-level semantic matrix
-   rows. High-impact anomalies need object rows; repeated low-risk patterns may
-   use family rows plus anomaly rows. Mark unresolved families as deferred, not
-   done.
-9. Sample low-risk naming/hygiene patterns, then expand only when findings
-   repeat.
+8. Convert triage clusters into object-level semantic matrix rows. Family rows
+   may summarize repeated patterns only after object-level proof rows exist, or
+   when the user explicitly requested a limited/sample audit. Mark unresolved
+   objects or families as incomplete/deferred with blocker evidence, not done.
+9. Batch low-risk naming/hygiene outputs only when the evidence, action, QA,
+   and rollback are identical; do not batch semantic contradictions.
 10. Reconcile counts by object family: total, inventoried, dependency-mapped,
    semantically validated, cleanup-decisioned, deferred, not applicable,
    user-excluded, and unresolved.

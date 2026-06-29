@@ -749,6 +749,33 @@ def custom_code_required(reconciliation_rows: Iterable[Dict[str, Any]]) -> bool:
     return False
 
 
+def validate_full_audit_object_family_rows(rows: Iterable[Dict[str, Any]]) -> List[str]:
+    errors: List[str] = []
+    row_list = list(rows)
+    required_families = {
+        "tags": ("tag", "tags"),
+        "triggers": ("trigger", "triggers"),
+        "variables": ("variable", "variables"),
+    }
+    for label, terms in required_families.items():
+        matching = [
+            row
+            for row in row_list
+            if any(term in str(row.get("object_family", "")).lower() for term in terms)
+        ]
+        if not matching:
+            errors.append(
+                f"strict evidence: missing reconciliation/object-family row for {label}; "
+                "full audits must reconcile tags, triggers, and variables separately"
+            )
+            continue
+        if not any((to_int(row, "total_source_count")[0] > 0) for row in matching):
+            errors.append(
+                f"strict evidence: reconciliation rows for {label} have zero total_source_count"
+            )
+    return errors
+
+
 def validate_custom_code_rows(rows: List[Dict[str, Any]], label: str) -> List[str]:
     errors = validate_required_table(rows, CUSTOM_CODE_REQUIRED_FIELDS, label)
     if errors:
@@ -795,6 +822,74 @@ def validate_placeholder_language(
     return errors
 
 
+def validate_cleanup_plan_parent_detail(
+    workbook_rows: Dict[str, List[Dict[str, Any]]]
+) -> List[str]:
+    errors: List[str] = []
+    for sheet_name, rows in workbook_rows.items():
+        normalized = normalize_sheet_name(sheet_name)
+        if "cleanup" not in normalized or "plan" not in normalized:
+            continue
+        if not rows:
+            continue
+        headers = {normalize_header(header): header for header in rows[0]}
+        if "level" not in headers:
+            errors.append(
+                f"{sheet_name}: compact cleanup plan is missing Level column "
+                "(Summary, Detail, or Single)"
+            )
+            continue
+        level_key = headers["level"]
+        id_key = headers.get("id")
+        previous_summary_id = ""
+        previous_summary_row = 0
+        summary_has_detail = False
+        for index, row in enumerate(rows, start=2):
+            level = str(row.get(level_key) or "").strip().lower()
+            row_id = str(row.get(id_key) or "").strip() if id_key else ""
+            if level not in {"summary", "detail", "single"}:
+                errors.append(
+                    f"{sheet_name} row {index}: Level must be Summary, Detail, or Single"
+                )
+                continue
+            if level == "summary":
+                if previous_summary_id and not summary_has_detail:
+                    errors.append(
+                        f"{sheet_name} row {previous_summary_row}: Summary row has no "
+                        "immediate Detail rows; use Single for generic hygiene buckets"
+                    )
+                previous_summary_id = row_id
+                previous_summary_row = index
+                summary_has_detail = False
+            elif level == "detail":
+                if not previous_summary_id:
+                    errors.append(
+                        f"{sheet_name} row {index}: Detail row has no preceding Summary row"
+                    )
+                else:
+                    summary_has_detail = True
+                    if row_id and previous_summary_id and not row_id.startswith(f"{previous_summary_id}."):
+                        errors.append(
+                            f"{sheet_name} row {index}: Detail ID {row_id!r} should "
+                            f"start with parent Summary ID {previous_summary_id!r}."
+                        )
+            elif level == "single":
+                if previous_summary_id and not summary_has_detail:
+                    errors.append(
+                        f"{sheet_name} row {previous_summary_row}: Summary row has no "
+                        "Detail rows before the next Single row"
+                    )
+                previous_summary_id = ""
+                previous_summary_row = 0
+                summary_has_detail = False
+        if previous_summary_id and not summary_has_detail:
+            errors.append(
+                f"{sheet_name} row {previous_summary_row}: Summary row has no "
+                "Detail rows before the sheet ends"
+            )
+    return errors
+
+
 def workbook_architecture_warnings(workbook_rows: Dict[str, List[Dict[str, Any]]]) -> List[str]:
     warnings: List[str] = []
     if len(workbook_rows) > 8:
@@ -822,6 +917,7 @@ def validate_strict_evidence(path: Path, reconciliation_rows: List[Dict[str, Any
         return ["--strict-evidence requires an XLSX workbook"], warnings
 
     workbook_rows = load_xlsx_workbook(path)
+    errors.extend(validate_full_audit_object_family_rows(reconciliation_rows))
 
     semantic_name, semantic_rows = find_sheet(workbook_rows, ["semantic", "matrix"])
     if not semantic_name:
@@ -854,6 +950,7 @@ def validate_strict_evidence(path: Path, reconciliation_rows: List[Dict[str, Any
         errors.extend(validate_custom_code_rows(custom_rows, f"{custom_name}"))
 
     errors.extend(validate_placeholder_language(workbook_rows))
+    errors.extend(validate_cleanup_plan_parent_detail(workbook_rows))
     warnings.extend(workbook_architecture_warnings(workbook_rows))
     if not custom_code_required(reconciliation_rows) and not custom_name:
         warnings.append("strict evidence: no custom-code review sheet found; treated as not in scope")
