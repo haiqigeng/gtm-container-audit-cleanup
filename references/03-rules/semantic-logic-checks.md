@@ -27,6 +27,11 @@ Only surface the result when it changes a finding, operation, blocker, or QA
 step. Keep scratch reasoning internal or in a technical workbook tab when the
 user asks for traceability.
 
+When a semantic logic check finds an issue, write it as an operation seed:
+current behavior, why the logic is wrong or risky, expected clean behavior,
+exact proposed action or blocker, and QA. Do not leave it as `validate logic`,
+`check variable`, or `review event context`.
+
 ## Recursive Semantic Graph
 
 Build the graph only after D3 literal behavior facts are extracted for every
@@ -118,6 +123,11 @@ Flag as suspect when:
 Do not replace a nonsensical formula with another guess. If the website or
 dataLayer should provide the source field, mark website/dataLayer work as the
 blocker.
+
+For fixed-index ecommerce logic, the expected clean state is normally one of:
+use the current event's complete `items` array, use the official order value
+sent by the website, or document a single-item business exception. A cleanup row
+must name which state is intended or state the dataLayer/runtime blocker.
 
 ## Context Consistency
 

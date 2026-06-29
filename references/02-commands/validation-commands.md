@@ -38,13 +38,43 @@ python scripts/gtm_audit_package_check.py export.json workbook.xlsx
 These gates should verify inventory, dependency mapping, measurement diagnosis,
 semantic validation, custom-code review, and cleanup-decision coverage.
 
-## Export Inspection
+## Source Model And Export Inspection
 
-Use for scalable first-pass inventory and dependency facts:
+Use for the source-model map and scalable first-pass cleanup facts:
 
 ```powershell
+python scripts/gtm_source_model.py container.json --pretty
 python scripts/gtm_export_inspect.py container.json
+python scripts/gtm_baseline_audit.py container.json --pretty
+python scripts/gtm_custom_code_extract.py container.json --pretty
+python scripts/gtm_semantic_source_scan.py container.json --pretty
 ```
 
-Script output is evidence input. It does not replace analyst judgment,
-measurement diagnosis, or semantic validation.
+The source model is a navigation map, not an evidence substitute. Script output
+guides the cleanup lenses, but findings must still be verified against raw
+export/API/config/code/runtime evidence.
+
+## Finding Reconciliation
+
+Run when a cleanup plan or workbook resolves deterministic findings:
+
+```powershell
+python scripts/gtm_findings_reconcile.py deterministic_baseline.json cleanup_resolution.xlsx
+```
+
+Every nonzero deterministic baseline finding must resolve to a cleanup
+operation, documented exception, runtime blocker, owner decision needed, or not
+applicable with evidence.
+
+Run the stricter operation-packet gate when the three independent scans are
+available:
+
+```powershell
+python scripts/gtm_findings_reconcile.py deterministic_findings.json reconciled_operations.json --operation-packets --semantic semantic_findings.json --technical technical_code_findings.json
+```
+
+Every required deterministic, semantic, and technical source finding must map to
+an operation packet with current behavior, problem, expected clean state, exact
+action, QA, rollback, confidence, blocker, and source finding IDs. Vague packet
+actions such as `review code`, `simplify`, `consolidate`, `harden`, or `fix`
+without the exact intended state must fail validation.

@@ -23,6 +23,7 @@ Possible outputs:
 
 - audit summary;
 - cleanup action plan;
+- source model coverage proof;
 - planned change preview when requested before execution;
 - measurement diagnosis evidence;
 - semantic object matrix;
@@ -52,7 +53,13 @@ simulated or virtual, not as a verified GTM change log.
 The change log must be granular enough for an end user to understand what was
 modified without opening GTM View Changes.
 
-Each applied or generated change should include:
+After real cleanup execution or generated cleanup artifact creation, produce a
+summary plus a detailed change log. The summary may group counts and outcomes;
+the detailed change log must list one row per modified object, field,
+dependency, trigger route, variable source, folder move, code/template change,
+rename, deletion, creation, documented exception, or route-limited no-op.
+
+Each applied or generated change detail row should include:
 
 - change ID and linked operation ID;
 - layer and object name/ID;

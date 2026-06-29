@@ -18,7 +18,7 @@ diagnosis.
 ## Test 1: Export-Only Audit With Custom Code
 
 ```text
-Use the GTM Container Web Analyst skill at <skill path>. Audit this exported
+Use the GTM Cleanup Intelligence skill at <skill path>. Audit this exported
 GTM container JSON only and produce a workbook or CSV-set audit plus cleanup
 plan. Do not mutate GTM. CMP is unknown. Naming standardization is less
 important than measurement diagnosis and semantic validation.
@@ -28,6 +28,10 @@ Expected validation:
 
 - Custom HTML and Custom JavaScript objects are semantically reviewed, not only
   inventoried.
+- Deterministic baseline findings exist with source finding IDs and zero-finding
+  proof rows for modules without findings.
+- Every nonzero deterministic finding is reconciled to a cleanup operation,
+  documented exception, runtime blocker, owner decision, or not applicable row.
 - Measurement diagnosis is present for meaningful object families before cleanup
   recommendations.
 - Workstream reconciliation is present.
@@ -38,7 +42,7 @@ Expected validation:
 ## Test 2: Limited Vendor Audit
 
 ```text
-Use the GTM Container Web Analyst skill at <skill path>. Perform a limited
+Use the GTM Cleanup Intelligence skill at <skill path>. Perform a limited
 audit only for Piano Analytics and consent routing in this exported GTM
 container JSON. Produce a client-readable report. Do not review unrelated vendor
 payloads except where they share triggers, variables, or consent dependencies.
@@ -55,7 +59,7 @@ Expected validation:
 ## Test 3: Runtime QA Request
 
 ```text
-Use the GTM Container Web Analyst skill at <skill path>. Build a runtime QA
+Use the GTM Cleanup Intelligence skill at <skill path>. Build a runtime QA
 plan for validating consent, pageview tags, ecommerce events, and server-side
 routing after a GTM cleanup. Use Tag Assistant/network/vendor-platform evidence
 where available, but do not invent observed results.
@@ -70,7 +74,7 @@ Expected validation:
 ## Test 4: Same-Container Import JSON
 
 ```text
-Use the GTM Container Web Analyst skill at <skill path>. From this original
+Use the GTM Cleanup Intelligence skill at <skill path>. From this original
 export and this proposed cleaned export, create a same-container GTM View
 Changes import artifact and a change log. Preserve review readability.
 ```
@@ -85,7 +89,7 @@ Expected validation:
 ## Test 5: Severity Calibration
 
 ```text
-Use the GTM Container Web Analyst skill at <skill path>. Review these findings
+Use the GTM Cleanup Intelligence skill at <skill path>. Review these findings
 and assign severity, priority, confidence, and recommended next action:
 <raw finding list>
 ```
@@ -99,7 +103,7 @@ Expected validation:
 ## Test 6: Measurement-First Cleanup Blocker
 
 ```text
-Use the GTM Container Web Analyst skill at <skill path>. This export contains
+Use the GTM Cleanup Intelligence skill at <skill path>. This export contains
 several similar lead and media tags with unclear form names and campaign tokens.
 Prepare a cleanup plan, but do not mutate GTM.
 ```
@@ -115,7 +119,7 @@ Expected validation:
 ## Test 7: Literal D3 Anti-Faking
 
 ```text
-Use the GTM Container Web Analyst skill at <skill path>. Audit this exported
+Use the GTM Cleanup Intelligence skill at <skill path>. Audit this exported
 GTM container JSON with Custom JavaScript variables and Custom HTML tags. Produce
 a cleanup plan with D3 evidence. Do not mutate GTM.
 ```
@@ -134,7 +138,7 @@ Expected validation:
 ## Test 8: Compact Output And Lifecycle
 
 ```text
-Use the GTM Container Web Analyst skill at <skill path>. Audit this exported
+Use the GTM Cleanup Intelligence skill at <skill path>. Audit this exported
 GTM container JSON and produce an audit plus cleanup plan. Do not execute
 cleanup and do not create a real change log.
 ```
@@ -147,3 +151,23 @@ Expected validation:
 - A real change log is not produced before cleanup execution. If a hypothetical
   output is requested, it is called planned change preview or simulated
   post-cleanup change log.
+
+## Test 9: Deterministic Baseline Protection
+
+```text
+Use the GTM Cleanup Intelligence skill at <skill path>. Audit this exported
+GTM container JSON and prepare a cleanup plan. The export contains duplicate
+template tags, duplicate trigger logic, duplicate variables, duplicate Custom
+JavaScript code, a single-member trigger group, and Custom HTML references.
+Do not mutate GTM.
+```
+
+Expected validation:
+
+- The deterministic baseline surfaces every mechanical finding before semantic
+  review.
+- Semantic review may confirm, downgrade, or document exceptions, but no
+  baseline finding disappears.
+- The cleanup plan links visible rows to source finding IDs or lists them as
+  documented exceptions/blockers.
+- `gtm_findings_reconcile.py` passes on the baseline and resolution artifact.

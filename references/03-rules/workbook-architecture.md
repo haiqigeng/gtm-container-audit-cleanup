@@ -7,6 +7,7 @@ logs with proof tabs, or any stakeholder-facing spreadsheet.
 
 - Audience Layers
 - Default Visible Tabs
+- Change Log Workbooks
 - Hidden Proof Tabs
 - Column Discipline
 - Validation
@@ -72,15 +73,40 @@ cleanup buckets. Use detail rows when any object in the bucket has a different
 semantic reason, different dependency risk, different owner blocker, or
 different recommended action.
 
+## Change Log Workbooks
+
+For a real post-cleanup change log, use two visible tabs:
+
+- `01 Change Log Summary`: scope, route, counts by action/layer, validation
+  result, rollback source, blockers, and next step.
+- `02 Change Log Details`: one row per modified object, field, dependency,
+  trigger route, variable source, folder move, template/code update, deletion,
+  creation, rename, documented exception, or route-limited no-op.
+
+The detail tab must not collapse distinct modifications into a single family
+summary. It should still be readable by non-specialists: plain before/after
+wording, linked operation ID, impact, QA status, rollback note, and status.
+Keep operation packets, raw diffs, validators, and source findings in hidden
+proof tabs.
+
 ## Hidden Proof Tabs
 
 Recommended compact hidden/supporting tabs:
 
-- `03 D3 Evidence`
-- `04 Inventory & Dependencies`
-- `05 Synergy & Consolidation`
-- `06 QA & Blockers`
-- `07 References & Validation`
+- `03 Reconciled Operations`
+- `04 D3 Evidence`
+- `05 Deterministic Baseline`
+- `06 Technical Code Findings`
+- `07 Source Model & Dependencies`
+- `08 QA & Validation`
+
+`03 Reconciled Operations` is the hidden operation-packet source for the visible
+cleanup plan. `04 D3 Evidence` may include the Semantic Object Matrix and
+independent semantic source scan. `05 Deterministic Baseline` keeps mechanical
+findings and zero-finding proof. `06 Technical Code Findings` keeps custom-code
+fact extraction and technical code review fields. `07 Source Model &
+Dependencies` keeps the navigation map, unresolved edges, consumers, and
+dependency proof.
 
 Split these tabs only when the user asks for a technical workbook, a validator
 requires the older schema, or a container is too large for readable compact
@@ -92,6 +118,14 @@ Hidden proof tabs must also be information-clean:
 - if a validator requires both fields, make their content distinct;
 - use observed-evidence columns for source/input/side effects;
 - use judgment columns for expectation, decision, owner question, or QA impact;
+- keep deterministic baseline output, custom-code technical review output, and
+  independent semantic source scan output separate until the reconciliation
+  rows explain how they combine into visible cleanup actions;
+- ensure every visible cleanup row links to an operation packet, except pure
+  summary rows whose immediate detail rows have packets;
+- keep `current_behavior`, `expected_clean_state`, `exact_proposed_action`,
+  `qa_steps`, `rollback`, `blocker`, and `source_finding_ids` in the hidden
+  operation packet even if the visible row uses shorter wording;
 - hide constant, blank, validator-only, or raw-proof columns when humans may
   unhide the sheet;
 - keep required reconciliation fields even when counts/statuses naturally match,

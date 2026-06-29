@@ -6,7 +6,8 @@ review log.
 ## Contents
 
 - Purpose
-- Required Columns
+- Required Tabs
+- Detailed Change Columns
 - Coherence Rules
 - Output Boundary
 
@@ -23,34 +24,56 @@ log` and mark rows as simulated/not verified.
 
 The change log should contain only what changed, why it changed, impact, QA,
 owner/status, and rollback/evidence notes needed for review. It must be
-granular enough for the user to understand the applied change without opening
+granular enough for the user to understand every applied change without opening
 GTM View Changes, while still avoiding raw JSON, code dumps, and proof matrices.
 
-## Required Columns
+## Required Tabs
 
-Use the compact end-user schema by default:
+A real post-cleanup change log must have two user-facing tabs or sections:
+
+1. `Change Log Summary`: compact counts, scope, execution route, validation
+   status, unresolved blockers, QA status, rollback source, and next step.
+2. `Change Log Details`: one row per modified object, field, dependency,
+   trigger route, variable source, folder move, template/code update, deletion,
+   creation, rename, documented exception, or route-limited no-op.
+
+Do not deliver only grouped summaries after cleanup execution. A grouped
+summary is acceptable only as the summary tab; the detail tab must list every
+modification element per line.
+
+## Detailed Change Columns
+
+Use this detailed end-user schema by default for `Change Log Details`:
 
 ```text
 Change ID
-Affected object(s)
-What changed
-Why / impact
-QA / rollback
+Operation ID
+Layer
+Object ID
+Before name
+After name
+Action
+Before state/value/dependency
+After state/value/dependency
+Why / linked finding
+Impact
+QA status
+Rollback note
 Status
 ```
 
-`What changed` must include the human-visible before/after behavior, name,
+Each row must describe the human-visible before/after behavior, name,
 dependency, trigger routing, payload field, variable source, consent setting,
-or folder/template relationship that actually changed. Do not fill it with
-generic text such as `updated`, `reviewed`, or `see GTM`.
+folder relationship, template state, or code behavior that actually changed.
+Do not fill any row with generic text such as `updated`, `reviewed`, or
+`see GTM`.
 
 `Why / impact` must include the linked operation ID when available and explain
 the business, measurement, consent, privacy, or maintainability consequence.
 
-Use a detailed technical appendix only when the user explicitly asks for it or
-when a validator/workflow requires it. In that case, keep the appendix separate
-or hidden and make every detailed field distinct. Do not expose a 15-25 column
-change log as the default user-facing file.
+Use hidden proof tabs only for raw JSON, operation packets, validator evidence,
+and source finding IDs. The detail change log itself is user-facing because it
+is the review record of the executed cleanup.
 
 Recommended action values:
 

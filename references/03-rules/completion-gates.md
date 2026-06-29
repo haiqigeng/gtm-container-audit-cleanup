@@ -21,9 +21,21 @@ Every deliverable must account for:
 - scope and evidence freshness;
 - full inventory for tags, triggers, variables, folders, templates, built-in
   variables, consent settings, and relevant workspaces/versions;
-- dependency map, including firing/blocking triggers, trigger groups,
-  setup/teardown tags, folders, custom templates, and custom HTML/JavaScript
-  references;
+- source model navigation map, including inventory, firing/blocking triggers,
+  trigger groups, setup/teardown tags, folders, custom templates, tag fields,
+  variable sources, consumers, custom HTML/JavaScript references, and unresolved
+  edges after recognized GTM system references are excluded;
+- deterministic cleanup baseline findings, including zero-finding proof rows for
+  required modules and source finding IDs for nonzero findings;
+- custom-code fact extraction for Custom HTML, Custom JavaScript, and custom
+  templates before semantic interpretation, including technical code health,
+  security, optimization signals, exact technical action, QA, rollback, and
+  handoff fields for every non-keep row;
+- independent semantic source scan rows that read the source export/API evidence
+  directly and do not depend on summarized deterministic findings;
+- reconciled operation packets that combine deterministic, semantic, and
+  technical scan outputs by object identity before the visible cleanup plan is
+  produced;
 - measurement diagnosis: business model, decision outcomes, conversion
   hierarchy, vendor/platform roles, and expected data contracts for meaningful
   object families;
@@ -44,6 +56,8 @@ Every deliverable must account for:
 - standard ecommerce variables and all consuming tags;
 - missing standard events and dataLayer readiness blockers;
 - naming convention and naming standardization;
+- route architecture standardization, including Custom Event, blocking trigger,
+  and Trigger Group naming/structure decisions;
 - one-tag gateway and consolidation review;
 - optimization pattern review across hygiene, structural, semantic, and
   strategic levels when cleanup or optimization is requested;
@@ -62,9 +76,13 @@ Track each mandatory workstream through these phases:
 | Phase | Definition |
 | --- | --- |
 | Inventory | Objects or evidence enumerated with IDs/names/counts. |
-| Dependency map | Consumers, references, firing/blocking relationships, setup/teardown, folders, templates, and custom-code references mapped. |
+| Source model | Navigation map built from source evidence, including object inventory, field edges, consumers, unresolved edges, and dependency relationships. |
+| Deterministic baseline | Protected mechanical cleanup modules completed with findings or zero-finding proof rows. |
+| Custom-code facts | Export-level facts and technical code review extracted for custom code before semantic interpretation. |
+| Independent semantic source scan | Semantic seed rows created from direct source evidence, separate from deterministic baseline output. |
 | Measurement diagnosis | Business model, decision outcome, conversion hierarchy, platform role, expected data contract, and intent blockers recorded for meaningful families. |
 | Semantic validation | Purpose, expected behavior, evidence, risk, confidence, and semantic status assigned. |
+| Finding reconciliation | Deterministic, semantic, and technical findings matched by object identity, conflicts resolved, and operation packets created or blockers recorded. |
 | Cleanup decision | Keep/fix/consolidate/delete/defer/no-change decision recorded with route, aggressiveness options, dependencies, QA, and blocker where applicable. |
 | Report reconciliation | Counts reconcile and the report/workbook contains required rows or explicit blockers. |
 
@@ -75,8 +93,32 @@ required phase is `Done`, `Not applicable`, or `User-excluded`.
 
 - `Full inventory`: source counts reconcile to object rows, and every object has
   an ID/path and name or a documented missing identifier.
-- `Dependency map`: every trigger, variable, folder, setup/teardown, template,
-  and custom-code reference is mapped or explicitly blocked.
+- `Source model`: every trigger, variable, folder, setup/teardown, template,
+  tag field, variable source, consumer, and custom-code reference is mapped or
+  explicitly blocked. Recognized GTM system references such as `{{_event}}` in
+  Custom Event filters or exported system trigger IDs must be classified as
+  system references, not unresolved blockers. The model is a navigation map
+  only; deterministic, semantic, and technical findings must verify the raw
+  export/API/config/code or runtime evidence behind mapped edges.
+- `Deterministic baseline`: every required baseline module from
+  `protected-audit-pipeline.md` is present with `finding_id`, evidence,
+  default action, and required resolution, or a zero-finding proof row. Baseline
+  output is not semantic validation and must be reconciled before final cleanup
+  plan delivery.
+- `Custom-code facts`: every Custom HTML tag, Custom JavaScript variable, and
+  custom template in scope has deterministic fact extraction or a documented
+  source blocker before D1-D3 interpretation. The extraction must include the
+  purely technical code health/security/optimization review; every non-keep row
+  must include current behavior, expected clean state, exact proposed technical
+  action, preconditions, QA steps, rollback note, and handoff packet. Semantic
+  purpose is decided later in D1-D3.
+- `Independent semantic source scan`: the semantic layer has its own source rows
+  for tags, triggers, variables, custom templates, and material families. It
+  may use helper output, but it must read the export/API/config/code directly
+  rather than relying on baseline summaries. Legacy Universal Analytics-style
+  objects, old ecommerce paths, fixed product-index logic, custom code, consent,
+  media/vendor, server/gateway, and ecommerce signals must be surfaced or
+  explicitly marked not applicable.
 - `Measurement diagnosis`: every meaningful conversion, media, ecommerce, lead,
   server-side, custom-code, multi-market, gateway, or consolidation candidate has
   a business model or family context, decision outcome, conversion hierarchy,
@@ -116,7 +158,15 @@ required phase is `Done`, `Not applicable`, or `User-excluded`.
   with D4/runtime/owner blocker. A plan cannot defer D1-D3 audit work itself as
   cleanup work; for example, "review custom code", "check variable config", or
   "validate trigger logic" is a failed semantic-validation phase unless the user
-  explicitly asked for a pre-audit inventory only.
+  explicitly asked for a pre-audit inventory only. Naming convention and route
+  architecture must appear in the plan as a policy row or operation row; detailed
+  rename candidates may stay in hidden proof tabs.
+- `Finding reconciliation`: deterministic, semantic, and technical scan
+  findings are normalized by `layer + object_id + object_name + object_type +
+  code/config hash`, conflicts are resolved with explicit rules, and every
+  visible cleanup detail row links to an operation packet or an explicit
+  blocker. A plan generated directly from scan summaries without operation
+  packets is incomplete.
 - `Optimization patterns`: exact duplicates, unused candidates, reusable
   trigger/variable opportunities, dynamic lookup/regex/helper opportunities,
   semantic consolidation, and strategic data-contract blockers were considered
@@ -171,12 +221,30 @@ deliver `Incomplete / blocked` with the failed rows.
 Before final delivery, verify:
 
 - no mandatory workstream is blank or silently skipped;
+- source model coverage exists before deterministic, semantic, and technical
+  cleanup lenses are trusted;
+- deterministic baseline modules are present and nonzero findings are
+  reconciled to visible cleanup operations, documented exceptions, runtime
+  blockers, owner decisions, or not-applicable rows;
+- independent semantic source scan rows exist and reconcile to the Semantic
+  Object Matrix or a documented limited-scope exclusion;
+- technical custom-code finding rows exist when code objects exist and
+  reconcile to delete, consolidate, harden, rebuild, document-exception,
+  runtime-blocker, owner-decision, or not-applicable outcomes;
+- non-keep technical custom-code rows include exact proposed action,
+  preconditions, QA, rollback, and handoff evidence;
+- reconciled operation packets exist behind visible cleanup detail rows and
+  include current behavior, problem, expected clean state, exact proposed
+  action, preconditions, QA, rollback, confidence, blocker, and source finding
+  IDs;
 - the D1-D3 proof queue is closed or explicitly marked incomplete before
   cleanup operations are compiled;
 - the D1-D3 proof queue covers every tag, trigger, variable, custom template,
   and referenced configuration branch in full audits;
 - every layer has changes, findings, or a documented reason for no change;
 - no meaningful object family is inventory-only or dependency-only;
+- no cleanup lens relies only on source-model summaries when raw evidence is
+  available;
 - no cleanup-ready claim exists for a meaningful family missing measurement
   diagnosis;
 - no cleanup operation exists for a D3 object unless literal behavior and the
@@ -206,6 +274,13 @@ Before final delivery, verify:
 - proof summaries do not rely on generic evidence signals such as `custom code
   inspected`, `configuration reviewed`, `external URL found`, `dataLayer push
   detected`, `no obvious browser side effect`, `see config`, or `see export`;
+- custom-code technical risks from extraction have an exact fix/consolidation
+  action with QA and rollback, a runtime QA requirement, documented exception,
+  owner decision, or not-applicable status before the visible cleanup plan is
+  finalized;
+- legacy Universal Analytics-style setup objects and fixed product-index
+  ecommerce logic have an explicit cleanup, migration, documented-exception,
+  runtime-blocker, owner-decision, or not-applicable resolution;
 - no row counts as semantically validated when required D1-D3 work is missing;
   such rows are unresolved/incomplete, not deferred;
 - plausible but unproven runtime assumptions are marked `Runtime QA required`
@@ -250,6 +325,9 @@ Before final delivery, verify:
 - cleanup operations do not use deferred-review placeholders as the main action,
   including `review custom code`, `perform line-level review`, `check variables`,
   or `validate trigger logic`.
+- cleanup operations do not use vague standalone actions such as `simplify`,
+  `consolidate`, `harden`, or `fix` without the exact intended object state or
+  the exact blocker that prevents specifying it.
 
 If any check fails, do not present the deliverable as complete. Deliver
 `Incomplete / blocked` with failed workstream, affected objects, missing phase,

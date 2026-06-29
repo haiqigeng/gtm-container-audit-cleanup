@@ -6,7 +6,9 @@ includes naming review or rename operations.
 ## Contents
 
 - Decision Hierarchy
+- Cleanup Plan Requirement
 - Default Patterns
+- Vendor Acronyms
 - Semantic Family Rules
 - Case Rules
 - Uniqueness And Blockers
@@ -21,20 +23,75 @@ are known, so remaining objects receive stable final names.
 2. If no user model exists, infer the dominant local convention: separator
    style, object order, vendor acronyms, event casing, trigger-role prefixes,
    variable type prefixes, folder grouping, and suffixes.
-3. Preserve meaningful local acronyms when the configuration proves them, for
+3. Score whether the local convention is usable: broad adoption, consistent
+   ordering, readable event/scope tokens, clear trigger role prefixes, and no
+   misleading legacy labels.
+4. Preserve meaningful local acronyms when the configuration proves them, for
    example `PA` for Piano Analytics.
-4. Standardize semantically equivalent objects within the same object layer and
+5. Standardize semantically equivalent objects within the same object layer and
    family. Do not keep mixed labels only because they already exist.
-5. Use the default patterns only when no reliable local convention exists.
+6. If the local convention is usable, recommend `local-normalized`: keep the
+   local order and vocabulary, then fix inconsistent objects.
+7. If the local convention is missing, weak, or harmful, recommend
+   `default-standardized` and use the integrated default patterns below.
+
+## Cleanup Plan Requirement
+
+Every cleanup plan must include a visible naming and architecture row. The row
+must state:
+
+- selected policy: user-provided, local-normalized, or default-standardized;
+- confidence and why that policy was selected;
+- examples of compliant final names;
+- whether detailed rename candidates are in the hidden deterministic or rename
+  map tab;
+- blockers when final names require owner clarification.
+
+The visible cleanup plan may group naming as one operation, but hidden proof
+tabs must keep object-level rename candidates and policy evidence. Do not omit
+naming just because rename candidates are not safe to execute yet.
+
+Object-level naming proof rows should include:
+
+- selected naming policy and target pattern;
+- proposed final name when it can be derived from existing tokens;
+- rename blocker when event, scope, vendor, or owner meaning is ambiguous;
+- uniqueness status inside the GTM layer.
+
+Do not invent business tokens to fill a name. If a proposed name cannot be made
+unique without a new scope token, mark the row as owner-decision-needed rather
+than adding an arbitrary suffix as the preferred final name.
 
 ## Default Patterns
 
 | Layer | Pattern | Examples |
 | --- | --- | --- |
-| Tags | `Vendor - Event/role - Scope/detail` | `GA4 - purchase`, `PA - page.display - Article`, `Meta - Purchase - FR` |
-| Triggers | `Utility/type - Event or condition - Scope/detail` | `Event - purchase`, `PV - All Pages`, `Block - PA - Analytics consent denied`, `TG - PA - Page display ready` |
-| Variables | `Type acronym - Variable name/source` | `DLV - ecommerce.items`, `CJS - Purchase total quantity`, `LT - Hostname to currency` |
-| Folders | `Vendor` or `Domain / Function` | `GA4`, `PA`, `Consent`, `Ecommerce helpers` |
+| Tags | `Vendor - Event - Scope` | `GA4 - Purchase - All`, `GADS - AddToCart - IGGI`, `PA - PageView - All`, `TD - Purchase - FR` |
+| Custom Event triggers | `CE - event_name` | `CE - view_item`, `CE - add_to_cart`, `CE - purchase` |
+| Pageview / URL triggers | `PV - Condition Scope` | `PV - Hostname FR`, `PV - Homepage DE`, `PV - Contact Form CH` |
+| Click triggers | `LC - Description Scope` | `LC - Homeslide`, `LC - Distributor CTA FR` |
+| Form triggers | `FORM - Description Scope` | `FORM - Newsletter`, `FORM - User Provided Data` |
+| Blocking triggers | `Block - condition_or_reason` | `Block - Consent Refused`, `Block - Internal Traffic`, `Block - Missing Ecommerce Items` |
+| Trigger groups | `TG - event Vendor Scope` | `TG - purchase GA4 All`, `TG - add_to_cart Meta EU`, `TG - page_view GADS All` |
+| Variables | `Type acronym - Variable name/source` | `DLV - ecommerce.items`, `cJS - Cart Total Price`, `LT - Currency`, `Util - Page URL` |
+| Folders | `Area` by default | `GA4`, `Media`, `Consent`, `Utilities`, `Ecommerce` |
+
+Use area-only folders by default. Split folders into `Area - Scope` only when a
+folder becomes too large to navigate or the user provides a folder taxonomy.
+
+## Vendor Acronyms
+
+Use full vendor names or acronyms consistently. Prefer acronyms when the vendor
+name is long or the local container already uses the acronym coherently.
+
+Suggested defaults:
+
+- `Google Analytics 4`: `GA4`
+- `Google Ads`: `GADS`
+- `Piano Analytics`: `PA`
+- `Tradedoubler`: `TD`
+- `The Trade Desk`: `TTD`
+- `Display & Video 360`: `DV360`
 
 Variable type acronyms:
 
@@ -50,12 +107,14 @@ Variable type acronyms:
 
 ## Semantic Family Rules
 
-- Put the destination/platform first for tags.
+- Put the destination/platform first for tags, then event, then scope.
 - Put the trigger utility or condition first for triggers.
 - Put the implementation/source type first for variables.
 - Avoid redundant layer prefixes such as `TR -`; GTM already shows the object is
   a trigger.
-- Use `TG` only for trigger groups or an established trigger-group abbreviation.
+- Use `CE` for Custom Event triggers, `PV` for pageview or URL/hostname
+  triggers, `LC` for link-click triggers, `FORM` for form-submit triggers,
+  `Block` for blocking triggers, and `TG` for trigger groups.
 - Flatten single-member trigger groups before final naming when the cleanup route
   supports deletion.
 - Treat vendor/CMP names as vocabulary, not role names. If `Didomi - ...`,
@@ -63,14 +122,16 @@ Variable type acronyms:
   is denied, standardize them under the blocking-trigger pattern. Keep `Didomi`
   only when the trigger is truly a CMP event/state trigger.
 - Put market, language, product range, campaign, pixel/account ID suffix,
-  consent category, sequence role, or lifecycle status after the event/role.
+  consent category, sequence role, or lifecycle status after the event/role in
+  the scope/detail position.
 
 ## Case Rules
 
 - Preserve official event casing and technical keys, such as `page.display`,
   `click.action`, `add_to_cart`, `ViewContent`, or `Purchase`.
-- Keep acronyms uppercase, such as `PA`, `GA4`, `CMP`, `DLV`, `CJS`, `URL`, and
-  `JS`.
+- Keep acronyms uppercase, such as `PA`, `GA4`, `GADS`, `CMP`, `DLV`, `URL`,
+  and `JS`. Use `cJS` for Custom JavaScript variables when following the
+  integrated default.
 - Use one readable case for human labels, such as `Analytics consent denied` or
   `Newsletter CTA`.
 - Do not mix `Page Display`, `page Display`, `PAGE DISPLAY`, and

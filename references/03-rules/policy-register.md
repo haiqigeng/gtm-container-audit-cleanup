@@ -27,6 +27,10 @@ Other references may cite these policy IDs instead of restating the full rule.
 | POL-011 | Cleanup is downstream of measurement diagnosis. Diagnose business model, decision outcome, conversion hierarchy, platform role, and expected data contract before judging meaningful objects or compiling cleanup operations. |
 | POL-012 | In a full audit, every tag, trigger, variable, custom template, and referenced configuration branch requires recursive D3 tracing to terminal source/config/code evidence. Do not stop at a referenced variable or trigger name. |
 | POL-013 | Compare sibling fields and sibling objects after resolving their sources. Identical or near-identical logic behind different semantic outputs must become a finding, documented exception, or explicit owner/D4 blocker. |
+| POL-014 | Run a protected deterministic cleanup baseline before semantic review. Every nonzero baseline finding must be reconciled as a cleanup operation, documented exception, runtime blocker, owner decision, or not applicable with evidence. |
+| POL-015 | Build a source model navigation map before the cleanup lenses. The model preserves object, field, dependency, consumer, custom-code, and unresolved-edge relationships, but raw export/API/config/code/runtime evidence remains the source of truth for findings. |
+| POL-016 | Keep deterministic, semantic, and technical cleanup lenses independent until reconciliation. Each lens may use the source model to traverse the container, but must verify findings against source evidence before the final cleanup plan combines them. |
+| POL-017 | Custom HTML, Custom JavaScript, and custom templates require a purely technical code health/security/optimization check in addition to semantic purpose review. Technical risks must become exact fix/consolidation actions with handoff evidence, QA blockers, documented exceptions, owner decisions, or not-applicable rows. |
 
 ## Cleanup And Mutation Policies
 
@@ -72,3 +76,4 @@ Other references may cite these policy IDs instead of restating the full rule.
 | POL-307 | XLSX cleanup plans should use compact human-readable workbooks by default, normally 7-8 total tabs or fewer and 5-6 useful columns per tab. Keep proof available but consolidated; do not hide duplicated machine scaffolding and call it solved. |
 | POL-308 | Visible and hidden workbook columns must earn their place for real human use: approval, debugging, assignment, QA, impact, or next action. Merge similar columns and remove blank, constant, duplicate, validator-only, or raw-proof columns from the user-facing package. |
 | POL-309 | Compact cleanup plans may use `Summary` rows plus immediate `Detail` rows for grouped semantic findings. Generic hygiene buckets such as unused objects, exact duplicates, naming, or folder moves may stay as one row when evidence, action, QA, and rollback are identical. |
+| POL-310 | User-facing cleanup text must be understandable to non-specialists: state the problem, why it matters, expected cleanup result, next action, and QA method in plain words before technical labels or JSON paths. |

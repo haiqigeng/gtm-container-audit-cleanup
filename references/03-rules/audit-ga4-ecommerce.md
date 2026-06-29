@@ -55,6 +55,8 @@ Create a schema map with:
   `item_list_id`, and `item_list_name`;
 - GTM source paths and helper variables;
 - legacy UA-path risk;
+- fixed product-position risk such as `products.0`, `products[0]`, or
+  separately hardcoded product 1/product 2/product 3 fields;
 - outcome: correct, GTM mapping fix, website/dataLayer fix, or blocked pending
   Preview/debug evidence.
 
@@ -109,6 +111,9 @@ For each variable, check:
   objects, JSON string, joined string, or boolean;
 - logical formula correctness, including total quantity reading quantity fields
   and total price covering all items without duplicated indexes;
+- whether a total/order value is incorrectly derived from one product unit
+  price or a fixed set of product positions instead of the current transaction
+  value or item array;
 - multi-item support and destination-specific single-item limitations;
 - null, missing value, empty array, parsing, and `NaN` handling;
 - currency/value consistency and unit-price times quantity behavior;

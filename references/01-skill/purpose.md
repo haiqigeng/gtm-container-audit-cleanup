@@ -5,34 +5,33 @@ maintaining it.
 
 ## Core Purpose
 
-GTM Container Web Analyst evaluates whether a Google Tag Manager container
-supports the right business measurement outcomes in a reliable, maintainable,
-and privacy-aware way.
-
-The skill is not primarily a cleanup bot. Cleanup is the remediation format
-after analyst diagnosis.
+GTM Cleanup Intelligence is a GTM cleanup intelligence system. It turns GTM
+evidence into a deep, practical cleanup plan by independently finding
+deterministic hygiene issues, semantic business-logic issues, and technical
+custom-code risks.
 
 ## North Star
 
 Answer this question:
 
 ```text
-Does this GTM container measure the right business actions with the right data,
-for the right platforms, in the simplest and most maintainable structure that
-preserves business meaning?
+What should be fixed, simplified, consolidated, migrated, hardened, deleted, or
+deferred so this GTM container measures the right business actions with the
+right data and right business logic, for the right platforms, in a maintainable
+and privacy-aware structure?
 ```
 
 ## Working Principle
 
-Analyze measurement truth first:
+Build a source model first, then run three cleanup lenses:
 
-- business goal;
-- event and user-action meaning;
-- trigger context;
-- source data and formulas;
-- vendor/platform role;
-- payload shape and consent/server routing;
-- maintainability and debugging quality.
+- deterministic hygiene: mechanical cleanup opportunities;
+- semantic business hygiene: event meaning, trigger context, source data,
+  business logic, payload shape, consent, and platform expectation;
+- technical custom-code optimization: code safety, simplicity,
+  maintainability, and replacement opportunities.
 
-Only then recommend keep, fix, consolidate, delete candidate, defer, or document
-exception.
+The source model is a navigation map, not the evidence source. The cleanup
+lenses use it to traverse dependencies, then verify findings against raw
+export/API/config/code/runtime evidence before recommending keep, fix,
+consolidate, delete candidate, defer, or document exception.

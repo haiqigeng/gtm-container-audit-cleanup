@@ -47,8 +47,9 @@ Examples of valid proof summaries:
 
 ## User-Facing Boundary
 
-The cleanup plan is the decision source. The semantic matrix is the proof
-source. The change log is the execution record.
+The cleanup plan is the decision source. Reconciled operation packets are the
+execution-intent source. The semantic matrix is the proof source. The change
+log is the execution record.
 
 Cleanup plans and change logs should include only:
 
@@ -70,6 +71,24 @@ or change log:
 
 The user-facing row should be understandable without reading the proof tabs,
 but it should link to finding/operation IDs when detailed evidence exists.
+
+Write user-facing rows for people who may know the website but not web
+analytics. Prefer this structure:
+
+```text
+problem in plain words -> why it matters -> expected result after cleanup -> next action / QA
+```
+
+Every actionable visible row must be backed by a hidden operation packet with
+current behavior, expected clean state, exact proposed action, QA, rollback,
+confidence, blocker, and source finding IDs. Do not use the visible row to
+start a new analysis that is not present in the packet.
+
+Use short translations for technical terms. For example, write "old Universal
+Analytics ecommerce format" before or instead of "UA Enhanced Ecommerce", and
+write "fixed product position" before or instead of "products.0". Do not make a
+stakeholder infer the action from a script name, JSON path, hash, or internal
+scan label.
 
 For XLSX workbooks, keep proof tabs in the same file but hide them with the
 normal Excel `hidden` state when they are not part of the human decision view.
@@ -116,6 +135,12 @@ summary:
 - `see export`
 - `static scan completed`
 - `reviewed manually`
+- `simplify custom code`
+- `consolidate where possible`
+- `harden risky code`
+- `validate logic`
+- `check trigger`
+- `review variables`
 - `returns computed value`
 - `computed scalar/object`
 - `browser side effect`

@@ -19,7 +19,11 @@ the audit actually covered the container:
 
 ```text
 source export/API evidence -> inventory/dependency facts
--> measurement diagnosis -> semantic rows -> findings/operations
+-> source model navigation map
+-> deterministic branch: baseline findings verified against source evidence
+-> semantic branch: independent source scan + D1-D3 semantic rows
+-> technical branch: custom-code technical facts verified against source code
+-> finding reconciliation/double-check -> findings/operations
 -> reconciliation/gate result
 ```
 
@@ -42,6 +46,18 @@ A completed full audit or cleanup plan must include or generate:
   built-ins;
 - dependency evidence for triggers, variables, setup/teardown, folders,
   templates, and custom-code references;
+- Source Model rows or JSON from `gtm_source_model.py` or equivalent manual
+  proof, preserving the navigation map from objects to fields, references,
+  consumers, code, and unresolved edges;
+- Deterministic Baseline Findings rows from `gtm_baseline_audit.py` or
+  equivalent manual proof, including zero-finding proof rows;
+- Custom-code fact extraction rows from `gtm_custom_code_extract.py` or
+  equivalent manual proof before semantic interpretation, including technical
+  code health/security/optimization signals for Custom HTML, Custom JavaScript,
+  and custom templates;
+- Independent Semantic Source Scan rows from `gtm_semantic_source_scan.py` or
+  equivalent direct source review, proving the semantic layer scanned the
+  export/API evidence itself instead of consuming only deterministic summaries;
 - Measurement Diagnosis rows or fields for meaningful object families, covering
   business model, decision outcome, conversion hierarchy, platform role, and
   expected data contract;
@@ -55,6 +71,9 @@ A completed full audit or cleanup plan must include or generate:
 - Official Docs Map rows for material vendor/event/CMP families;
 - Operations rows for every proposed mutation, no-change exception, deferred
   blocker, or owner decision;
+- Finding reconciliation rows that map every nonzero deterministic finding to a
+  cleanup operation, documented exception, runtime blocker, owner decision, or
+  not-applicable decision;
 - Workstream Reconciliation rows with zero unresolved count for complete
   deliverables.
 
@@ -85,6 +104,8 @@ These behaviors are failed execution, not harmless limitations:
 
 - tags, triggers, variables, or custom templates appear in the export but not in
   the Semantic Object Matrix for a full audit;
+- deterministic, semantic, or technical checks rely on a flat inventory summary
+  instead of using a source model to navigate back to raw evidence;
 - meaningful object families move to cleanup operations without measurement
   diagnosis;
 - Custom HTML/JS exists but the Custom Code Semantic Review tab is missing or
@@ -101,6 +122,17 @@ These behaviors are failed execution, not harmless limitations:
   referenced variable configuration;
 - duplicated or near-duplicated source logic is left as a generic validation
   note instead of a concrete finding, documented exception, or D4-only blocker;
+- deterministic baseline findings disappear between proof artifacts and the
+  user-facing cleanup plan;
+- the semantic layer uses only deterministic baseline output, duplicate groups,
+  or cleanup-plan summaries instead of reading the source object configuration
+  and producing its own rows;
+- outdated Universal Analytics-style tags, triggers, variables, legacy ecommerce
+  paths, or fixed product-index variables disappear during semantic
+  summarization without a documented resolution;
+- custom-code technical risks are captured in extraction but have no exact
+  fix/consolidation action, handoff evidence, runtime QA, documented exception,
+  or owner decision in reconciliation;
 - runtime uncertainty is used to skip export-level analysis instead of marking
   only runtime proof as blocked;
 - required D3 rows say D3 is blocked even though the export contains the code,

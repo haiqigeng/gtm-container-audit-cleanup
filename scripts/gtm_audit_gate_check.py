@@ -95,6 +95,90 @@ CUSTOM_CODE_REQUIRED_FIELDS = [
     "blocker",
 ]
 
+OPERATION_PACKET_REQUIRED_FIELDS = [
+    "operation_id",
+    "affected_objects",
+    "object_identity",
+    "source_lenses",
+    "current_behavior",
+    "problem",
+    "why_it_matters",
+    "expected_clean_state",
+    "exact_proposed_action",
+    "preconditions",
+    "qa_steps",
+    "rollback",
+    "confidence",
+    "blocker",
+    "priority",
+    "resolution_status",
+    "source_finding_ids",
+]
+
+OPERATION_PACKET_NONBLANK_FIELDS = [
+    "operation_id",
+    "affected_objects",
+    "object_identity",
+    "source_lenses",
+    "current_behavior",
+    "problem",
+    "why_it_matters",
+    "expected_clean_state",
+    "exact_proposed_action",
+    "qa_steps",
+    "rollback",
+    "confidence",
+    "priority",
+    "resolution_status",
+    "source_finding_ids",
+]
+
+TECHNICAL_PACKET_HANDOFF_FIELDS = [
+    "technical_handoff_packet",
+    "handoff_packet",
+    "handoff_evidence",
+]
+
+BASELINE_REQUIRED_FIELDS = [
+    "module_name",
+    "module_status",
+    "objects_scanned",
+    "finding_id",
+    "finding_type",
+    "object_type",
+    "object_ids",
+    "object_names",
+    "signature_key",
+    "deterministic_evidence",
+    "default_action",
+    "required_resolution",
+]
+
+PROTECTED_BASELINE_MODULES = {
+    "inventory",
+    "recognized_system_references",
+    "missing_references",
+    "duplicate_tag_names",
+    "duplicate_trigger_names",
+    "duplicate_variable_names",
+    "duplicate_folder_names",
+    "duplicate_tag_configurations",
+    "normalized_duplicate_tag_signatures",
+    "duplicate_trigger_logic",
+    "duplicate_variable_logic",
+    "duplicate_variable_paths",
+    "outdated_ua_styled_setup_objects",
+    "unused_variables",
+    "unused_triggers",
+    "tags_without_firing_triggers",
+    "unused_custom_templates",
+    "unused_folders",
+    "single_member_trigger_groups",
+    "duplicate_custom_code",
+    "name_hygiene",
+    "naming_architecture_standardization",
+}
+
 D3_REQUIRED_FIELDS = [
     "d3_inputs_or_sources",
     "d3_logic_summary",
@@ -137,6 +221,14 @@ PLACEHOLDER_PATTERNS = [
     re.compile(r"\breview\s+custom\s+code\b", re.I),
     re.compile(r"\bcheck\s+(?:the\s+)?variables?\b", re.I),
     re.compile(r"\bvalidate\s+trigger\s+logic\b", re.I),
+]
+
+VAGUE_ACTION_PATTERNS = [
+    re.compile(r"^\s*(?:review|check|validate|investigate)\b", re.I),
+    re.compile(r"^\s*(?:simplify|consolidate|harden|fix)\s*(?:custom\s+code|code|logic|where\s+possible)?\s*$", re.I),
+    re.compile(r"\bsimplify\s+custom\s+code\b", re.I),
+    re.compile(r"\bconsolidate\s+where\s+possible\b", re.I),
+    re.compile(r"\bharden\s+risky\s+code\b", re.I),
 ]
 
 INCOMPLETE_DEPTH_PATTERNS = [
@@ -801,6 +893,128 @@ def validate_custom_code_rows(rows: List[Dict[str, Any]], label: str) -> List[st
     return errors
 
 
+def validate_baseline_rows(rows: List[Dict[str, Any]], label: str) -> List[str]:
+    errors = validate_required_table(rows, BASELINE_REQUIRED_FIELDS, label)
+    if errors:
+        return errors
+    seen_modules = set()
+    for index, row in enumerate(rows, start=2):
+        module_name = str(row.get("module_name") or "").strip()
+        module_status = str(row.get("module_status") or "").strip().lower()
+        finding_type = str(row.get("finding_type") or "").strip().lower()
+        if module_name:
+            seen_modules.add(module_name)
+        if module_status not in {"findings", "zero_findings"}:
+            errors.append(
+                f"{label} row {index}: module_status must be findings or zero_findings"
+            )
+        if finding_type != "zero_findings" and not str(row.get("default_action") or "").strip():
+            errors.append(f"{label} row {index}: finding lacks default_action")
+        if finding_type != "zero_findings" and not str(row.get("required_resolution") or "").strip():
+            errors.append(f"{label} row {index}: finding lacks required_resolution")
+    if not seen_modules:
+        errors.append(f"{label}: no baseline modules found")
+    else:
+        missing_modules = sorted(PROTECTED_BASELINE_MODULES - seen_modules)
+        if missing_modules:
+            errors.append(
+                f"{label}: missing protected deterministic baseline module(s): "
+                + ", ".join(missing_modules)
+            )
+    return errors
+
+
+def validate_operation_packet_rows(rows: List[Dict[str, Any]], label: str) -> List[str]:
+    errors = validate_required_table(rows, OPERATION_PACKET_REQUIRED_FIELDS, label)
+    if errors:
+        return errors
+
+    seen_ids: set[str] = set()
+    for index, row in enumerate(rows, start=2):
+        for field in OPERATION_PACKET_NONBLANK_FIELDS:
+            if field_is_blank(row.get(field)):
+                errors.append(f"{label} row {index}: blank {field}")
+
+        operation_id = str(row.get("operation_id") or "").strip()
+        if operation_id:
+            if operation_id in seen_ids:
+                errors.append(f"{label} row {index}: duplicate operation_id {operation_id}")
+            seen_ids.add(operation_id)
+
+        resolution = compact_text(row.get("resolution_status")).replace(" ", "_")
+        accepted = {
+            "cleanup_operation",
+            "documented_exception",
+            "runtime_blocker",
+            "owner_decision_needed",
+            "not_applicable",
+        }
+        if resolution not in accepted:
+            errors.append(
+                f"{label} row {index}: resolution_status must be one of "
+                f"{', '.join(sorted(accepted))}"
+            )
+        if resolution in {"runtime_blocker", "owner_decision_needed"} and field_is_blank(
+            row.get("blocker")
+        ):
+            errors.append(f"{label} row {index}: blocker is required for {resolution}")
+
+        if "technical" in str(row.get("source_lenses") or "").lower() and not any(
+            not field_is_blank(row.get(field)) for field in TECHNICAL_PACKET_HANDOFF_FIELDS
+        ):
+            errors.append(
+                f"{label} row {index}: technical source lens requires "
+                "technical_handoff_packet, handoff_packet, or handoff_evidence"
+            )
+
+        action_text = str(row.get("exact_proposed_action") or "")
+        for pattern in VAGUE_ACTION_PATTERNS:
+            if pattern.search(action_text):
+                errors.append(
+                    f"{label} row {index}: exact_proposed_action is vague: {action_text!r}"
+                )
+                break
+    return errors
+
+
+def validate_cleanup_rows_backed_by_packets(
+    workbook_rows: Dict[str, List[Dict[str, Any]]], packet_rows: List[Dict[str, Any]]
+) -> List[str]:
+    errors: List[str] = []
+    packet_ids = {
+        str(row.get("operation_id") or "").strip()
+        for row in packet_rows
+        if str(row.get("operation_id") or "").strip()
+    }
+    for sheet_name, rows in workbook_rows.items():
+        normalized = normalize_sheet_name(sheet_name)
+        if "cleanup" not in normalized or "plan" not in normalized:
+            continue
+        if not rows:
+            continue
+        headers = {normalize_header(header): header for header in rows[0]}
+        level_key = headers.get("level")
+        id_key = headers.get("operation_id") or headers.get("id")
+        if not id_key:
+            errors.append(
+                f"{sheet_name}: cleanup plan needs ID or operation_id values that link to operation packets"
+            )
+            continue
+        for index, row in enumerate(rows, start=2):
+            level = str(row.get(level_key) or "").strip().lower() if level_key else "single"
+            if level == "summary":
+                continue
+            row_id = str(row.get(id_key) or "").strip()
+            if not row_id:
+                errors.append(f"{sheet_name} row {index}: cleanup row lacks operation packet ID")
+                continue
+            if row_id not in packet_ids:
+                errors.append(
+                    f"{sheet_name} row {index}: cleanup row ID {row_id!r} has no matching operation packet"
+                )
+    return errors
+
+
 def validate_placeholder_language(
     workbook_rows: Dict[str, List[Dict[str, Any]]]
 ) -> List[str]:
@@ -818,6 +1032,13 @@ def validate_placeholder_language(
                         errors.append(
                             f"{sheet_name} row {row_index} field {field}: "
                             f"deferred audit-work placeholder {pattern.pattern!r}"
+                        )
+                for pattern in VAGUE_ACTION_PATTERNS:
+                    if pattern.search(text):
+                        errors.append(
+                            f"{sheet_name} row {row_index} field {field}: "
+                            f"vague cleanup action {pattern.pattern!r}; state exact "
+                            "object state or blocker"
                         )
     return errors
 
@@ -920,6 +1141,16 @@ def validate_strict_evidence(path: Path, reconciliation_rows: List[Dict[str, Any
     errors.extend(validate_full_audit_object_family_rows(reconciliation_rows))
 
     semantic_name, semantic_rows = find_sheet(workbook_rows, ["semantic", "matrix"])
+    baseline_name, baseline_rows = find_sheet(workbook_rows, ["baseline"])
+    packet_name, packet_rows = find_sheet(workbook_rows, ["reconciled", "operations"])
+    if not packet_name:
+        packet_name, packet_rows = find_sheet(workbook_rows, ["operation", "packet"])
+    if not packet_name:
+        errors.append("strict evidence: missing Reconciled Operations / Operation Packets sheet")
+    else:
+        errors.extend(validate_operation_packet_rows(packet_rows, f"{packet_name}"))
+        errors.extend(validate_cleanup_rows_backed_by_packets(workbook_rows, packet_rows))
+
     if not semantic_name:
         errors.append("strict evidence: missing Semantic Object Matrix sheet")
     else:
@@ -939,6 +1170,11 @@ def validate_strict_evidence(path: Path, reconciliation_rows: List[Dict[str, Any
                     f"{semantic_name}",
                 )
             )
+
+    if not baseline_name:
+        errors.append("strict evidence: missing Deterministic Baseline Findings sheet")
+    else:
+        errors.extend(validate_baseline_rows(baseline_rows, f"{baseline_name}"))
 
     custom_name, custom_rows = find_sheet(workbook_rows, ["custom", "code"])
     if custom_code_required(reconciliation_rows) and not custom_name:

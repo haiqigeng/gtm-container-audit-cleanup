@@ -2,12 +2,33 @@
 
 Use this file to decide whether a skill execution is good enough to deliver.
 
+## Contents
+
+- Complete Result Criteria
+- Configuration Logic Clarity
+- Change Log Criteria
+- Failure Criteria
+
 ## Complete Result Criteria
 
 A complete audit or cleanup plan must show:
 
 - scope, source evidence, and evidence freshness;
-- inventory and dependency mapping for in-scope objects;
+- a source model navigation map for in-scope objects, including inventory,
+  dependency edges, field mappings, consumers, custom-code references, and
+  unresolved edges;
+- source model coverage gate status before deterministic, semantic, or
+  technical cleanup lenses are trusted;
+- deterministic cleanup baseline modules with zero-finding proof rows and
+  nonzero finding IDs;
+- recognized GTM system/internal references excluded from missing-reference
+  anomalies;
+- naming and route architecture standardization policy included in the cleanup
+  plan, even when detailed rename candidates stay in hidden proof tabs;
+- technical custom-code findings that include exact action, preconditions, QA,
+  rollback, and handoff fields for every non-keep object;
+- reconciliation of every deterministic finding into a cleanup operation,
+  documented exception, runtime blocker, owner decision, or not-applicable row;
 - measurement diagnosis for meaningful object families;
 - a D1-D3 proof queue closed before findings and cleanup operations are
   finalized;
@@ -39,6 +60,10 @@ branch in a full audit, the review must explain:
   on it;
 - whether the functionality is coherent with the name, event context, business
   role, platform role, and official documentation.
+
+The source model may guide this review, but it does not replace source evidence.
+Every cleanup finding must be checked against the raw export/API/config/code or
+runtime evidence that supports it.
 
 The review must recursively trace references. A tag field or trigger condition
 that points to a GTM variable is not reviewed until the variable's source path,
@@ -84,6 +109,11 @@ For custom code, the review must explain:
 - whether it interacts with DOM, cookies, storage, network calls, dataLayer,
   CMP, or vendor scripts;
 - whether the behavior is safe, obsolete, duplicated, risky, or unclear;
+- the exact technical cleanup action when action is `fix_required` or
+  `consolidate_candidate`, such as replacing fixed ecommerce positions with
+  item-array logic or replacing a helper with a lookup table;
+- the preconditions, QA steps, rollback note, and handoff evidence needed for
+  another analyst or agent to continue the work;
 - what runtime QA is still needed when behavior cannot be proven from export
   evidence.
 
@@ -104,6 +134,11 @@ Unacceptable summaries include:
 A post-cleanup change log is acceptable only when:
 
 - every applied/generated change has a row;
+- a summary section or tab reports counts, validation status, blockers, rollback
+  source, and next step;
+- a detailed section or tab lists one modified object, field, dependency,
+  trigger route, variable source, folder move, code/template change, rename,
+  deletion, creation, documented exception, or route-limited no-op per row;
 - each row explains what changed in human terms;
 - before/after values are shown when they affect behavior, names, routing,
   dependencies, QA, or rollback;
@@ -128,8 +163,16 @@ Mark the deliverable `Incomplete / blocked` when:
   logic and consumer meaning;
 - sibling fields with duplicated or near-duplicated logic are not compared;
 - measurement diagnosis is missing for meaningful affected families;
+- source model coverage is missing, shallow, or treated as the evidence source
+  instead of a navigation map;
 - custom code is not inspected at export/config level;
+- custom-code rows say only `simplify`, `harden`, or `review` without exact
+  action, QA, rollback, and handoff evidence;
+- deterministic cleanup findings are missing, unreconciled, or silently omitted
+  from the cleanup plan;
+- naming convention and route architecture are not represented in the cleanup
+  plan;
 - cleanup actions require future audit work to decide correctness;
-- user-facing outputs are too generic to explain functionality or impact.
+- user-facing outputs are too generic to explain functionality or impact;
 - D3 rows categorize objects without stating literal behavior and actual
   consumer context.

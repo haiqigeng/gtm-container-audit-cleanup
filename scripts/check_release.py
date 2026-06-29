@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Run dependency-free release checks for the GTM Container Web Analyst skill."""
+"""Run dependency-free release checks for the GTM Cleanup Intelligence skill."""
 
 from __future__ import annotations
 
 import argparse
-import py_compile
 import re
 import subprocess
 import sys
@@ -27,6 +26,12 @@ RELEASE_NOTE_HEADINGS = (
     "validation",
     "known limits",
 )
+PROHIBITED_ROOT_FILES = {
+    "README.md",
+    "CHANGELOG.md",
+    "INSTALLATION_GUIDE.md",
+    "QUICK_REFERENCE.md",
+}
 
 
 def repo_root() -> Path:
@@ -34,7 +39,7 @@ def repo_root() -> Path:
 
 
 def text_files(root: Path) -> list[Path]:
-    paths = [root / "SKILL.md", root / "README.md", root / "agents" / "openai.yaml"]
+    paths = [root / "SKILL.md", root / "agents" / "openai.yaml"]
     paths.extend(sorted((root / "references").rglob("*.md")))
     paths.extend(sorted((root / "scripts").glob("*.py")))
     return [path for path in paths if path.exists()]
@@ -149,7 +154,9 @@ def check_reference_branches(root: Path) -> list[str]:
 
 def git_ls_files(root: Path) -> set[str]:
     try:
-        output = subprocess.check_output(["git", "ls-files"], cwd=root, text=True)
+        output = subprocess.check_output(
+            ["git", "ls-files"], cwd=root, text=True, stderr=subprocess.DEVNULL
+        )
     except Exception:
         return set()
     return set(output.splitlines())
@@ -163,6 +170,25 @@ def check_reference_navigation(root: Path) -> list[str]:
             errors.append(
                 f"{path.relative_to(root)} has {len(lines)} lines and no ## Contents"
             )
+    return errors
+
+
+def check_forbidden_skill_files(root: Path) -> list[str]:
+    errors = []
+    for filename in sorted(PROHIBITED_ROOT_FILES):
+        if (root / filename).exists():
+            errors.append(
+                f"{filename} is not allowed in a skill package; keep guidance in SKILL.md or references/"
+            )
+    return errors
+
+
+def check_generated_artifacts(root: Path) -> list[str]:
+    errors = []
+    for path in sorted(root.rglob("__pycache__")):
+        errors.append(f"Generated Python cache directory must be removed: {path.relative_to(root)}")
+    for path in sorted(root.rglob("*.pyc")):
+        errors.append(f"Generated Python bytecode file must be removed: {path.relative_to(root)}")
     return errors
 
 
@@ -183,9 +209,11 @@ def check_py_compile(root: Path) -> list[str]:
     errors = []
     for path in sorted((root / "scripts").glob("*.py")):
         try:
-            py_compile.compile(str(path), doraise=True)
-        except py_compile.PyCompileError as exc:
-            errors.append(f"py_compile failed for {path.relative_to(root)}: {exc.msg}")
+            compile(path.read_text(encoding="utf-8"), str(path), "exec")
+        except SyntaxError as exc:
+            errors.append(
+                f"syntax check failed for {path.relative_to(root)}:{exc.lineno}: {exc.msg}"
+            )
     return errors
 
 
@@ -264,6 +292,8 @@ def main() -> int:
             errors.append("Referenced resources are untracked: " + ", ".join(untracked_refs))
 
     errors.extend(check_reference_navigation(root))
+    errors.extend(check_forbidden_skill_files(root))
+    errors.extend(check_generated_artifacts(root))
     errors.extend(check_patterns(root, "blocklist", release_blocklist(root)))
     errors.extend(check_py_compile(root))
     errors.extend(check_release_tag(args.tag))

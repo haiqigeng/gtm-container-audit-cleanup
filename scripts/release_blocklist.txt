@@ -2,8 +2,7 @@
 # One regular expression per line. Blank lines and # comments are ignored.
 
 [A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
-C:\\Users
-Downloads
+C:\\Users\\[^\\]+
 AppData\\Local\\Temp
 TODO
 FIXME
@@ -11,19 +10,13 @@ HACK
 test ended
 analyst-hardening-compare
 
-# Historical local test/client residue.
-M8K4V9
-ynov
-PR4MQ6J
-laurastar
-KHN8CCM
-daxon
-workspace1000137
-workspace283
-workspace167
-GTM-M8
-GTM-PR
-GTM-KH
-haiqi
-optimize-matter
-Guillaume
+# Generic local test/client residue.
+workspace[0-9]+
+GTM-[A-Z0-9]*[0-9][A-Z0-9]*
+client[_ -]?name
+customer[_ -]?name
+account[_ -]?secret
+client[_ -]?secret
+api[_ -]?key
+access[_ -]?token
+refresh[_ -]?token

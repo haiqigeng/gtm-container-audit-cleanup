@@ -28,8 +28,14 @@ Secondary users:
   audience building, consent handling, or server-side routing?
 - Are event names, trigger contexts, variables, formulas, values, item arrays,
   lead fields, consent states, and payload formats logically correct?
+- Do computed business fields make real-world sense, such as total price,
+  quantity, item count, revenue, and lead value matching the actual cart, order,
+  form, or conversion event?
 - Are GTM objects created in synergy, using the simplest, clearest, most
   readable, and easiest-to-maintain structure possible?
+- Is the source model complete enough to show how tags, triggers, variables,
+  custom code, field mappings, and consumers connect before cleanup findings are
+  trusted?
 - Are duplicated, fragmented, obsolete, over-specific, or unnecessarily complex
   objects safe to consolidate or redesign?
 - Are similar objects true duplicates, or do they preserve meaningful business,

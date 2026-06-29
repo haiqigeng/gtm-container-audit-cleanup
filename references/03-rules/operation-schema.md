@@ -9,6 +9,7 @@ execution route.
 - Cleanup Aggressiveness
 - Route Decision Matrix
 - Operation Object Schema
+- Operation Packet Fields
 - Operation Compiler
 - Scenario Playbooks
 - Cleanup Intelligence Rules
@@ -157,36 +158,95 @@ Semantic logic checks should normally be folded into existing `reason`,
 `blocker`, `risk`, and `qa_method` fields. Add a separate traceability field only
 when the user requests a deeper technical workbook.
 
+## Operation Packet Fields
+
+For cleanup plans, compile operations from reconciled operation packets. The
+packet is the bridge between raw scan artifacts and the plain-language visible
+plan. It must be present even when the workbook hides it.
+
+Required packet fields:
+
+| Field | Required meaning |
+| --- | --- |
+| `operation_id` | Stable ID used by visible plan, proof tabs, execution tracker, and change log. |
+| `affected_objects` | Names and IDs of every object changed, deleted, kept as exception, or blocked. |
+| `object_identity` | `layer + object_id + object_name + object_type + code/config hash` when available. |
+| `source_lenses` | Which independent lenses contributed: deterministic, semantic, technical. |
+| `current_behavior` | What the source export/API/code shows now, in plain language. |
+| `problem` | The specific defect, risk, duplicate, obsolete object, or blocker. |
+| `why_it_matters` | Business, data-quality, privacy, performance, maintenance, or release impact. |
+| `expected_clean_state` | What should be true after cleanup or after the documented exception. |
+| `exact_proposed_action` | Delete, keep/document, update, rename, consolidate, harden, rebuild, defer, or QA, with the concrete object state. |
+| `preconditions` | Owner, legal, runtime, server, dataLayer, route, or workspace requirements before mutation. |
+| `qa_steps` | Preview, Tag Assistant, network, vendor, API/readback, owner, or dataLayer checks. |
+| `rollback` | Exact reversal, rollback export/version, or restore route. |
+| `technical_handoff_packet` | Required when `source_lenses` includes technical; carries object ID/name, identity/hash, referenced variables, external scripts, and side effects for the next analyst or agent. |
+| `confidence` | High, Medium, or Low. |
+| `blocker` | Required when the packet is not cleanup-ready. |
+| `priority` | Relative order based on risk, value, and dependencies. |
+| `resolution_status` | `cleanup_operation`, `documented_exception`, `runtime_blocker`, `owner_decision_needed`, or `not_applicable`. |
+| `source_finding_ids` | Deterministic, semantic, and technical finding IDs or row IDs that justify the packet. |
+
+The visible cleanup plan should be a translation of these packets, not a new
+analysis layer. If an operation packet cannot say the exact proposed action,
+expected clean state, QA, and rollback, the visible row must be a blocker or
+owner decision rather than a cleanup action.
+
+Shared action vocabulary:
+
+- `delete_candidate`: object appears removable after dependency and owner QA;
+- `fix_required`: existing object behavior is incorrect or unsafe;
+- `consolidate_candidate`: two or more objects can likely become one clearer
+  implementation;
+- `harden_required`: code/security behavior should be made safer;
+- `rebuild_candidate`: existing implementation is too fragile to patch safely;
+- `rename_candidate`: behavior is coherent but name/scope is misleading;
+- `document_exception`: keep unusual setup with a reason and QA evidence;
+- `runtime_blocked`: D1-D3 is done, but live/server/platform evidence is
+  needed before mutation;
+- `owner_decision_needed`: business/legal/platform intent is needed;
+- `keep`: no cleanup action after validation.
+
 ## Operation Compiler
 
 Compile audit findings into operations in this order:
 
 1. Normalize inventory and dependency facts.
-2. Diagnose business model, decision outcome, conversion hierarchy,
+2. Load independent deterministic, semantic, and technical finding artifacts
+   from raw source evidence. Do not let the compiler recreate one lens from
+   another lens' summaries.
+3. Match scan rows by object identity: layer, ID, name, type, and code/config
+   hash where available.
+4. Diagnose business model, decision outcome, conversion hierarchy,
    vendor/platform role, and expected data contract for affected meaningful
    families.
-3. Attach official documentation contracts to GA4 and vendor-event findings.
-4. Reconcile material object families against the audit ledger and identify any
+5. Attach official documentation contracts to GA4 and vendor-event findings.
+6. Reconcile material object families against the audit ledger and identify any
    family that is still inventory-only or dependency-only.
-5. Populate the semantic object matrix for every tag, trigger, variable, custom
+7. Populate the semantic object matrix for every tag, trigger, variable, custom
    template, and referenced configuration branch in a full audit. Finish
    recursive D3 semantic validation, or mark unresolved rows incomplete/blocked
    with evidence.
-6. Build the semantic model for meaningful object families and link every
+8. Build the semantic model for meaningful object families and link every
    finding or operation back to object-level matrix rows or documented
    exceptions.
-7. Run semantic logic checks for value, quantity, item, lead, media, shared
+9. Run semantic logic checks for value, quantity, item, lead, media, shared
    variable, and custom-code logic.
-8. Select applicable optimization patterns without flattening business meaning.
-9. Classify findings by business impact and risk.
-10. Choose recommended cleanup aggressiveness.
-11. Add selectable aggressiveness options and tradeoffs for each material
+10. Select applicable optimization patterns without flattening business meaning.
+11. Classify findings by business impact and risk.
+12. Apply conflict rules when lenses disagree; prefer blockers or documented
+   exceptions over guessed cleanup.
+13. Create operation packets with current behavior, problem, expected clean
+   state, exact proposed action, preconditions, QA, rollback, confidence, and
+   source finding IDs.
+14. Choose recommended cleanup aggressiveness.
+15. Add selectable aggressiveness options and tradeoffs for each material
    operation.
-12. Choose execution route.
-13. Generate operations with route-specific mutation style.
-14. Validate dependencies and blockers.
-15. Batch operations for execution.
-16. Run post-batch readback and update statuses.
+16. Choose execution route.
+17. Generate operations with route-specific mutation style.
+18. Validate dependencies and blockers.
+19. Batch operations for execution.
+20. Run post-batch readback and update statuses.
 
 For direct GTM/MCP/API, prefer `Update` or `Rename` on existing IDs. Use
 `Replace` only when a new reusable concept is needed or the API/tool behavior

@@ -25,6 +25,7 @@ from gtm_audit_gate_check import (
     d3_proof_complete,
     depth_tokens,
     generic_or_blank,
+    validate_baseline_rows,
     validate_semantic_depth_rows,
     validate_placeholder_language,
     validate_rows,
@@ -351,8 +352,14 @@ def validate_package(export_path: Path, workbook_path: Path, limited: bool) -> t
     semantic_name, semantic_rows = find_sheet(workbook, ["semantic", "matrix"])
     custom_name, custom_rows = find_sheet(workbook, ["custom", "code"])
     reconciliation_name, reconciliation_rows = find_sheet(workbook, ["reconciliation"])
+    baseline_name, baseline_rows = find_sheet(workbook, ["baseline"])
 
     errors.extend(validate_semantic_sheet(semantic_name, semantic_rows))
+    if not limited and not baseline_name:
+        errors.append("missing Deterministic Baseline Findings sheet")
+    elif baseline_name:
+        errors.extend(validate_baseline_rows(baseline_rows, baseline_name))
+
     rec_errors, rec_warnings = validate_reconciliation(
         reconciliation_name, reconciliation_rows, limited
     )

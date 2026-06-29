@@ -378,7 +378,7 @@ Recommended compact audit/cleanup plan tabs:
 - `01 Summary`
 - `02 Cleanup Plan`
 - `03 D3 Evidence`
-- `04 Inventory & Dependencies`
+- `04 Source Model & Dependencies`
 - `05 Synergy & Consolidation`
 - `06 QA & Blockers`
 - `07 References & Validation`
@@ -416,6 +416,12 @@ Cleanup implication:
 Evidence / QA blocker:
 ```
 
+Use `03 D3 Evidence` or a hidden support tab to keep independent semantic
+source scan rows separate from deterministic baseline rows until reconciliation.
+Use `04 Source Model & Dependencies` for the navigation map and unresolved
+edges; put custom-code technical review fields in hidden proof when the visible
+plan only needs the resulting action, QA, or blocker.
+
 Use the larger legacy tab list below only for technical appendices, validator
 fixtures, or explicit user requests.
 
@@ -450,10 +456,15 @@ When creating a workbook or CSV set, use these stable tabs:
   D3 output or side effect, D3 consumer expectation, and D3 correctness
   decision. Missing D3 proof means incomplete audit, not deferred cleanup.
   Keep raw parameter dumps out of this tab unless they are needed as proof.
+- `07a Independent Semantic Source Scan`: direct source scan rows that seed
+  semantic coverage and prove the semantic layer did not rely only on
+  deterministic baseline summaries. May be folded into `07 Semantic Object
+  Matrix` in compact workbooks if the rows remain traceable.
 - `07b Custom Code Semantic Review`: object-level Custom HTML, Custom
   JavaScript, and custom-template purpose, role category, export review status,
-  side effects, consent assumption, consumers, risk, semantic status, cleanup
-  recommendation, aggressiveness options, QA method, and blocker.
+  side effects, consent assumption, consumers, technical code health/security/
+  optimization signals, risk, semantic status, cleanup recommendation,
+  aggressiveness options, QA method, and blocker.
 - `08 Official Docs Map`: vendor/platform, implemented event, official source,
   required/recommended parameters, expected data types, observed gap, and whether
   resolution is GTM-only or requires website/dataLayer work.

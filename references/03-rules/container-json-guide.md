@@ -7,8 +7,10 @@ shape, so inspect the source structure before assuming paths.
 ## Contents
 
 - Preferred Evidence Order
+- Source Model Navigation Map
 - Normalize These Tables
 - Reference Extraction
+- GTM System References
 - Semantic Profiling
 - Google Event Classification Pass
 - Official Documentation Mapping
@@ -30,6 +32,31 @@ shape, so inspect the source structure before assuming paths.
 Exports are best for reproducibility. Browser evidence is still required for
 installation, consent timing, duplicate network hits, CSP blocking, and real
 runtime behavior.
+
+## Source Model Navigation Map
+
+Build a source model before the three cleanup lenses. Use
+`scripts/gtm_source_model.py` when Python is available, or reproduce the same
+map manually from export/API evidence.
+
+The source model must preserve:
+
+- object IDs, names, types, folders, templates, built-ins, and counts;
+- tag fields, trigger filters, lookup/regex rows, constants, source paths, and
+  custom-code bodies by hash/snippet;
+- firing/blocking triggers, trigger groups, setup/teardown tags, folder and
+  template references;
+- variable consumers, trigger consumers, field-to-variable references, and
+  custom-code variable references;
+- event paths from trigger/event to tag fields to variable/source evidence;
+- ecommerce/value/quantity/item/currency paths and formula families;
+- unresolved edges such as missing variables, triggers, folders, templates, or
+  setup/teardown tags.
+
+The source model is a navigation map, not a finding and not the evidence source.
+Deterministic, semantic, and technical checks must use it to traverse the
+container, then verify findings against raw export/API/config/code/runtime
+evidence.
 
 ## Normalize These Tables
 
@@ -122,6 +149,23 @@ Search both structured fields and text bodies:
 
 When object names are duplicated, rely on IDs/paths for dependency logic and
 flag duplicate names as a maintainability finding.
+
+## GTM System References
+
+Some references in GTM exports are internal/system references and must not be
+reported as missing objects:
+
+- `{{_event}}` inside `CUSTOM_EVENT` trigger filters is GTM's internal event
+  name value for the current Custom Event trigger.
+- High-range numeric trigger IDs such as `2147479553` and `2147479573` can
+  appear as GTM system firing triggers or trigger-group members even when no
+  normal trigger object with that ID is exported.
+
+Classify these as `recognized_system_references` in the source model and
+exclude them from unresolved-edge and missing-reference findings. If UI/API
+readback is available, use it to label the system reference for the report, but
+do not block cleanup solely because the exported JSON does not include a normal
+object row for the system reference.
 
 ## Semantic Profiling
 
@@ -303,6 +347,10 @@ Do not paste full custom code unless it is necessary evidence. Summarize:
 - null guards;
 - array assumptions;
 - repeated logic that should become a helper variable.
+- technical health, security, and optimization signals such as unsafe
+  text-as-code execution, direct HTML insertion, unguarded message listeners,
+  dynamic or unencrypted script URLs, browser storage, very large code blocks,
+  fixed product positions, and native/template replacement opportunities.
 
 Use hashes or short snippets to compare duplicates without filling the context
 window. Hashes, external URLs, code length, extracted variable references, and
@@ -333,8 +381,13 @@ that records:
 - variable references;
 - expected output or side effect;
 - runtime risks;
+- purely technical code health/security/optimization findings;
 - recommended action;
 - semantic status.
+
+Keep the technical code review distinct from semantic judgment. A custom code
+object can be technically clean but semantically wrong, or technically risky but
+semantically necessary until a safer replacement is approved.
 
 Write those fields as compact semantic summaries, not evidence fragments. Use
 `summary-quality.md`: category, source/input, logic/action, output or side

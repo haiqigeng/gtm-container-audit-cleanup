@@ -89,6 +89,9 @@ For every audit, cover:
 
 - all tags, triggers, variables, folders, templates, consent settings, and
   built-in variables;
+- protected deterministic cleanup baseline modules from
+  `protected-audit-pipeline.md`, including zero-finding proof rows and source
+  finding IDs for nonzero findings;
 - measurement diagnosis for meaningful conversion, media, ecommerce, lead,
   custom-code, server-side, multi-market, gateway, and consolidation families;
 - exact duplicates and near duplicates across tags, triggers, variables, custom

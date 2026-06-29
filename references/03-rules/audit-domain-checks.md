@@ -40,6 +40,11 @@ indexes, unguarded numeric parsing, accidental hardcoding, missing invocation,
 escaping/serialization issues, consent assumptions, and safer native/template
 alternatives.
 
+Run the technical code check separately from semantic purpose review. At the
+technical level, judge whether the code is clean, short enough, safe to run in a
+browser, protected from obvious injection/message/storage risks, and replaceable
+with simpler native GTM features or a maintained template.
+
 For every active, referenced, risky, or cleanup-relevant custom-code object,
 record purpose, role category, trigger/consumer context, consent assumption,
 side effects, variable references, expected output, runtime risks,

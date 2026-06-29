@@ -22,6 +22,16 @@ ID_KEYS = {
 IGNORED_FIELDS = {"path", "fingerprint"}
 REF_RE = re.compile(r"\{\{([^{}]+)\}\}")
 CUSTOM_TEMPLATE_RE = re.compile(r"^cvt_\d+_(\d+)$")
+SYSTEM_TRIGGER_RE = re.compile(r"^2147479\d{3}$")
+
+SYSTEM_VARIABLE_REFERENCES = {
+    "_event": "GTM internal current event name used by Custom Event trigger filters",
+}
+
+KNOWN_SYSTEM_TRIGGER_REFERENCES = {
+    "2147479553": "GTM system trigger reference, commonly exported for all-pages/pageview routes",
+    "2147479573": "GTM system trigger reference, commonly exported for initialization or Google tag routes",
+}
 
 
 def container_version(data: dict[str, Any]) -> dict[str, Any]:
@@ -111,6 +121,22 @@ def trigger_group_members(trigger: dict[str, Any]) -> list[str]:
                 if item.get("value")
             )
     return members
+
+
+def is_system_variable_reference(name: str) -> bool:
+    return name in SYSTEM_VARIABLE_REFERENCES
+
+
+def is_system_trigger_reference(trigger_id: str) -> bool:
+    return trigger_id in KNOWN_SYSTEM_TRIGGER_REFERENCES or bool(SYSTEM_TRIGGER_RE.match(trigger_id))
+
+
+def system_reference_description(kind: str, value: str) -> str:
+    if kind == "variable":
+        return SYSTEM_VARIABLE_REFERENCES.get(value, "GTM internal/system variable reference")
+    if kind == "trigger":
+        return KNOWN_SYSTEM_TRIGGER_REFERENCES.get(value, "GTM internal/system trigger reference")
+    return "GTM internal/system reference"
 
 
 def sort_ids(values: set[str]) -> list[str]:
