@@ -1,5 +1,7 @@
 # GTM Container Audit Cleanup
 
+[![Latest release](https://img.shields.io/github/v/release/haiqigeng/=semver)](https://github.com/haiqigeng/gtm-container-audit-cleanup/releases/latest) ![Top language](https://img.shields.io/github/languages/top/haiqigeng/gtm-container-audit-cleanup)
+
 A reusable AI skill for reviewing Google Tag Manager containers with the mindset
 of a web analyst, not only a cleanup script.
 
