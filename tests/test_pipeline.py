@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+from check_release import check_repository_layout  # noqa: E402
 from gtm_audit_gate_check import validate_rows, validate_strict_evidence  # noqa: E402
 from gtm_audit_package_check import row_matches, validate_package  # noqa: E402
 from gtm_baseline_audit import audit_export  # noqa: E402
@@ -295,6 +296,14 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual([], errors)
         self.assertEqual([], warnings)
+
+    def test_release_layout_allows_ignored_editable_install_metadata(self) -> None:
+        layout = self.root / "release-layout"
+        (layout / ".github" / "workflows").mkdir(parents=True)
+        (layout / "gtm_container_audit_cleanup.egg-info").mkdir()
+        (layout / "LICENSE").write_text("MIT", encoding="utf-8")
+        (layout / ".github" / "workflows" / "ci.yml").write_text("name: test\n", encoding="utf-8")
+        self.assertEqual([], check_repository_layout(layout))
 
     def test_workbook_has_canonical_tabs_and_six_column_proof_tables(self) -> None:
         review = complete_review(self.export_path)

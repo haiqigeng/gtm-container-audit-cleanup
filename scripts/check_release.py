@@ -243,6 +243,8 @@ def check_generated_artifacts(root: Path) -> list[str]:
 def check_repository_layout(root: Path) -> list[str]:
     errors = []
     for path in root.iterdir():
+        if path.is_dir() and path.name.endswith(".egg-info"):
+            continue
         if path.name not in ALLOWED_ROOT_ENTRIES:
             errors.append(f"Unexpected top-level repository entry: {path.name}")
     if not (root / "LICENSE").is_file():
