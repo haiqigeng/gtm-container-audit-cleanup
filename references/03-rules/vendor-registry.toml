@@ -1,0 +1,110 @@
+schema_version = 1
+reviewed_on = "2026-07-10"
+
+[[vendors]]
+name = "GA4 / Google tag"
+category = "analytics"
+patterns = ["\\bga4\\b", "google analytics", "measurement id", "G-[A-Z0-9]+"]
+official_docs = ["https://developers.google.com/analytics/devguides/collection/ga4/reference/events", "https://developers.google.com/analytics/devguides/collection/ga4/ecommerce"]
+
+[[vendors]]
+name = "Google Ads"
+category = "media"
+patterns = ["google ads", "adwords", "AW-", "conversion linker"]
+official_docs = ["https://support.google.com/tagmanager/answer/6105160"]
+
+[[vendors]]
+name = "Floodlight"
+category = "media"
+patterns = ["floodlight", "doubleclick", "DC-[0-9]", "activity"]
+official_docs = ["https://support.google.com/campaignmanager/answer/7554821"]
+
+[[vendors]]
+name = "Meta"
+category = "media"
+patterns = ["\\bmeta\\b", "facebook", "fbq", "content_ids", "contents"]
+official_docs = ["https://developers.facebook.com/docs/meta-pixel/reference/"]
+
+[[vendors]]
+name = "TikTok"
+category = "media"
+patterns = ["tiktok", "ttq", "tik tok"]
+official_docs = ["https://ads.tiktok.com/help/article/standard-events-parameters"]
+
+[[vendors]]
+name = "Snapchat"
+category = "media"
+patterns = ["snapchat", "snap pixel", "snaptr"]
+official_docs = ["https://developers.snap.com/marketing-api/Ads-API/snap-pixel"]
+
+[[vendors]]
+name = "Pinterest"
+category = "media"
+patterns = ["pinterest", "pintrk"]
+official_docs = ["https://developers.pinterest.com/docs/track-conversions/pinterest-tag/"]
+
+[[vendors]]
+name = "LinkedIn"
+category = "media"
+patterns = ["linkedin", "insight tag", "lintrk"]
+official_docs = ["https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversion-tracking"]
+
+[[vendors]]
+name = "Microsoft Ads"
+category = "media"
+patterns = ["microsoft ads", "bing", "uet"]
+official_docs = ["https://learn.microsoft.com/en-us/advertising/guides/universal-event-tracking?view=bingads-13"]
+
+[[vendors]]
+name = "Criteo"
+category = "media"
+patterns = ["criteo", "onetag"]
+official_docs = ["https://help.criteo.com/kb/guide/en/all-criteo-onetag-events-and-parameters-vZbzbEeY86/Steps/775825"]
+
+[[vendors]]
+name = "Awin"
+category = "affiliate"
+patterns = ["\\bawin\\b", "zanox"]
+official_docs = ["https://help.awin.com/developers/docs/gtm-client-side"]
+
+[[vendors]]
+name = "Didomi"
+category = "cmp"
+patterns = ["didomi"]
+official_docs = ["https://developers.didomi.io/cmp/web-sdk/third-parties/tags-management/tag-managers/google-tag-manager"]
+
+[[vendors]]
+name = "OneTrust"
+category = "cmp"
+patterns = ["onetrust", "optanon"]
+official_docs = ["https://support.google.com/tagmanager/answer/14545200"]
+
+[[vendors]]
+name = "Cookiebot"
+category = "cmp"
+patterns = ["cookiebot"]
+official_docs = ["https://support.cookiebot.com/hc/en-us/articles/360003793854-Google-Tag-Manager-deployment"]
+
+[[vendors]]
+name = "Piano Analytics"
+category = "analytics"
+patterns = ["\\bpiano\\b", "pa\\.", "page\\.display", "click\\.action"]
+official_docs = ["https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-pa-sdk-template"]
+
+[[vendors]]
+name = "Google Ad Manager"
+category = "publisher"
+patterns = ["\\bgam\\b", "googletag", "publisher tag", "gpt"]
+official_docs = ["https://developers.google.com/publisher-tag/guides/get-started"]
+
+[[vendors]]
+name = "Outbrain"
+category = "media"
+patterns = ["outbrain", "obtp"]
+official_docs = ["https://www.outbrain.com/help/advertisers/outbrain-pixel-gtm/"]
+
+[[vendors]]
+name = "Marfeel"
+category = "publisher"
+patterns = ["marfeel"]
+official_docs = ["https://www.marfeel.com/docs/analytics/sdk-integrations/how-to-implement-marfeel-sdk-via-gtm-google-tag-manager"]

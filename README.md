@@ -1,171 +1,132 @@
-# GTM Container Audit Cleanup
+# GTM Cleanup Intelligence
 
-[![Latest release](https://img.shields.io/github/v/release/haiqigeng/=semver)](https://github.com/haiqigeng/gtm-container-audit-cleanup/releases/latest) ![Top language](https://img.shields.io/github/languages/top/haiqigeng/gtm-container-audit-cleanup)
+[![Latest release](https://img.shields.io/github/v/release/haiqigeng/gtm-container-audit-cleanup?sort=semver)](https://github.com/haiqigeng/gtm-container-audit-cleanup/releases/latest)
+[![CI](https://github.com/haiqigeng/gtm-container-audit-cleanup/actions/workflows/ci.yml/badge.svg)](https://github.com/haiqigeng/gtm-container-audit-cleanup/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/haiqigeng/gtm-container-audit-cleanup/blob/main/LICENSE)
 
-A reusable AI skill for reviewing Google Tag Manager containers with the mindset
-of a web analyst, not only a cleanup script.
+An open, reusable workflow that helps web analysts and marketing teams decide
+whether a Google Tag Manager container measures the right business actions with
+the right data, timing, consent, and platform setup.
 
-The goal is simple: help analytics, marketing, and tracking teams understand
-whether a GTM container is useful, reliable, readable, and safe to maintain.
-It looks for obvious hygiene issues, but it also checks whether tags, triggers,
-variables, consent logic, ecommerce values, media payloads, and custom code make
-sense for the business action they are supposed to measure.
+It goes beyond deleting unused objects. The review follows tags through their
+triggers and variables, checks the real configuration or code, compares related
+objects, and turns confirmed problems into a practical cleanup plan.
 
-## Who This Is For
+## Who It Serves
 
-- Web analysts who audit or refactor GTM containers.
-- Marketing teams who need cleaner media, conversion, and consent tracking.
-- Analytics engineers who need a structured review before touching a container.
-- Agencies or consultants who need a repeatable audit and cleanup workflow.
-- AI agents such as Codex, Claude Code, or Gemini that need clear GTM audit
-  rules and deterministic helper scripts.
+- Web analysts, analytics consultants, GTM specialists, and agencies.
+- Marketing and media teams reviewing conversion-signal quality.
+- Developers, dataLayer owners, and consent owners receiving implementation work.
+- Codex, Claude Code, Gemini, and other agents that can follow Markdown skills.
 
-## Problems It Helps Solve
+## Questions It Answers
 
-- Too many duplicated, obsolete, or poorly named GTM objects.
-- Tags that fire in the wrong context or send values in the wrong format.
-- GA4 or media tags that use old ecommerce paths, fixed product indexes, or
-  fragile helper variables.
-- Consent, CMP, and server-side routing setups that are hard to understand.
-- Custom HTML or Custom JavaScript that is risky, duplicated, or difficult to
-  maintain.
-- Cleanup plans that are too superficial, too verbose, or not actionable enough
-  for a human reviewer.
+- Does each tag represent the business action named by the event?
+- Do its trigger, consent conditions, variables, and payload agree with that action?
+- Are GA4 ecommerce and media values sourced and formatted correctly?
+- Do computed values such as order value or quantity make business sense?
+- Are duplicate loaders, triggers, variables, and code safe to consolidate?
+- Is browser-to-server routing coherent without claiming to audit an unseen
+  server container?
+- Are objects named, grouped, and shared in a readable, scalable way?
+- What is safe to change now, and what needs runtime or owner evidence?
 
-The skill is designed to answer one practical question:
+## How It Works
 
-> Is this GTM container built in the simplest, clearest, and safest way to
-> support the measurement goals?
+The workflow runs three independent reviews:
 
-## How The Review Works
+1. **Container hygiene** finds broken references, duplicates, unused objects,
+   single-member trigger groups, legacy setup, and naming/folder drift.
+2. **Business logic** reads every object's exported configuration, follows
+   referenced variables to their terminal source, compares sibling fields, and
+   checks event and payload logic against official vendor documentation.
+3. **Custom code** inspects every exported nonblank code line, code behavior,
+   side effects, dependencies, safety, and maintainability.
 
-The workflow uses three independent checks before any cleanup recommendation is
-made:
-
-1. **Mechanical hygiene check**
-   Finds objective issues such as duplicates, unused objects, broken references,
-   single-trigger groups, missing triggers, outdated Universal Analytics style
-   setup, naming drift, and folder problems.
-
-2. **Business logic check**
-   Reviews whether the configuration fits the intended measurement action. For
-   example, a purchase tag should use purchase data, item arrays should be used
-   where a vendor expects arrays, and a consent variable should not return the
-   same result for different consent purposes unless that is intentional.
-
-3. **Custom-code and technical check**
-   Reviews Custom HTML, Custom JavaScript variables, and custom templates for
-   what they read, what they return or push, which APIs they touch, and whether
-   the code is safe and maintainable.
-
-The source model maps where objects and references are located. It is only a
-navigation aid. It does not create, suppress, or downgrade findings. Each check
-must verify the raw export, API evidence, configuration, or code directly.
-
-After evidence is reconciled, findings are translated into human problem rows.
-The visible cleanup plan should say things like "Meta Purchase appears to fire
-twice" or "Google Ads IGGI add_to_cart fires for all products", not only
-"semantic issue" or "media tracking problem".
+The three reviews are reconciled before an operation is proposed. A scan task,
+hash, name, or generic summary cannot become a cleanup finding on its own.
 
 ## Inputs
 
-The skill can work from one or more of these sources:
+The best starting point is a GTM container export JSON. The skill can also use:
 
-- GTM container export JSON.
-- GTM API or MCP access, when available.
-- GTM UI screenshots or implementation notes.
-- Tag Assistant, browser, network, or dataLayer observations.
-- Information about the site type, markets, CMP, ecommerce behavior, server-side
-  routing, naming rules, and cleanup route.
+- GTM API/MCP or UI evidence;
+- Tag Assistant, dataLayer, browser, network, CMP, and server observations;
+- website, business-model, ecommerce, market, and naming context;
+- explicit web-container or server-container scope.
 
-A GTM export JSON is the best starting point because it is reproducible and can
-be checked by the helper scripts.
+A web container that forwards events to a server endpoint can be audited for
+its routing. Auditing the receiving server container requires its own export or
+equivalent client, transformation, tag, trigger, and variable evidence.
 
 ## Outputs
 
-Depending on the requested mode, the skill can produce:
+- A concise audit summary and a separate cleanup-plan workbook.
+- Two visible workbook tabs for decisions and consolidated hidden proof tabs.
+- Reconciled operations with exact action, preconditions, QA, and rollback.
+- A validated GTM import JSON or approved direct workspace changes when asked.
+- A separate field-level change log after execution or artifact generation.
 
-- An audit summary.
-- A cleanup plan workbook for human review.
-- Hidden proof tabs or supporting evidence files for analyst continuation.
-- A validated GTM import JSON when that route is explicitly chosen.
-- A change log after cleanup execution or after a generated cleanup artifact.
-- QA instructions for GTM preview, browser testing, vendor requests, and consent
-  behavior.
+Cleanup plans explain what should change. Change logs explain what did change.
+They are never merged by default.
 
-Cleanup plans and change logs are user-facing deliverables. They should explain
-what matters, what should change, why it matters, how to QA it, and what remains
-blocked. Internal evidence should stay in supporting tabs or files.
+## Boundaries
 
-## What It Will Not Do
+The skill does not publish GTM, mutate without approval, make legal decisions,
+replace missing website/dataLayer work, or declare an unseen server container
+audited. It never deletes an object merely because it is old and never invents
+GTM JavaScript to conceal a missing data contract.
 
-- It will not publish or create a GTM version unless explicitly requested.
-- It will not mutate a live container without approval and a safe workspace or
-  approved artifact route.
-- It will not delete tags only because they are old.
-- It will not treat summarized inventory as proof.
-- It will not invent custom JavaScript to hide missing website or dataLayer
-  requirements.
-- It will not give legal or privacy advice as a final decision.
+## Install And Run
 
-## Repository Structure
-
-- `SKILL.md`: agent-facing workflow and routing instructions.
-- `agents/openai.yaml`: Codex skill metadata and default prompt.
-- `references/01-skill/`: purpose, users, inputs, outputs, acceptance criteria,
-  and non-goals.
-- `references/02-commands/`: validation commands, runtime QA templates, and
-  forward-test prompts.
-- `references/03-rules/`: audit rules, semantic logic, naming, operation
-  schema, workbook architecture, change-log rules, and mutation safety.
-- `scripts/`: deterministic helpers for source mapping, baseline findings,
-  custom-code extraction, semantic scans, reconciliation, validation, and
-  release checks.
-- `pyproject.toml`: lint configuration for script import hygiene and undefined
-  names.
-
-## Useful Commands
-
-Run from the repository root.
-
-Build the protected audit evidence package:
+Python 3.11+ is recommended for deterministic checks. `openpyxl` creates XLSX
+deliverables; `esprima` adds JavaScript AST facts.
 
 ```powershell
-python -B scripts/gtm_audit_package_build.py path\to\container.json --out-dir artifacts\audit-package --pretty
+python -m pip install -e ".[analysis,dev]"
+python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --pretty
 ```
 
-Run the individual checks when debugging or extending the skill:
+Complete the generated `semantic_review.json`, then validate it:
 
 ```powershell
-python -B scripts/gtm_source_model.py path\to\container.json --pretty
-python -B scripts/gtm_baseline_audit.py path\to\container.json --pretty
-python -B scripts/gtm_custom_code_extract.py path\to\container.json --pretty
-python -B scripts/gtm_semantic_source_scan.py path\to\container.json --pretty
+python -B scripts/gtm_semantic_review.py validate container.json audit-package/semantic_review.json
 ```
 
-Validate a release:
+The full command sequence is in
+`references/02-commands/validation-commands.md`. Agent behavior starts in
+`SKILL.md`; the canonical completion rules are in
+`references/03-rules/execution-contract.md`.
+
+## Repository Map
+
+- `SKILL.md`: when and how an agent should execute the workflow.
+- `references/01-skill/`: users, purpose, inputs, outputs, acceptance, non-goals.
+- `references/02-commands/`: runnable checks and QA commands.
+- `references/03-rules/`: audit and mutation rules.
+- `scripts/`: deterministic source, review, reconciliation, workbook, privacy,
+  change-log, packaging, and validation tools.
+- `tests/`: regression coverage for the protected workflow.
+
+## Contributing And Releases
+
+Before a release:
 
 ```powershell
-python -m ruff check scripts
+python -m ruff check --no-cache .
+python -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
+python -B scripts/gtm_vendor_registry.py
 python -B scripts/check_release.py --tag vYYYY.MM.DD.N
 git diff --check
-git status --short
 ```
 
-## Safety And Privacy
+Do not commit client exports, workbooks, screenshots, domains, container IDs,
+emails, credentials, generated audit packages, or local paths. Clean release
+bundles are built with `scripts/build_skill_package.py`.
 
-Do not commit client exports, audit workbooks, generated JSON files, screenshots,
-container IDs, domains, emails, or temporary reports. This repository should only
-contain reusable skill instructions, generic scripts, metadata, and public
-documentation.
+Releases use Calendar Versioning: `vYYYY.MM.DD` and `vYYYY.MM.DD.N` for a
+same-day follow-up. Release notes should explain what changed, why it matters to
+analysts, how it was verified, and any remaining limits.
 
-## Versioning
-
-Releases use Calendar Versioning:
-
-- First release of a day: `vYYYY.MM.DD`
-- Same-day follow-up: `vYYYY.MM.DD.N`
-
-Release notes should be written for web analysts and marketing stakeholders:
-what improved, why it matters, how it was validated, and what limits remain.
+Licensed under the MIT License.

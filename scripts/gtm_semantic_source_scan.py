@@ -16,7 +16,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from gtm_lib import container_version, refs
+from gtm_lib import container_version, refs, source_descriptor
+from gtm_vendor_registry import detect_vendor_text
 
 GOOGLE_RE = re.compile(r"\b(?:GA4|Google Analytics|Google Ads|gtag|GAds)\b", re.I)
 UA_RE = re.compile(
@@ -66,11 +67,6 @@ CUSTOM_CODE_RE = re.compile(
     r"document\.cookie|fetch\(|XMLHttpRequest|sendBeacon|createElement|eval\()\b",
     re.I,
 )
-MEDIA_VENDOR_RE = re.compile(
-    r"\b(?:Meta|Facebook|TikTok|Pinterest|LinkedIn|Microsoft|Bing|Floodlight|"
-    r"DV360|CM360|Snap|Criteo|Tradedoubler|Awin|Piano|Marfeel|Hotjar)\b",
-    re.I,
-)
 LEAD_RE = re.compile(r"\b(?:lead|form|signup|sign_up|contact|quote|newsletter)\b", re.I)
 SERVER_RE = re.compile(r"\b(?:server|server-side|s2s|transport_url|first-party|gateway)\b", re.I)
 IDENTITY_IGNORED = {"accountId", "containerId", "fingerprint", "path"}
@@ -98,6 +94,8 @@ def object_id(obj: dict[str, Any], layer: str) -> str:
         "trigger": "triggerId",
         "variable": "variableId",
         "customTemplate": "templateId",
+        "client": "clientId",
+        "transformation": "transformationId",
     }
     value = obj.get(keys[layer]) or obj.get("name")
     return "" if value is None else str(value)
@@ -201,9 +199,7 @@ def topic_defaults(topic: str) -> dict[str, str]:
     }
 
 
-def current_behavior_seed(
-    layer: str, obj: dict[str, Any], topic: str, signal: str
-) -> str:
+def current_behavior_seed(layer: str, obj: dict[str, Any], topic: str, signal: str) -> str:
     refs_list = sorted(refs(obj))
     refs_text = ", ".join(refs_list[:6])
     if len(refs_list) > 6:
@@ -313,7 +309,9 @@ def scan_topics(layer: str, obj: dict[str, Any]) -> list[tuple[str, str, str, st
             "Confirm consent purpose/vendor mapping and test accept/refuse/update states before changing it.",
         )
     if layer in {"tag", "variable", "customTemplate"} and (
-        obj_type.lower() in {"html", "jsm"} or layer == "customTemplate" or CUSTOM_CODE_RE.search(text)
+        obj_type.lower() in {"html", "jsm"}
+        or layer == "customTemplate"
+        or CUSTOM_CODE_RE.search(text)
     ):
         add(
             "custom_code_semantic_review",
@@ -321,10 +319,11 @@ def scan_topics(layer: str, obj: dict[str, Any]) -> list[tuple[str, str, str, st
             "The object can run code or transform data outside normal GTM fields.",
             "Record purpose, inputs, side effects, output, consumers, technical risk, and runtime QA need.",
         )
-    if MEDIA_VENDOR_RE.search(text):
+    vendor_name, vendor_category = detect_vendor_text(text)
+    if vendor_category in {"media", "affiliate", "publisher"}:
         add(
             "media_vendor_payload",
-            "Marketing or analytics vendor signal",
+            f"{vendor_name} {vendor_category} signal",
             "This object may affect ad platform reporting, bidding, audiences, or attribution.",
             "Compare event name, identifiers, value/currency, consent, and deduplication to official vendor docs.",
         )
@@ -341,6 +340,13 @@ def scan_topics(layer: str, obj: dict[str, Any]) -> list[tuple[str, str, str, st
             "Server-side, transport, first-party, or gateway signal",
             "This object may route browser data through another endpoint or server container.",
             "Validate routing, consent forwarding, destination IDs, and browser/server duplication risk.",
+        )
+    elif layer in {"client", "transformation"}:
+        add(
+            "server_or_gateway_routing",
+            f"Server-container {layer} configuration",
+            "This object controls incoming event interpretation or server-side event shaping.",
+            "Trace accepted input, event-data changes, affected tags, consent handling, and destination impact.",
         )
 
     if not topics:
@@ -364,6 +370,8 @@ def scan_export(path: Path) -> dict[str, Any]:
         ("trigger", as_list(cv.get("trigger"))),
         ("variable", as_list(cv.get("variable"))),
         ("customTemplate", as_list(cv.get("customTemplate"))),
+        ("client", as_list(cv.get("client"))),
+        ("transformation", as_list(cv.get("transformation"))),
     )
     for layer, items in layers:
         for obj in items:
@@ -385,27 +393,32 @@ def scan_export(path: Path) -> dict[str, Any]:
                     "current_behavior_seed": current_behavior_seed(layer, obj, topic, signal),
                     "plain_language_issue": issue,
                     "expected_behavior_seed": defaults["expected_clean_state_seed"],
-                    "semantic_cleanup_implication": defaults["semantic_cleanup_implication"],
-                    "semantic_action_candidate": defaults["semantic_action_candidate"],
+                    "semantic_cleanup_implication": "Complete source-bound D3 judgment before deciding cleanup.",
+                    "semantic_action_candidate": "pending_d3_judgment",
+                    "semantic_risk_seed": defaults["semantic_action_candidate"],
                     "semantic_confidence_seed": defaults["semantic_confidence_seed"],
                     "required_semantic_check": required_check,
                     "blocker_or_next_evidence": required_check,
                     "referenced_gtm_variables": sorted(refs(obj)),
-                    "operation_packet_required": topic != "semantic_object_coverage",
+                    "record_kind": "coverage_task",
+                    "judgment_required": True,
+                    "operation_packet_required": False,
                     "source_independent_of_baseline": True,
                 }
                 row.update(semantic_signal_details(obj, topic))
                 rows.append(row)
 
     return {
-        "artifact": str(path),
-        "kind": "gtm_independent_semantic_source_scan",
+        **source_descriptor(path),
+        "kind": "gtm_semantic_coverage_tasks",
         "source_independent_of_baseline": True,
         "counts": {
             "tags": len(as_list(cv.get("tag"))),
             "triggers": len(as_list(cv.get("trigger"))),
             "variables": len(as_list(cv.get("variable"))),
             "customTemplates": len(as_list(cv.get("customTemplate"))),
+            "clients": len(as_list(cv.get("client"))),
+            "transformations": len(as_list(cv.get("transformation"))),
             "semantic_source_rows": len(rows),
         },
         "rows": rows,

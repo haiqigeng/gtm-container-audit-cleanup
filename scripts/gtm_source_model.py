@@ -17,13 +17,16 @@ from pathlib import Path
 from typing import Any
 
 from gtm_lib import (
+    SEMANTIC_LAYERS,
     container_version,
     custom_template_id,
     is_system_trigger_reference,
     is_system_variable_reference,
     refs,
+    source_descriptor,
     system_reference_description,
     trigger_group_members,
+    walk_json_fields,
 )
 
 
@@ -61,6 +64,8 @@ def object_id(obj: dict[str, Any], layer: str) -> str:
         "folder": "folderId",
         "customTemplate": "templateId",
         "builtInVariable": "name",
+        "client": "clientId",
+        "transformation": "transformationId",
     }
     value = obj.get(keys[layer]) or obj.get("name")
     return "" if value is None else str(value)
@@ -75,30 +80,29 @@ def object_summary(obj: dict[str, Any], layer: str) -> dict[str, str]:
     }
 
 
-def parameter_edges(layer: str, obj: dict[str, Any]) -> list[dict[str, Any]]:
+def parameter_edges(layer: str, obj: dict[str, Any], object_index: int) -> list[dict[str, Any]]:
     edges = []
-    for param in as_list(obj.get("parameter")):
-        payload = stable_payload(param)
-        refs_found = sorted(refs(param))
-        if not refs_found and "value" not in param and "list" not in param and "map" not in param:
-            continue
-        edges.append(
-            {
-                "source_layer": layer,
-                "source_id": object_id(obj, layer),
-                "source_name": str(obj.get("name") or ""),
-                "field_key": str(param.get("key") or ""),
-                "field_type": str(param.get("type") or ""),
-                "referenced_variables": refs_found,
-                "raw_field_signature": code_hash(payload),
-            }
-        )
+    for parameter_index, param in enumerate(as_list(obj.get("parameter"))):
+        base_path = f"$.containerVersion.{layer}[{object_index}].parameter[{parameter_index}]"
+        for fact in walk_json_fields(param, base_path):
+            edges.append(
+                {
+                    "source_layer": layer,
+                    "source_id": object_id(obj, layer),
+                    "source_name": str(obj.get("name") or ""),
+                    "field_key": str(param.get("key") or ""),
+                    "field_type": str(param.get("type") or ""),
+                    **fact,
+                }
+            )
     return edges
 
 
 def build_variable_consumers(cv: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
     consumers: dict[str, list[dict[str, str]]] = collections.defaultdict(list)
-    for layer in ("tag", "trigger", "variable"):
+    for layer in SEMANTIC_LAYERS:
+        if layer == "customTemplate":
+            continue
         for obj in as_list(cv.get(layer)):
             for ref in sorted(refs(obj)):
                 if layer == "variable" and ref == obj.get("name"):
@@ -150,6 +154,8 @@ def build_model(path: Path) -> dict[str, Any]:
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     builtins = as_list(cv.get("builtInVariable"))
+    clients = as_list(cv.get("client"))
+    transformations = as_list(cv.get("transformation"))
 
     variable_consumers = build_variable_consumers(cv)
     variable_names = {obj.get("name") for obj in variables} | {obj.get("name") for obj in builtins}
@@ -186,9 +192,16 @@ def build_model(path: Path) -> dict[str, Any]:
             trigger_consumers[str(member_id)].append(object_summary(trigger, "trigger"))
 
     field_edges = []
-    for layer, items in (("tag", tags), ("trigger", triggers), ("variable", variables)):
-        for obj in items:
-            field_edges.extend(parameter_edges(layer, obj))
+    field_layers = (
+        ("tag", tags),
+        ("trigger", triggers),
+        ("variable", variables),
+        ("client", clients),
+        ("transformation", transformations),
+    )
+    for layer, items in field_layers:
+        for index, obj in enumerate(items):
+            field_edges.extend(parameter_edges(layer, obj, index))
 
     variable_sources = [
         {
@@ -219,7 +232,9 @@ def build_model(path: Path) -> dict[str, Any]:
                     "code_hash": code_hash(body),
                     "code_length": len(body),
                     "referenced_variables": sorted(refs(obj)),
-                    "consumers": variable_consumers.get(obj.get("name"), []) if layer == "variable" else [],
+                    "consumers": variable_consumers.get(obj.get("name"), [])
+                    if layer == "variable"
+                    else [],
                 }
             )
 
@@ -238,14 +253,14 @@ def build_model(path: Path) -> dict[str, Any]:
         "missing_folder_references": sorted(
             {
                 str(obj.get("parentFolderId"))
-                for obj in tags + triggers + variables
+                for obj in tags + triggers + variables + clients + transformations
                 if obj.get("parentFolderId") and str(obj.get("parentFolderId")) not in folder_ids
             }
         ),
         "missing_custom_template_references": sorted(
             {
                 template_id
-                for obj in tags + variables
+                for obj in tags + variables + clients + transformations
                 for template_id in [custom_template_id(obj)]
                 if template_id and template_id not in template_ids
             }
@@ -263,7 +278,7 @@ def build_model(path: Path) -> dict[str, Any]:
     unresolved_count = sum(len(values) for values in unresolved_edges.values())
 
     return {
-        "artifact": str(path),
+        **source_descriptor(path),
         "kind": "gtm_source_model_navigation_map",
         "source_model_role": "navigation_map_not_evidence_source",
         "raw_evidence_must_be_rechecked_for_findings": True,
@@ -273,6 +288,8 @@ def build_model(path: Path) -> dict[str, Any]:
             "variables": len(variables),
             "folders": len(folders),
             "customTemplates": len(templates),
+            "clients": len(clients),
+            "transformations": len(transformations),
             "builtInVariables": len(builtins),
             "field_edges": len(field_edges),
             "trigger_edges": len(trigger_edges),
@@ -285,6 +302,8 @@ def build_model(path: Path) -> dict[str, Any]:
             "triggers": [object_summary(obj, "trigger") for obj in triggers],
             "variables": [object_summary(obj, "variable") for obj in variables],
             "customTemplates": [object_summary(obj, "customTemplate") for obj in templates],
+            "clients": [object_summary(obj, "client") for obj in clients],
+            "transformations": [object_summary(obj, "transformation") for obj in transformations],
         },
         "field_edges": field_edges,
         "trigger_edges": trigger_edges,

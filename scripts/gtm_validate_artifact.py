@@ -12,6 +12,8 @@ from gtm_lib import (
     ID_KEYS,
     apply_patch,
     custom_template_id,
+    is_system_trigger_reference,
+    is_system_variable_reference,
     load_container_version,
     object_id,
     refs,
@@ -76,31 +78,55 @@ def missing_references(cv: dict[str, Any]) -> dict[str, Any]:
     for trigger in triggers:
         used_trigger_ids.update(trigger_group_members(trigger))
 
-    for layer in ("tag", "trigger", "variable"):
+    for layer in ("tag", "trigger", "variable", "client", "transformation"):
         for obj in cv.get(layer, []) or []:
             if obj.get("parentFolderId"):
                 folder_refs.add(obj["parentFolderId"])
 
-    for layer in ("tag", "variable"):
+    for layer in ("tag", "variable", "client", "transformation"):
         for obj in cv.get(layer, []) or []:
             template_id = custom_template_id(obj)
             if template_id:
                 template_refs.add(template_id)
 
     return {
-        "undefinedVariableReferences": sorted(ref for ref in all_refs if ref not in all_variable_names),
-        "missingTriggerReferences": sorted(tid for tid in used_trigger_ids if tid not in trigger_ids),
-        "missingSetupTagReferences": sorted(name for name in setup_tag_refs if name not in tag_names),
-        "missingTeardownTagReferences": sorted(name for name in teardown_tag_refs if name not in tag_names),
-        "missingFolderReferences": sorted(folder for folder in folder_refs if folder not in folder_ids),
-        "missingCustomTemplateReferences": sorted(template for template in template_refs if template not in template_ids),
+        "undefinedVariableReferences": sorted(
+            ref
+            for ref in all_refs
+            if ref not in all_variable_names and not is_system_variable_reference(ref)
+        ),
+        "missingTriggerReferences": sorted(
+            tid
+            for tid in used_trigger_ids
+            if tid not in trigger_ids and not is_system_trigger_reference(str(tid))
+        ),
+        "missingSetupTagReferences": sorted(
+            name for name in setup_tag_refs if name not in tag_names
+        ),
+        "missingTeardownTagReferences": sorted(
+            name for name in teardown_tag_refs if name not in tag_names
+        ),
+        "missingFolderReferences": sorted(
+            folder for folder in folder_refs if folder not in folder_ids
+        ),
+        "missingCustomTemplateReferences": sorted(
+            template for template in template_refs if template not in template_ids
+        ),
         "referencedCustomTemplateIds": sorted(template_refs),
     }
 
 
 def name_churn(original_cv: dict[str, Any], cv: dict[str, Any]) -> dict[str, Any]:
     churn = {}
-    for layer in ("tag", "trigger", "variable", "folder", "customTemplate"):
+    for layer in (
+        "tag",
+        "trigger",
+        "variable",
+        "folder",
+        "customTemplate",
+        "client",
+        "transformation",
+    ):
         key = ID_KEYS[layer]
         original = {
             object_id(obj, key): obj
@@ -108,9 +134,7 @@ def name_churn(original_cv: dict[str, Any], cv: dict[str, Any]) -> dict[str, Any
             if object_id(obj, key)
         }
         current = {
-            object_id(obj, key): obj
-            for obj in cv.get(layer, []) or []
-            if object_id(obj, key)
+            object_id(obj, key): obj for obj in cv.get(layer, []) or [] if object_id(obj, key)
         }
         renamed = [
             {
@@ -118,7 +142,9 @@ def name_churn(original_cv: dict[str, Any], cv: dict[str, Any]) -> dict[str, Any
                 "before": original[oid].get("name"),
                 "after": current[oid].get("name"),
             }
-            for oid in sorted(set(original) & set(current), key=lambda value: (not value.isdigit(), value))
+            for oid in sorted(
+                set(original) & set(current), key=lambda value: (not value.isdigit(), value)
+            )
             if original[oid].get("name") != current[oid].get("name")
         ]
         new_ids = sort_ids(set(current) - set(original))
@@ -171,13 +197,27 @@ def custom_template_layer_errors(
 ) -> list[dict[str, Any]]:
     errors = []
     patch_missing = missing_references(artifact_cv)
-    if patch_missing["referencedCustomTemplateIds"] and not (artifact_cv.get("customTemplate") or []):
-        errors.append({"check": "custom_template_layer_missing", "details": patch_missing["referencedCustomTemplateIds"]})
+    if patch_missing["referencedCustomTemplateIds"] and not (
+        artifact_cv.get("customTemplate") or []
+    ):
+        errors.append(
+            {
+                "check": "custom_template_layer_missing",
+                "details": patch_missing["referencedCustomTemplateIds"],
+            }
+        )
 
     if patch_missing["referencedCustomTemplateIds"]:
         all_templates = artifact_cv.get("customTemplate", []) or []
-        if mode in PATCH_MODES and len(all_templates) < len(patch_missing["referencedCustomTemplateIds"]):
-            errors.append({"check": "partial_custom_template_layer", "details": "customTemplate layer is smaller than referenced template set"})
+        if mode in PATCH_MODES and len(all_templates) < len(
+            patch_missing["referencedCustomTemplateIds"]
+        ):
+            errors.append(
+                {
+                    "check": "partial_custom_template_layer",
+                    "details": "customTemplate layer is smaller than referenced template set",
+                }
+            )
         if original_cv and mode in PATCH_MODES:
             original_template_ids = {
                 template.get("templateId")
@@ -203,12 +243,23 @@ def custom_template_layer_errors(
 def built_in_variable_errors(
     artifact_cv: dict[str, Any], original_cv: dict[str, Any] | None
 ) -> list[dict[str, Any]]:
-    if original_cv and (original_cv.get("builtInVariable") or []) and "builtInVariable" not in artifact_cv:
-        return [{"check": "built_in_variables_omitted", "details": "Source export has enabled built-ins but artifact omits builtInVariable."}]
+    if (
+        original_cv
+        and (original_cv.get("builtInVariable") or [])
+        and "builtInVariable" not in artifact_cv
+    ):
+        return [
+            {
+                "check": "built_in_variables_omitted",
+                "details": "Source export has enabled built-ins but artifact omits builtInVariable.",
+            }
+        ]
     return []
 
 
-def trigger_group_messages(effective_cv: dict[str, Any], mode: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def trigger_group_messages(
+    effective_cv: dict[str, Any], mode: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     errors = []
     warnings = []
     groups = single_member_groups(effective_cv)
@@ -285,10 +336,19 @@ def validate(path: Path, original: Path | None, mode: str) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("artifact", type=Path, help="GTM export or import JSON to validate")
-    parser.add_argument("--original", type=Path, help="Original export for route-specific comparison")
+    parser.add_argument(
+        "--original", type=Path, help="Original export for route-specific comparison"
+    )
     parser.add_argument(
         "--mode",
-        choices=("audit", "direct-readback", "same-container-view", "same-container-final", "overwrite", "new-container"),
+        choices=(
+            "audit",
+            "direct-readback",
+            "same-container-view",
+            "same-container-final",
+            "overwrite",
+            "new-container",
+        ),
         default="audit",
     )
     parser.add_argument("--pretty", action="store_true")

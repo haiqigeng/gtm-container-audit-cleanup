@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from gtm_workbook import load_xlsx_workbook, normalize_header
+from gtm_workbook import expand_structured_rows, load_xlsx_workbook, normalize_header
 
 ACCEPTED_RESOLUTIONS = {
     "cleanup_operation",
@@ -73,6 +73,10 @@ OPERATION_PACKET_REQUIRED_FIELDS = {
     "priority",
     "resolution_status",
     "source_finding_ids",
+    "route",
+    "aggressiveness",
+    "execution_readiness",
+    "risk_class",
 }
 
 OPERATION_PACKET_NONBLANK_FIELDS = {
@@ -91,6 +95,10 @@ OPERATION_PACKET_NONBLANK_FIELDS = {
     "priority",
     "resolution_status",
     "source_finding_ids",
+    "route",
+    "aggressiveness",
+    "execution_readiness",
+    "risk_class",
 }
 
 TECHNICAL_PACKET_DETAIL_FIELDS = {
@@ -120,7 +128,10 @@ SOURCE_ID_FIELDS = FINDING_ID_FIELDS | {
 
 VAGUE_ACTION_PATTERNS = [
     re.compile(r"^\s*(?:review|check|validate|investigate)\b", re.I),
-    re.compile(r"^\s*(?:simplify|consolidate|harden|fix)\s*(?:custom\s+code|code|logic|where\s+possible)?\s*$", re.I),
+    re.compile(
+        r"^\s*(?:simplify|consolidate|harden|fix)\s*(?:custom\s+code|code|logic|where\s+possible)?\s*$",
+        re.I,
+    ),
     re.compile(r"\breview\s+custom\s+code\b", re.I),
     re.compile(r"\bvalidate\s+trigger\s+logic\b", re.I),
     re.compile(r"\bcheck\s+(?:the\s+)?variables?\b", re.I),
@@ -135,11 +146,7 @@ def normalize_resolution(value: Any) -> str:
 
 
 def split_ids(value: Any) -> list[str]:
-    return [
-        part.strip()
-        for part in re.split(r"[;,\n]+", str(value or ""))
-        if part.strip()
-    ]
+    return [part.strip() for part in re.split(r"[;,\n]+", str(value or "")) if part.strip()]
 
 
 def load_resolution_rows(path: Path) -> list[dict[str, Any]]:
@@ -151,6 +158,8 @@ def load_resolution_rows(path: Path) -> list[dict[str, Any]]:
                 data = data["rows"]
             elif isinstance(data.get("findings"), list):
                 data = data["findings"]
+            elif isinstance(data.get("operations"), list):
+                data = data["operations"]
         if not isinstance(data, list):
             raise ValueError("resolution JSON must be a row list or contain rows/findings")
         return [{normalize_header(k): v for k, v in row.items()} for row in data]
@@ -158,8 +167,7 @@ def load_resolution_rows(path: Path) -> list[dict[str, Any]]:
     if suffix == ".csv":
         with path.open("r", encoding="utf-8-sig", newline="") as handle:
             return [
-                {normalize_header(k): v for k, v in row.items()}
-                for row in csv.DictReader(handle)
+                {normalize_header(k): v for k, v in row.items()} for row in csv.DictReader(handle)
             ]
 
     if suffix == ".xlsx":
@@ -169,7 +177,7 @@ def load_resolution_rows(path: Path) -> list[dict[str, Any]]:
             normalized_sheet = re.sub(r"[^a-z0-9]+", " ", sheet_name.lower()).strip()
             if "baseline" in normalized_sheet and "finding" in normalized_sheet:
                 continue
-            for row in sheet_rows:
+            for row in expand_structured_rows(sheet_rows):
                 normalized = {normalize_header(k): v for k, v in row.items()}
                 normalized["_sheet"] = sheet_name
                 rows.append(normalized)
@@ -183,11 +191,7 @@ def baseline_findings(path: Path) -> list[dict[str, Any]]:
     findings = data.get("findings")
     if not isinstance(findings, list):
         raise ValueError("baseline JSON must contain a findings list")
-    return [
-        finding
-        for finding in findings
-        if finding.get("finding_type") != "zero_findings"
-    ]
+    return [finding for finding in findings if finding.get("finding_type") != "zero_findings"]
 
 
 def row_finding_ids(row: dict[str, Any]) -> list[str]:
@@ -256,7 +260,7 @@ def validate(baseline_path: Path, resolution_path: Path) -> tuple[list[str], lis
 def source_rows_from_artifact(path: Path) -> list[dict[str, Any]]:
     data = json.loads(path.read_text(encoding="utf-8-sig"))
     if isinstance(data, dict):
-        for key in ("rows", "findings"):
+        for key in ("rows", "findings", "operations"):
             if isinstance(data.get(key), list):
                 data = data[key]
                 break
@@ -337,10 +341,14 @@ def validate_operation_packets(
 
     resolved_ids: set[str] = set()
     operation_ids: set[str] = set()
-    technical_expected_ids = {
-        str(row.get("technical_finding_id") or "").strip()
-        for row in source_rows_from_artifact(technical_path)
-    } if technical_path else set()
+    technical_expected_ids = (
+        {
+            str(row.get("technical_finding_id") or "").strip()
+            for row in source_rows_from_artifact(technical_path)
+        }
+        if technical_path
+        else set()
+    )
     technical_expected_ids.discard("")
     for index, row in enumerate(rows, start=2):
         missing = sorted(field for field in OPERATION_PACKET_REQUIRED_FIELDS if field not in row)
@@ -361,7 +369,9 @@ def validate_operation_packets(
         operation_id = str(row.get("operation_id") or "").strip()
         if operation_id:
             if operation_id in operation_ids:
-                errors.append(f"operation packet row {index}: duplicate operation_id {operation_id}")
+                errors.append(
+                    f"operation packet row {index}: duplicate operation_id {operation_id}"
+                )
             operation_ids.add(operation_id)
 
         resolution = normalize_resolution(row.get("resolution_status"))
@@ -370,19 +380,17 @@ def validate_operation_packets(
                 f"operation packet row {index}: resolution_status {resolution!r} is not one of "
                 f"{', '.join(sorted(ACCEPTED_RESOLUTIONS))}"
             )
-        if resolution in {"runtime_blocker", "owner_decision_needed"} and not str(
-            row.get("blocker") or ""
-        ).strip():
-            errors.append(
-                f"operation packet row {index}: blocker is required for {resolution}"
-            )
+        if (
+            resolution in {"runtime_blocker", "owner_decision_needed"}
+            and not str(row.get("blocker") or "").strip()
+        ):
+            errors.append(f"operation packet row {index}: blocker is required for {resolution}")
 
         action_text = str(row.get("exact_proposed_action") or "")
         for pattern in VAGUE_ACTION_PATTERNS:
             if pattern.search(action_text):
                 errors.append(
-                    f"operation packet row {index}: exact_proposed_action is vague: "
-                    f"{action_text!r}"
+                    f"operation packet row {index}: exact_proposed_action is vague: {action_text!r}"
                 )
                 break
 
@@ -404,7 +412,11 @@ def validate_operation_packets(
                 )
 
         source_lenses = str(row.get("source_lenses") or "").lower()
-        if "deterministic" not in source_lenses and "semantic" not in source_lenses and "technical" not in source_lenses:
+        if (
+            "deterministic" not in source_lenses
+            and "semantic" not in source_lenses
+            and "technical" not in source_lenses
+        ):
             errors.append(
                 f"operation packet row {index}: source_lenses must name at least one cleanup lens"
             )
@@ -415,7 +427,9 @@ def validate_operation_packets(
 
     unknown_source_ids = sorted(resolved_ids - expected_ids)
     for source_id in unknown_source_ids:
-        warnings.append(f"operation packets: source finding {source_id} was not found in supplied scan artifacts")
+        warnings.append(
+            f"operation packets: source finding {source_id} was not found in supplied scan artifacts"
+        )
 
     return errors, warnings
 
@@ -436,7 +450,7 @@ def main() -> int:
     parser.add_argument(
         "--semantic",
         type=Path,
-        help="Optional semantic_findings.json to require semantic source rows in packet reconciliation.",
+        help="Deprecated compatibility input for legacy semantic-finding artifacts.",
     )
     parser.add_argument(
         "--technical",

@@ -19,7 +19,7 @@ from gtm_lib import (
 )
 
 IGNORED_FOR_CHANGE = {"path", "fingerprint"}
-FOLDER_REFERENCING_LAYERS = ("tag", "trigger", "variable")
+FOLDER_REFERENCING_LAYERS = ("tag", "trigger", "variable", "client", "transformation")
 
 
 def merge_patch(original_cv: dict[str, Any], optimized_cv: dict[str, Any]) -> dict[str, Any]:
@@ -38,7 +38,9 @@ def merge_patch(original_cv: dict[str, Any], optimized_cv: dict[str, Any]) -> di
         for obj in optimized_objects:
             oid = optional_object_id(obj, id_key)
             before = original_by_id.get(oid)
-            if before is None or comparable(obj, IGNORED_FOR_CHANGE) != comparable(before, IGNORED_FOR_CHANGE):
+            if before is None or comparable(obj, IGNORED_FOR_CHANGE) != comparable(
+                before, IGNORED_FOR_CHANGE
+            ):
                 changed.append(obj)
 
         if changed:
@@ -70,7 +72,7 @@ def merge_patch(original_cv: dict[str, Any], optimized_cv: dict[str, Any]) -> di
 
     referenced_template_ids = {
         template_id
-        for layer in ("tag", "variable")
+        for layer in ("tag", "variable", "client", "transformation")
         for obj in patch_cv.get(layer, []) or []
         for template_id in [custom_template_id(obj)]
         if template_id
@@ -125,9 +127,7 @@ def main() -> int:
     )
 
     summary = {
-        layer: len(patch_cv.get(layer, []) or [])
-        for layer in ID_KEYS
-        if patch_cv.get(layer)
+        layer: len(patch_cv.get(layer, []) or []) for layer in ID_KEYS if patch_cv.get(layer)
     }
     print(json.dumps({"output": str(args.output), "includedObjectCounts": summary}))
     return 0

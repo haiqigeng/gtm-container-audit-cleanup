@@ -1,336 +1,79 @@
-# Source Map And Freshness Rules
+# Official Documentation Sources
 
-Use this reference to keep the skill maintainable as Google Tag Manager, GA4,
-consent mode, and server-side tagging evolve. Verify current official docs when
-the finding depends on product behavior, legal/privacy-sensitive configuration,
-or a deprecated/sunset product.
+Use official platform documentation as the default contract for event names,
+required and recommended parameters, value types, payload structures, consent,
+deduplication, routing, and validation.
 
-## Contents
+## Registry First
 
-- Official Sources To Prefer
-- Frequently Consulted Documentation Index
-- Google Tag, GTM, GA4, Ads, And Floodlight
-- Common Media And Advertising Vendors
-- Publisher Ads, GPT, And Google Ad Manager
-- Piano Analytics
-- CMP And Consent Vendors
-- Current Baseline Assumptions
-- When To Re-Verify
-- Maintenance Notes
+`vendor-registry.toml` is the maintained machine-readable index for common
+vendors. Validate it before a formal audit:
 
-## Official Sources To Prefer
+```powershell
+python -B scripts/gtm_vendor_registry.py
+python -B scripts/gtm_vendor_registry.py --online
+```
 
-Use these as fast entry points, not as frozen truth. Re-open the official page or
-search the official documentation site again when payload correctness, consent,
-deprecation, or a formal client report depends on the current rule.
+The registry currently covers Google Analytics/Tag/Ads/Floodlight, Meta,
+TikTok, Snapchat, Pinterest, LinkedIn, Microsoft Advertising, Criteo, Awin,
+Didomi, OneTrust, Cookiebot, Piano Analytics, Google Ad Manager, Outbrain, and
+Marfeel.
 
-## Frequently Consulted Documentation Index
+## Source Selection
 
-This index is a shortcut for common audits. `Access checked` means the URL was
-reviewed as an official or vendor-owned entry point for this skill; it does not
-mean the page content should be treated as permanently current.
+For every implemented vendor or event family:
 
-| Area | Official/vendor source | URL | Access checked |
-| --- | --- | --- | --- |
-| GTM API | Google Tag Manager API overview | <https://developers.google.com/tag-platform/tag-manager/api/v2> | 2026-06-26 |
-| GTM API | Google Tag Manager API developer guide | <https://developers.google.com/tag-platform/tag-manager/api/v2/devguide> | 2026-06-26 |
-| GTM import | Container export and import | <https://support.google.com/tagmanager/answer/6106997> | 2026-06-26 |
-| GTM dataLayer | The data layer | <https://developers.google.com/tag-platform/tag-manager/datalayer> | 2026-06-26 |
-| GA4 ecommerce | Measure ecommerce | <https://developers.google.com/analytics/devguides/collection/ga4/ecommerce> | 2026-06-26 |
-| GA4 events | Recommended events | <https://developers.google.com/analytics/devguides/collection/ga4/reference/events> | 2026-06-26 |
-| Meta Pixel | Pixel reference | <https://developers.facebook.com/docs/meta-pixel/reference/> | 2026-06-26 |
-| Meta Pixel | Conversion tracking | <https://developers.facebook.com/docs/meta-pixel/implementation/conversion-tracking/> | 2026-06-26 |
-| Meta CAPI | Custom data parameters | <https://developers.facebook.com/documentation/ads-commerce/conversions-api/parameters/custom-data> | 2026-06-26 |
-| TikTok | API for Business documentation | <https://business-api.tiktok.com/portal/docs> | 2026-06-26 |
-| TikTok | Standard events and parameters | <https://ads.tiktok.com/help/article/standard-events-parameters> | 2026-06-26 |
-| Microsoft Ads | Universal Event Tracking | <https://learn.microsoft.com/en-us/advertising/guides/universal-event-tracking?view=bingads-13> | 2026-06-26 |
-| Pinterest | Pinterest Tag conversion tracking | <https://developers.pinterest.com/docs/track-conversions/pinterest-tag/> | 2026-06-26 |
-| Snapchat | Snap Pixel | <https://developers.snap.com/marketing-api/Ads-API/snap-pixel> | 2026-06-26 |
-| LinkedIn | Insight Tag conversion tracking | <https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversion-tracking> | 2026-06-26 |
-| Criteo | OneTag events and parameters | <https://help.criteo.com/kb/guide/en/all-criteo-onetag-events-and-parameters-vZbzbEeY86/Steps/775825> | 2026-06-26 |
-| Didomi | GTM integration | <https://developers.didomi.io/cmp/web-sdk/third-parties/tags-management/tag-managers/google-tag-manager> | 2026-06-26 |
-| OneTrust | GTM Cookie Consent integration | <https://my.onetrust.com/s/article/UUID-301b21c8-a73a-05e8-175a-36c9036728dc> | 2026-06-26 |
-| OneTrust | Google Consent Mode integration | <https://my.onetrust.com/s/article/UUID-d81787f6-685c-2262-36c3-5f1f3369e2a7> | 2026-06-26 |
-| Cookiebot | GTM deployment | <https://support.cookiebot.com/hc/en-us/articles/360003793854-Google-Tag-Manager-deployment> | 2026-06-26 |
-| Cookiebot | Google Consent Mode | <https://support.cookiebot.com/hc/en-us/articles/360016047000-Implementing-Google-Consent-Mode> | 2026-06-26 |
-| Axeptio | GTM integration | <https://support.axeptio.eu/en/articles/273991-integrate-axeptio-via-google-tag-manager> | 2026-06-26 |
-| Google CMP setup | OneTrust CMP in GTM | <https://support.google.com/tagmanager/answer/14545200> | 2026-06-26 |
-| Google CMP setup | Axeptio CMP in GTM | <https://support.google.com/tagmanager/answer/14705891> | 2026-06-26 |
-| GTM consent | Consent mode support | <https://support.google.com/tagmanager/answer/10718549> | 2026-06-26 |
-| GTM consent | Troubleshoot consent mode with Tag Assistant | <https://developers.google.com/tag-platform/security/guides/consent-debugging> | 2026-06-26 |
-| GTM consent | Consent APIs for GTM templates | <https://developers.google.com/tag-platform/tag-manager/templates/consent-apis> | 2026-06-26 |
-| consentmanager.net | Google Tag Manager integration | <https://help.consentmanager.net/books/cmp/page/google-tag-manager-%28gtm%29> | 2026-06-26 |
-| consentmanager.net | Working with Google Consent Mode | <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode> | 2026-06-26 |
-| consentmanager.net | GTM and Google Consent Mode v2 | <https://help.consentmanager.net/books/cmp/page/working-with-gtm-google-consent-mode-v2> | 2026-06-26 |
-| consentmanager.net | Google Consent Mode v2 automatic blocking | <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-v2-automatic-blocking-code> | 2026-06-26 |
-| consentmanager.net | Google Consent Mode v2 manual/semi-automatic blocking | <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-v2-manualsemiautomatic-blocking-code> | 2026-06-26 |
-| consentmanager.net | Google Consent Mode with GA4 | <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-google-analytics-%28ga4%29> | 2026-06-26 |
-| consentmanager.net | Working with Google Ad Manager | <https://help.consentmanager.net/books/cmp/page/working-with-google-ad-manager> | 2026-06-26 |
-| Google Publisher Tag | Get started with GPT | <https://developers.google.com/publisher-tag/guides/get-started> | 2026-06-26 |
-| Google Publisher Tag | GPT reference | <https://developers.google.com/publisher-tag/reference> | 2026-06-26 |
-| Google Publisher Tag | Configure privacy settings sample | <https://developers.google.com/publisher-tag/samples/configure-privacy> | 2026-06-26 |
-| Google Publisher Tag | GPT release notes | <https://developers.google.com/publisher-tag/release-notes> | 2026-06-26 |
-| Google Ad Manager | Ads personalization settings in publisher ad tags | <https://support.google.com/admanager/answer/7678538> | 2026-06-26 |
-| Piano Analytics | Google Tag Manager PA SDK template | <https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-pa-sdk-template> | 2026-06-26 |
-| Piano Analytics | Google Tag Manager SmartTag template | <https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-smarttag-template> | 2026-06-26 |
-| Piano Analytics | Consent management developer docs | <https://developers.piano.io/analytics/data-collection/how-to-send-events/consent/> | 2026-06-26 |
-| Piano Analytics | Privacy configurations | <https://analytics-docs.piano.io/en/analytics/v1/privacy-configurations> | 2026-06-26 |
-| Piano Analytics | Privacy analysis | <https://analytics-docs.piano.io/en/analytics/v1/privacy-analysis> | 2026-06-26 |
-| Piano Analytics | Consent exemption configuration | <https://analytics-docs.piano.io/en/analytics/v1/consent-exemption-configuration> | 2026-06-26 |
-| Piano Analytics | Contains personal data flag | <https://analytics-docs.piano.io/en/analytics/v1/contains-personal-data-flag> | 2026-06-26 |
-| Piano Analytics | Default fed properties | <https://analytics-docs.piano.io/en/analytics/v1/what-properties-are-fed-by-default> | 2026-06-26 |
-| Piano Analytics | Server-side tracking with Stape/GTM server | <https://analytics-docs.piano.io/fr/analytics/v1/stape> | 2026-06-26 |
-| Marfeel | Marfeel SDK via GTM | <https://www.marfeel.com/docs/analytics/sdk-integrations/how-to-implement-marfeel-sdk-via-gtm-google-tag-manager> | 2026-06-26 |
-| Outbrain | Outbrain pixel on GTM | <https://www.outbrain.com/help/advertisers/outbrain-pixel-gtm/> | 2026-06-26 |
-| Logora | JavaScript installation | <https://docs.logora.fr/en/installation/javascript-sdk> | 2026-06-26 |
-| Logora | Server-side installation | <https://docs.logora.fr/en/installation/server-side-sdk> | 2026-06-26 |
+1. Detect the vendor from tag type, template public ID, endpoint, code, or
+   configuration, not from the object name alone.
+2. Use the matching registry entries.
+3. Open the exact event, payload, consent, or setup page needed for the
+   judgment; a vendor home page is insufficient when field correctness matters.
+4. If the vendor or contract is absent, search the current official vendor
+   documentation.
+5. Record the official URL and access date in the semantic review.
+6. If no official source can be found, document the failed search, lower
+   confidence, and avoid inventing a contract.
 
-For vendors not listed here, search official vendor documentation first. If a
-vendor has no official setup or event reference, document the search path and
-lower confidence.
+Blogs and community posts may explain behavior but cannot be the sole basis for
+a confirmed cleanup finding.
 
-### Google Tag, GTM, GA4, Ads, And Floodlight
+## Google Defaults
 
-- Google Tag Platform overview:
-  <https://developers.google.com/tag-platform/devguides>
-- Analyze existing Google tag configurations:
-  <https://developers.google.com/tag-platform/devguides/existing>
-- GTM data layer:
-  <https://developers.google.com/tag-platform/tag-manager/datalayer>
-- GTM with Content Security Policy:
-  <https://developers.google.com/tag-platform/security/guides/csp>
-- Consent mode overview:
-  <https://developers.google.com/tag-platform/security/concepts/consent-mode>
-- Set up consent mode on websites:
-  <https://developers.google.com/tag-platform/security/guides/consent>
-- Troubleshoot consent mode with Tag Assistant:
-  <https://developers.google.com/tag-platform/security/guides/consent-debugging>
-- Consent APIs for GTM templates:
-  <https://developers.google.com/tag-platform/tag-manager/templates/consent-apis>
-- GA4 events setup:
-  <https://developers.google.com/analytics/devguides/collection/ga4/events>
-- GA4 recommended events:
-  <https://developers.google.com/analytics/devguides/collection/ga4/reference/events>
-- GA4 recommended events by business vertical:
-  <https://developers.google.com/analytics/devguides/collection/ga4/reference/recommended-events>
-- GA4 ecommerce measurement:
-  <https://developers.google.com/analytics/devguides/collection/ga4/ecommerce>
-- GA4 purchase event setup:
-  <https://developers.google.com/analytics/devguides/collection/ga4/set-up-ecommerce>
-- GA4 ecommerce validation:
-  <https://developers.google.com/analytics/devguides/collection/ga4/validate-ecommerce>
-- GA4 event parameters:
-  <https://developers.google.com/analytics/devguides/collection/ga4/event-parameters>
-- GA4 Measurement Protocol:
-  <https://developers.google.com/analytics/devguides/collection/protocol/ga4>
-- Google Ads conversions with GTM:
-  <https://support.google.com/tagmanager/answer/6105160>
-- Conversion linker:
-  <https://support.google.com/tagmanager/answer/7549390>
-- Floodlight in GTM:
-  <https://support.google.com/campaignmanager/answer/3183388>
-- Floodlight Google tag format:
-  <https://support.google.com/campaignmanager/answer/7554821>
-- Floodlight dataLayer values in GTM:
-  <https://support.google.com/campaignmanager/answer/4599566>
-- Server-side tagging overview:
-  <https://developers.google.com/tag-platform/tag-manager/server-side>
-- Server-side custom domain / same-origin guidance:
-  <https://developers.google.com/tag-platform/tag-manager/server-side/custom-domain>
-- Send data to server-side Tag Manager:
-  <https://developers.google.com/tag-platform/tag-manager/server-side/send-data>
-- Universal Analytics sunset:
-  <https://support.google.com/analytics/answer/10089681>
-- Google Optimize sunset:
-  <https://support.google.com/analytics/answer/12979939>
+- Treat ambiguous current Google Analytics event tags as GA4/current Google tag
+  unless export evidence proves a Universal Analytics exception.
+- For GA4 standard, recommended, and ecommerce events, use the official event
+  name and documented event/dataLayer parameter shape. Do not reconstruct a
+  field in Custom JavaScript when the website's documented ecommerce payload
+  should already provide it.
+- Keep Universal Analytics and Google Optimize only as deprecated-technology
+  detection rules.
+- For consent, use official Google consent-mode and GTM consent APIs together
+  with the CMP vendor's official integration guidance.
+- For browser-to-server tagging, use the official send-data and server-side
+  routing documentation, but do not infer the receiving server container's
+  client, transformation, consent, or vendor behavior without that evidence.
 
-### Common Media And Advertising Vendors
+Core Google entry points:
 
-- Meta Pixel reference:
-  <https://developers.facebook.com/docs/meta-pixel/reference/>
-- Meta Pixel conversion tracking:
-  <https://developers.facebook.com/docs/meta-pixel/implementation/conversion-tracking/>
-- Meta Conversions API:
-  <https://developers.facebook.com/documentation/ads-commerce/conversions-api>
-- Meta Conversions API parameters:
-  <https://developers.facebook.com/documentation/ads-commerce/conversions-api/parameters>
-- TikTok API for Business documentation:
-  <https://business-api.tiktok.com/portal/docs>
-- TikTok standard events and parameters:
-  <https://ads.tiktok.com/help/article/standard-events-parameters>
-- TikTok parameter reference:
-  <https://ads.tiktok.com/help/article/about-parameters>
-- Pinterest Tag conversion tracking:
-  <https://developers.pinterest.com/docs/track-conversions/pinterest-tag/>
-- Pinterest conversions API:
-  <https://developers.pinterest.com/docs/track-conversions/track-conversions-in-the-api/>
-- Pinterest Tag Helper:
-  <https://developers.pinterest.com/docs/api-features/tag-helper/>
-- Snap Pixel:
-  <https://developers.snap.com/marketing-api/Ads-API/snap-pixel>
-- Snap Conversions API:
-  <https://developers.snap.com/marketing-api/Conversions-API/Introduction>
-- Snap Conversions API parameters:
-  <https://developers.snap.com/marketing-api/Conversions-API/Parameters>
-- Microsoft Advertising UET:
-  <https://learn.microsoft.com/en-us/advertising/guides/universal-event-tracking?view=bingads-13>
-- Microsoft Advertising UET setup:
-  <https://learn.microsoft.com/en-us/advertising/msa-help/hlp_ba_conc_uet_setup_master>
-- Microsoft Advertising Conversions API:
-  <https://learn.microsoft.com/en-us/advertising/guides/uet-conversion-api-integration?view=bingads-13>
-- LinkedIn Insight Tag conversion tracking:
-  <https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversion-tracking>
-- LinkedIn Conversions API use cases:
-  <https://learn.microsoft.com/en-us/linkedin/marketing/conversions/conversions-usecase>
-- LinkedIn conversion deduplication:
-  <https://learn.microsoft.com/en-us/linkedin/marketing/conversions/deduplication>
-- Reddit Pixel installation:
-  <https://business.reddithelp.com/s/article/Install-the-Reddit-Pixel-on-your-website>
-- Reddit Pixel manual conversion events:
-  <https://business.reddithelp.com/s/article/manual-conversion-events-with-the-reddit-pixel>
-- Reddit Conversions API:
-  <https://business.reddithelp.com/s/article/Conversions-API>
-- Reddit event deduplication:
-  <https://business.reddithelp.com/s/article/event-deduplication>
-- X website conversion tracking:
-  <https://business.x.com/en/help/campaign-measurement-and-analytics/conversion-tracking-for-websites>
-- X Ads API web conversions:
-  <https://docs.x.com/x-ads-api/measurement/web-conversions>
-- Criteo OneTag events and parameters:
-  <https://help.criteo.com/kb/guide/en/all-criteo-onetag-events-and-parameters-vZbzbEeY86/Steps/775825>
-- Awin tracking overview:
-  <https://help.awin.com/developers/docs/tracking-overview-1>
-- Awin GTM client-side tracking:
-  <https://help.awin.com/developers/docs/gtm-client-side>
-- Awin sales tracking:
-  <https://help.awin.com/developers/docs/implementing-sales-tracking>
-- Outbrain pixel on GTM:
-  <https://www.outbrain.com/help/advertisers/outbrain-pixel-gtm/>
-- Marfeel SDK via GTM:
-  <https://www.marfeel.com/docs/analytics/sdk-integrations/how-to-implement-marfeel-sdk-via-gtm-google-tag-manager>
-- Logora JavaScript installation:
-  <https://docs.logora.fr/en/installation/javascript-sdk>
-- Logora server-side installation:
-  <https://docs.logora.fr/en/installation/server-side-sdk>
+- GTM API: <https://developers.google.com/tag-platform/tag-manager/api/v2>
+- dataLayer: <https://developers.google.com/tag-platform/tag-manager/datalayer>
+- GA4 events: <https://developers.google.com/analytics/devguides/collection/ga4/reference/events>
+- GA4 ecommerce: <https://developers.google.com/analytics/devguides/collection/ga4/ecommerce>
+- consent mode: <https://developers.google.com/tag-platform/security/concepts/consent-mode>
+- server-side tagging: <https://developers.google.com/tag-platform/tag-manager/server-side>
 
-### Publisher Ads, GPT, And Google Ad Manager
+## Freshness
 
-- Google Publisher Tag get started:
-  <https://developers.google.com/publisher-tag/guides/get-started>
-- Google Publisher Tag reference:
-  <https://developers.google.com/publisher-tag/reference>
-- Configure GPT privacy settings:
-  <https://developers.google.com/publisher-tag/samples/configure-privacy>
-- GPT release notes:
-  <https://developers.google.com/publisher-tag/release-notes>
-- Google Ad Manager ads personalization in publisher ad tags:
-  <https://support.google.com/admanager/answer/7678538>
+Recheck official sources when:
 
-### Piano Analytics
+- the user requests current or latest guidance;
+- consent, privacy-sensitive configuration, or vendor payload correctness is a
+  material finding;
+- a native template, event schema, or server-routing capability may have
+  changed;
+- a deprecation or sunset determines deletion or migration;
+- the audit is a formal client deliverable.
 
-- Google Tag Manager PA SDK template:
-  <https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-pa-sdk-template>
-- Google Tag Manager SmartTag template:
-  <https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-smarttag-template>
-- Consent management:
-  <https://developers.piano.io/analytics/data-collection/how-to-send-events/consent/>
-- Privacy configurations:
-  <https://analytics-docs.piano.io/en/analytics/v1/privacy-configurations>
-- Privacy analysis:
-  <https://analytics-docs.piano.io/en/analytics/v1/privacy-analysis>
-- Consent exemption configuration:
-  <https://analytics-docs.piano.io/en/analytics/v1/consent-exemption-configuration>
-- Contains personal data flag:
-  <https://analytics-docs.piano.io/en/analytics/v1/contains-personal-data-flag>
-- Default fed properties:
-  <https://analytics-docs.piano.io/en/analytics/v1/what-properties-are-fed-by-default>
-- Server-side tracking with Stape/GTM server:
-  <https://analytics-docs.piano.io/fr/analytics/v1/stape>
-
-### CMP And Consent Vendors
-
-- Didomi GTM integration overview:
-  <https://developers.didomi.io/cmp/web-sdk/third-parties/tags-management/tag-managers/google-tag-manager>
-- Didomi/GTM integration:
-  <https://developers.didomi.io/cmp/web-sdk/third-parties/tags-management/tag-managers/google-tag-manager/configure-the-didomi-gtm-integration>
-- Didomi GTM template:
-  <https://developers.didomi.io/cmp/web-sdk/third-parties/tags-management/tag-managers/google-tag-manager/didomis-gtm-template>
-- Didomi Google Consent Mode:
-  <https://developers.didomi.io/cmp/web-sdk/third-parties/direct-integrations/google-consent-mode>
-- Didomi Web SDK events:
-  <https://developers.didomi.io/cmp/web-sdk/reference/events>
-- Didomi Web SDK API:
-  <https://developers.didomi.io/cmp/web-sdk/reference/api>
-- consentmanager.net GTM integration:
-  <https://help.consentmanager.net/books/cmp/page/google-tag-manager-%28gtm%29>
-- consentmanager.net Google Consent Mode:
-  <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode>
-- consentmanager.net GTM and Google Consent Mode v2:
-  <https://help.consentmanager.net/books/cmp/page/working-with-gtm-google-consent-mode-v2>
-- consentmanager.net Google Consent Mode v2 automatic blocking:
-  <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-v2-automatic-blocking-code>
-- consentmanager.net Google Consent Mode v2 manual/semi-automatic blocking:
-  <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-v2-manualsemiautomatic-blocking-code>
-- consentmanager.net Google Consent Mode with GA4:
-  <https://help.consentmanager.net/books/cmp/page/working-with-google-consent-mode-google-analytics-%28ga4%29>
-- consentmanager.net Google Ad Manager:
-  <https://help.consentmanager.net/books/cmp/page/working-with-google-ad-manager>
-
-Use official Google sources first. Use vendor documentation for non-Google
-vendors such as Meta, LinkedIn, TikTok, Pinterest, Reddit, X/Twitter, affiliate
-platforms, and CMPs. Use blogs only as secondary interpretation, not as the basis
-for a finding.
-
-For every vendor/event family in the container, look for official setup,
-standard-event, parameter, and validation documentation. Treat official docs as
-the payload contract unless the user explicitly overrides it. Use the entries in
-this file first when the vendor is listed. If the vendor, CMP, template, or event
-family is not listed here, search the internet for the vendor's official
-documentation before judging correctness. If an official source cannot be found
-after that search, document the search and lower confidence.
-
-## Current Baseline Assumptions
-
-As of 2026-06-26:
-
-- GTM web installation expects the script snippet in the page `<head>` and the
-  `noscript` snippet immediately after the opening `<body>` where applicable.
-- GTM includes consent initialization, consent settings, and Consent Overview
-  features for managing tag behavior based on consent.
-- Consent mode communicates consent state to Google tags; it does not provide a
-  consent banner by itself.
-- Standard Universal Analytics stopped processing new data on 2023-07-01, and
-  the Universal Analytics 360 processing extension ended on 2024-07-01.
-- Because Universal Analytics is sunset, ambiguous Google Analytics/event and
-  ecommerce tracking should be treated as GA4/current Google tag tracking by
-  default. Use UA only when the export, property ID, user instruction, or
-  verified migration mapper proves an explicit legacy exception.
-- Google Optimize and Optimize 360 are no longer available as of 2023-09-30.
-- Server-side tagging should use a first-party/same-origin or appropriate custom
-  domain setup when possible, and production deployments should consider
-  performance, security, monitoring, and redundancy.
-
-## When To Re-Verify
-
-Browse or check official docs again when:
-
-- the user asks for the latest/current/recent guidance;
-- consent mode, privacy, EEA, Ads, GA4, or CMP behavior affects the finding;
-- GA4 recommended/ecommerce events, official dataLayer/event payload format, or
-  vendor standard events and parameters are used to judge correctness;
-- a finding depends on product deprecation, sunset, or migration status;
-- server-side tagging setup, production mode, or endpoint guidance is in scope;
-- a vendor template/native tag capability may have changed;
-- the audit will be delivered as a formal client report.
-
-When source freshness matters, cite the source title, URL, and access date in the
-audit method or notes.
-
-## Maintenance Notes
-
-- Keep product-specific facts here instead of duplicating them across the skill.
-- Keep the main `SKILL.md` stable and procedural.
-- Move large vendor-specific rules to separate references only when repeated
-  audits need them.
-- Remove obsolete checks instead of preserving them as active rules. Keep sunset
-  products as deprecated-tag cleanup checks.
+The registry `reviewed_on` date is a maintenance signal, not proof that every
+linked page is unchanged. Update the registry instead of copying URL tables
+into additional references.

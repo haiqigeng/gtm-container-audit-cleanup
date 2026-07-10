@@ -33,8 +33,11 @@ A complete audit or cleanup plan must show:
 - a D1-D3 proof queue closed before findings and cleanup operations are
   finalized;
 - recursive D1-D3 semantic review from available export/API/source evidence for
-  every tag, trigger, variable, custom template, and referenced configuration
-  branch in a full audit;
+  every tag, trigger, variable, custom template, server client,
+  transformation, and referenced configuration branch in a full audit;
+- source-bound object keys, configuration hashes, source paths, branch hashes,
+  code-line hashes, variable-chain requirements, and consumer keys that pass
+  `gtm_semantic_review.py validate`;
 - official documentation basis for material GA4, CMP, vendor, ecommerce, and
   server-side judgments;
 - cleanup decisions for each material family: keep, fix, consolidate, delete
@@ -60,6 +63,11 @@ branch in a full audit, the review must explain:
   on it;
 - whether the functionality is coherent with the name, event context, business
   role, platform role, and official documentation.
+
+Every exported configuration leaf must have its own source hash, logic role,
+and object-specific interpretation. Every nonblank exported custom-code line
+must have its own line hash, line number, and interpretation. Copying the list
+of hashes or paths without those interpretations is a failed D3 review.
 
 The source model may guide this review, but it does not replace source evidence.
 Every cleanup finding must be checked against the raw export/API/config/code or

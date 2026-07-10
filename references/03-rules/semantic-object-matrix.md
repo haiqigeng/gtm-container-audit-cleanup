@@ -169,6 +169,11 @@ literal behavior -> actual inputs -> actual logic/action
 -> analyst judgment -> cleanup implication
 ```
 
+Bind the review to the exact source: layer and ID, configuration hash, JSON
+path, every configuration-leaf hash, every nonblank code-line hash, every
+consumer key, and the complete generated variable-chain requirement. A list of
+anchors or hashes without a specific interpretation does not count as review.
+
 Examples of acceptable literal behavior:
 
 - `Returns Date.now(), a millisecond timestamp.`
@@ -209,51 +214,25 @@ and cleanup implication.
 
 ## Required Matrix Columns
 
-For full audits, create a `semantic_object_matrix` table or workbook tab. For
-limited audits, create it for the sampled scope.
+The source artifact is `semantic_review.json`, with one row per tag, trigger,
+variable, custom template, server client, and transformation. It preserves
+object key, ID, name, layer, type, config hash, source path, role, contract,
+literal behavior, inputs, output, consumers, sibling comparison, judgment,
+cleanup implication, confidence, exact evidence anchors, branch reviews,
+code-line reviews, and recursive reference traces.
 
-Minimum columns:
+The XLSX matrix consolidates those fields into six structured columns:
 
-- `object_id`
-- `object_name`
-- `layer`
-- `vendor_or_family`
-- `inferred_business_role`
-- `decision_outcome`
-- `conversion_hierarchy`
-- `platform_role`
-- `expected_data_contract`
-- `depth_required`
-- `depth_completed`
-- `trigger_context_status`
-- `configuration_logic_status`
-- `source_or_code_logic_status`
-- `consent_or_server_status`
-- `evidence_level`
-- `semantic_status`
-- `confidence`
-- `finding_or_operation_id`
-- `runtime_qa_required`
-- `blocker_or_next_evidence`
+- `Object identity`
+- `Purpose & contract`
+- `Configuration logic`
+- `Output & consumers`
+- `Judgment`
+- `Proof & trace`
 
-For any row where `depth_required` includes `D3`, prefer compact columns:
-
-- `literal_behavior`
-- `consumer_context`
-- `analyst_judgment`
-- `cleanup_implication`
-- `evidence_or_qa_blocker`
-
-Legacy matrix columns such as `d3_inputs_or_sources`,
-`d3_logic_summary`, `d3_output_or_side_effect`,
-`d3_consumer_expectation`, and `d3_correctness_decision` may still be used by
-older validators, but user-facing or expert-review workbooks should consolidate
-them into the compact five-column format when possible.
-
-Use short judgment values, not parameter dumps. Follow `summary-quality.md`:
-each D2/D3 proof summary should state exact behavior, consumer context,
-judgment, and cleanup implication. Put raw extracted parameters, code snippets,
-or full payloads in separate technical artifacts only when truly needed.
+This consolidation is presentation only. The structured cells retain source
+keys for validation. Do not discard branch, code-line, trace, or consumer proof
+to make the sheet narrower.
 
 ## Execution Guarantee
 

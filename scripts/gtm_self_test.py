@@ -29,9 +29,7 @@ def base_cv() -> dict:
                 "type": "cvt_2_10",
                 "firingTriggerId": ["1"],
                 "parentFolderId": "1",
-                "parameter": [
-                    {"type": "TEMPLATE", "key": "value", "value": "{{DLV - value}}"}
-                ],
+                "parameter": [{"type": "TEMPLATE", "key": "value", "value": "{{DLV - value}}"}],
             }
         ],
         "trigger": [{"triggerId": "1", "name": "PV - All Pages", "type": "PAGEVIEW"}],
@@ -205,13 +203,25 @@ def process_cv() -> dict:
                 "variableId": "6",
                 "name": "DLV - product price 1",
                 "type": "v",
-                "parameter": [{"type": "TEMPLATE", "key": "name", "value": "ecommerce.checkout.products.0.price"}],
+                "parameter": [
+                    {
+                        "type": "TEMPLATE",
+                        "key": "name",
+                        "value": "ecommerce.checkout.products.0.price",
+                    }
+                ],
             },
             {
                 "variableId": "7",
                 "name": "DLV - product price 2",
                 "type": "v",
-                "parameter": [{"type": "TEMPLATE", "key": "name", "value": "ecommerce.checkout.products.1.price"}],
+                "parameter": [
+                    {
+                        "type": "TEMPLATE",
+                        "key": "name",
+                        "value": "ecommerce.checkout.products.1.price",
+                    }
+                ],
             },
             {
                 "variableId": "8",
@@ -251,8 +261,7 @@ def run(*args: str) -> subprocess.CompletedProcess[str]:
         cwd=str(ROOT),
         env=env,
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=False,
     )
 
@@ -500,7 +509,11 @@ def validate_custom_code(proc: subprocess.CompletedProcess[str], failures: list[
     rows = extracted.get("rows", [])
     has_datalayer_push = any(row.get("dataLayer_pushes_or_writes") for row in rows)
     has_technical_status = all("technical_code_health_status" in row for row in rows)
-    if extracted.get("custom_code_count", 0) < 4 or not has_datalayer_push or not has_technical_status:
+    if (
+        extracted.get("custom_code_count", 0) < 4
+        or not has_datalayer_push
+        or not has_technical_status
+    ):
         failures.append(
             {
                 "check": "custom_code_expected_extraction",
@@ -533,7 +546,9 @@ def validate_semantic_scan(proc: subprocess.CompletedProcess[str], failures: lis
         )
 
 
-def validate_package_builder(proc: subprocess.CompletedProcess[str], failures: list[dict]) -> None:
+def validate_package_builder(
+    proc: subprocess.CompletedProcess[str], paths: dict[str, Path], failures: list[dict]
+) -> None:
     if proc.returncode != 0:
         return
     package = json.loads(proc.stdout)
@@ -541,13 +556,14 @@ def validate_package_builder(proc: subprocess.CompletedProcess[str], failures: l
         "source_model",
         "deterministic_findings",
         "technical_code_findings",
-        "semantic_findings",
+        "semantic_coverage_tasks",
+        "semantic_review",
         "manifest",
     }
     missing_files = [
         name
         for name in expected_files
-        if not Path(package.get("files", {}).get(name, "")).exists()
+        if not (paths["package_dir"] / package.get("files", {}).get(name, "")).exists()
     ]
     if package.get("status") != "pass" or missing_files:
         failures.append(
@@ -572,7 +588,7 @@ def validate_outputs(
     validate_baseline(check_map["baseline_audit"], paths, failures)
     validate_custom_code(check_map["custom_code_extract"], failures)
     validate_semantic_scan(check_map["semantic_source_scan"], failures)
-    validate_package_builder(check_map["package_build"], failures)
+    validate_package_builder(check_map["package_build"], paths, failures)
     return failures
 
 

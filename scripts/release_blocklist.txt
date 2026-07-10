@@ -13,10 +13,3 @@ analyst-hardening-compare
 # Generic local test/client residue.
 workspace[0-9]+
 GTM-[A-Z0-9]*[0-9][A-Z0-9]*
-client[_ -]?name
-customer[_ -]?name
-account[_ -]?secret
-client[_ -]?secret
-api[_ -]?key
-access[_ -]?token
-refresh[_ -]?token

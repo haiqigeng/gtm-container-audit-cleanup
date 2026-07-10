@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any
 from xml.etree import ElementTree
 
 HEADER_ALIASES = {
@@ -107,7 +109,7 @@ def workbook_target_path(target: str) -> str:
     return "xl/" + target.lstrip("/") if not target.startswith("xl/") else target
 
 
-def rows_from_values(parsed_rows: List[List[Any]]) -> List[Dict[str, Any]]:
+def rows_from_values(parsed_rows: list[list[Any]]) -> list[dict[str, Any]]:
     if not parsed_rows:
         return []
     headers = [normalize_header(value) for value in parsed_rows[0]]
@@ -119,14 +121,32 @@ def rows_from_values(parsed_rows: List[List[Any]]) -> List[Dict[str, Any]]:
     return rows
 
 
-def load_xlsx_workbook_openpyxl(path: Path) -> Dict[str, List[Dict[str, Any]]]:
+def expand_structured_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Expand first-level JSON objects stored in consolidated workbook cells."""
+    expanded_rows: list[dict[str, Any]] = []
+    for row in rows:
+        expanded = dict(row)
+        for value in row.values():
+            if not isinstance(value, str) or not value.lstrip().startswith("{"):
+                continue
+            try:
+                payload = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(payload, dict):
+                expanded.update(payload)
+        expanded_rows.append(expanded)
+    return expanded_rows
+
+
+def load_xlsx_workbook_openpyxl(path: Path) -> dict[str, list[dict[str, Any]]]:
     try:
         import openpyxl  # type: ignore
     except ImportError as exc:
         raise RuntimeError("openpyxl is unavailable") from exc
 
     workbook = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    result: Dict[str, List[Dict[str, Any]]] = {}
+    result: dict[str, list[dict[str, Any]]] = {}
     for sheet_name in workbook.sheetnames:
         sheet = workbook[sheet_name]
         values = [list(row) for row in sheet.iter_rows(values_only=True)]
@@ -135,7 +155,7 @@ def load_xlsx_workbook_openpyxl(path: Path) -> Dict[str, List[Dict[str, Any]]]:
     return result
 
 
-def load_xlsx_workbook_stdlib(path: Path) -> Dict[str, List[Dict[str, Any]]]:
+def load_xlsx_workbook_stdlib(path: Path) -> dict[str, list[dict[str, Any]]]:
     ns = {
         "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
         "rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
@@ -151,13 +171,13 @@ def load_xlsx_workbook_stdlib(path: Path) -> Dict[str, List[Dict[str, Any]]]:
             for rel in rels.findall("pkgrel:Relationship", ns)
         }
 
-        shared_strings: List[str] = []
+        shared_strings: list[str] = []
         if "xl/sharedStrings.xml" in archive.namelist():
             shared_root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
             for item in shared_root.findall("main:si", ns):
                 shared_strings.append(xml_text(item))
 
-        result: Dict[str, List[Dict[str, Any]]] = {}
+        result: dict[str, list[dict[str, Any]]] = {}
         for sheet in workbook.findall("main:sheets/main:sheet", ns):
             name = sheet.attrib.get("name", "")
             rel_id = sheet.attrib.get(f"{{{ns['rel']}}}id")
@@ -168,10 +188,10 @@ def load_xlsx_workbook_stdlib(path: Path) -> Dict[str, List[Dict[str, Any]]]:
             if sheet_target not in archive.namelist():
                 continue
 
-            parsed_rows: List[List[str]] = []
+            parsed_rows: list[list[str]] = []
             sheet_root = ElementTree.fromstring(archive.read(sheet_target))
             for row in sheet_root.findall("main:sheetData/main:row", ns):
-                values: List[str] = []
+                values: list[str] = []
                 for cell in row.findall("main:c", ns):
                     ref = cell.attrib.get("r", "")
                     index = column_index(ref) if ref else len(values)
@@ -191,7 +211,7 @@ def load_xlsx_workbook_stdlib(path: Path) -> Dict[str, List[Dict[str, Any]]]:
     return result
 
 
-def load_xlsx_workbook(path: Path) -> Dict[str, List[Dict[str, Any]]]:
+def load_xlsx_workbook(path: Path) -> dict[str, list[dict[str, Any]]]:
     try:
         return load_xlsx_workbook_openpyxl(path)
     except Exception as first_exc:  # noqa: BLE001 - stdlib fallback covers missing optional deps.
@@ -205,11 +225,22 @@ def load_xlsx_workbook(path: Path) -> Dict[str, List[Dict[str, Any]]]:
 
 
 def find_sheet(
-    workbook_rows: Dict[str, List[Dict[str, Any]]], required_terms: Iterable[str]
-) -> Tuple[str | None, List[Dict[str, Any]]]:
+    workbook_rows: dict[str, list[dict[str, Any]]], required_terms: Iterable[str]
+) -> tuple[str | None, list[dict[str, Any]]]:
     terms = [term.lower() for term in required_terms]
     for sheet_name, rows in workbook_rows.items():
         normalized = normalize_sheet_name(sheet_name)
         if all(term in normalized for term in terms):
             return sheet_name, rows
+    return None, []
+
+
+def find_sheet_aliases(
+    workbook_rows: dict[str, list[dict[str, Any]]],
+    aliases: Iterable[Iterable[str]],
+) -> tuple[str | None, list[dict[str, Any]]]:
+    for required_terms in aliases:
+        name, rows = find_sheet(workbook_rows, required_terms)
+        if name:
+            return name, rows
     return None, []

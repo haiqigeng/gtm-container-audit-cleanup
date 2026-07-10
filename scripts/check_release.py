@@ -42,6 +42,20 @@ GENERATED_ARTIFACT_DIRS = {
 GENERATED_ARTIFACT_FILES = {
     ".coverage": "coverage data file",
 }
+TEXT_SUFFIXES = {".md", ".py", ".toml", ".yaml", ".yml", ".txt"}
+ALLOWED_ROOT_ENTRIES = {
+    ".git",
+    ".github",
+    ".gitignore",
+    "LICENSE",
+    "README.md",
+    "SKILL.md",
+    "agents",
+    "pyproject.toml",
+    "references",
+    "scripts",
+    "tests",
+}
 
 
 def repo_root() -> Path:
@@ -49,10 +63,13 @@ def repo_root() -> Path:
 
 
 def text_files(root: Path) -> list[Path]:
-    paths = [root / "README.md", root / "SKILL.md", root / "agents" / "openai.yaml"]
-    paths.extend(sorted((root / "references").rglob("*.md")))
-    paths.extend(sorted((root / "scripts").glob("*.py")))
-    return [path for path in paths if path.exists()]
+    paths = []
+    for path in root.rglob("*"):
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        if path.suffix.lower() in TEXT_SUFFIXES or path.name in {".gitignore", "LICENSE"}:
+            paths.append(path)
+    return sorted(paths)
 
 
 def parse_frontmatter(skill_path: Path) -> tuple[dict[str, str], list[str]]:
@@ -88,18 +105,24 @@ def parse_frontmatter(skill_path: Path) -> tuple[dict[str, str], list[str]]:
 def referenced_resources(root: Path) -> tuple[set[str], list[str]]:
     refs: set[str] = set()
     missing: list[str] = []
-    pattern = re.compile(r"`((?:references|scripts)/[^`]+?)`", re.S)
+    pattern = re.compile(r"((?:references|scripts)/[A-Za-z0-9_./*-]+)")
     for path in text_files(root):
         content = path.read_text(encoding="utf-8")
         for match in pattern.finditer(content):
-            raw = " ".join(match.group(1).split())
-            rel = raw.split()[0].strip().rstrip(".,;:)")
-            if rel.endswith("/") or (root / rel).is_dir():
+            rel = match.group(1).rstrip(".,;:)")
+            target = root / rel
+            if rel.endswith("/") or target.is_dir():
+                if target.is_dir():
+                    refs.update(
+                        child.relative_to(root).as_posix()
+                        for child in target.rglob("*")
+                        if child.is_file()
+                    )
                 continue
             if "*" in rel:
                 continue
             refs.add(rel)
-            if not (root / rel).exists():
+            if not target.exists():
                 missing.append(f"{path.relative_to(root)} references missing {rel}")
     return refs, missing
 
@@ -139,7 +162,9 @@ def check_orphan_resources(root: Path, referenced: set[str]) -> list[str]:
     }
     routed = referenced | imported | exempt
 
-    for path in sorted((root / "references").rglob("*.md")):
+    for path in sorted((root / "references").rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".md", ".toml"}:
+            continue
         rel = path.relative_to(root).as_posix()
         if rel not in routed:
             errors.append(f"{rel} is not referenced, imported, or explicitly exempted")
@@ -179,9 +204,7 @@ def check_reference_navigation(root: Path) -> list[str]:
     for path in sorted((root / "references").rglob("*.md")):
         lines = path.read_text(encoding="utf-8").splitlines()
         if len(lines) > LONG_REFERENCE_LINES and "## Contents" not in lines[:25]:
-            errors.append(
-                f"{path.relative_to(root)} has {len(lines)} lines and no ## Contents"
-            )
+            errors.append(f"{path.relative_to(root)} has {len(lines)} lines and no ## Contents")
     return errors
 
 
@@ -217,6 +240,18 @@ def check_generated_artifacts(root: Path) -> list[str]:
     return errors
 
 
+def check_repository_layout(root: Path) -> list[str]:
+    errors = []
+    for path in root.iterdir():
+        if path.name not in ALLOWED_ROOT_ENTRIES:
+            errors.append(f"Unexpected top-level repository entry: {path.name}")
+    if not (root / "LICENSE").is_file():
+        errors.append("LICENSE is required for the public reusable skill repository")
+    if not (root / ".github" / "workflows" / "ci.yml").is_file():
+        errors.append("Missing .github/workflows/ci.yml")
+    return errors
+
+
 def check_patterns(root: Path, name: str, patterns: list[str]) -> list[str]:
     errors = []
     compiled = [(pattern, re.compile(pattern, re.I)) for pattern in patterns]
@@ -247,10 +282,7 @@ def check_release_tag(tag: str | None) -> list[str]:
         return []
     if CALVER_TAG_PATTERN.fullmatch(tag):
         return []
-    return [
-        "Release tag must use vYYYY.MM.DD or vYYYY.MM.DD.N, "
-        f"found {tag!r}"
-    ]
+    return [f"Release tag must use vYYYY.MM.DD or vYYYY.MM.DD.N, found {tag!r}"]
 
 
 def check_release_notes(path: Path | None) -> list[str]:
@@ -272,7 +304,9 @@ def check_release_notes(path: Path | None) -> list[str]:
         errors.append("Release notes should include at least three readable bullets")
     if "validation" in normalized and "python" in normalized and "not run" in normalized:
         return errors
-    if "validation" in normalized and not re.search(r"\b(pass|passed|not run|blocked)\b", normalized):
+    if "validation" in normalized and not re.search(
+        r"\b(pass|passed|not run|blocked)\b", normalized
+    ):
         errors.append("Validation section should state passed or blocked checks")
     return errors
 
@@ -308,6 +342,7 @@ def main() -> int:
     refs, missing_refs = referenced_resources(root)
     errors.extend(missing_refs)
     errors.extend(check_reference_branches(root))
+    errors.extend(check_repository_layout(root))
     errors.extend(check_orphan_resources(root, refs))
 
     tracked = git_ls_files(root)
@@ -331,8 +366,7 @@ def main() -> int:
         return 1
 
     print(
-        "Release check: PASS "
-        f"({len(refs)} referenced resources, SKILL.md {len(skill_lines)} lines)"
+        f"Release check: PASS ({len(refs)} referenced resources, SKILL.md {len(skill_lines)} lines)"
     )
     return 0
 

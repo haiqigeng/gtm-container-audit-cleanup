@@ -15,6 +15,8 @@ from typing import Any
 
 from gtm_baseline_audit import audit_export
 from gtm_custom_code_extract import extract_export
+from gtm_lib import source_descriptor
+from gtm_semantic_review import scaffold_review
 from gtm_semantic_source_scan import scan_export
 from gtm_source_model import build_model
 
@@ -41,25 +43,34 @@ def build_package(export_path: Path, out_dir: Path, pretty: bool = False) -> dic
     source_model = build_model(export_path)
     deterministic = audit_export(export_path)
     technical = extract_export(export_path)
-    semantic = scan_export(export_path)
+    semantic_tasks = scan_export(export_path)
+    semantic_review = scaffold_review(export_path)
 
     files = {
         "source_model": out_dir / "source_model.json",
         "deterministic_findings": out_dir / "deterministic_findings.json",
         "technical_code_findings": out_dir / "technical_code_findings.json",
-        "semantic_findings": out_dir / "semantic_findings.json",
+        "semantic_coverage_tasks": out_dir / "semantic_coverage_tasks.json",
+        "semantic_review": out_dir / "semantic_review.json",
         "manifest": out_dir / "audit_package_manifest.json",
     }
 
     manifest = {
-        "artifact": str(export_path),
+        **source_descriptor(export_path),
         "kind": "gtm_protected_audit_package_manifest",
         "status": "pass" if source_model.get("coverage_gate") == "pass" else "blocked",
         "source_model_coverage_gate": source_model.get("coverage_gate"),
         "counts": {
             "source_model_objects": sum(
                 len(source_model.get("objects", {}).get(key, []))
-                for key in ("tags", "triggers", "variables", "customTemplates")
+                for key in (
+                    "tags",
+                    "triggers",
+                    "variables",
+                    "customTemplates",
+                    "clients",
+                    "transformations",
+                )
             ),
             "field_edges": source_model.get("counts", {}).get("field_edges", 0),
             "trigger_edges": source_model.get("counts", {}).get("trigger_edges", 0),
@@ -70,21 +81,24 @@ def build_package(export_path: Path, out_dir: Path, pretty: bool = False) -> dic
                 if finding.get("finding_type") == "zero_findings"
             ),
             "technical_code_rows": len(technical.get("rows", [])),
-            "semantic_source_rows": len(semantic.get("rows", [])),
+            "semantic_coverage_tasks": len(semantic_tasks.get("rows", [])),
+            "semantic_review_rows": len(semantic_review.get("rows", [])),
         },
-        "required_next_artifact": "reconciled_operations.json",
-        "files": {key: str(path) for key, path in files.items() if key != "manifest"},
+        "required_next_artifact": "completed semantic_review.json",
+        "files": {key: path.name for key, path in files.items() if key != "manifest"},
         "notes": [
             "This package is evidence, not the user-facing cleanup plan.",
-            "Compile visible rows only after deterministic, semantic, and technical findings are reconciled.",
+            "semantic_coverage_tasks.json contains review tasks, not findings.",
+            "Complete and validate semantic_review.json before compiling operations.",
         ],
     }
-    manifest["files"]["manifest"] = str(files["manifest"])
+    manifest["files"]["manifest"] = files["manifest"].name
 
     write_json(files["source_model"], source_model, pretty)
     write_json(files["deterministic_findings"], deterministic, pretty)
     write_json(files["technical_code_findings"], technical, pretty)
-    write_json(files["semantic_findings"], semantic, pretty)
+    write_json(files["semantic_coverage_tasks"], semantic_tasks, pretty)
+    write_json(files["semantic_review"], semantic_review, pretty)
     write_json(files["manifest"], manifest, pretty)
     return manifest
 

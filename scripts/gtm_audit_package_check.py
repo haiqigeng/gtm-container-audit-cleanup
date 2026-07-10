@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from gtm_audit_gate_check import (
     COMPACT_D3_FIELDS,
@@ -29,9 +31,11 @@ from gtm_audit_gate_check import (
     validate_rows,
     validate_semantic_depth_rows,
     validate_summary_quality,
+    word_count,
 )
 from gtm_lib import container_version
-from gtm_workbook import find_sheet, load_xlsx_workbook
+from gtm_semantic_review import expected_rows, review_text_valid
+from gtm_workbook import expand_structured_rows, find_sheet_aliases, load_xlsx_workbook
 
 
 def object_name(obj: dict[str, Any]) -> str:
@@ -64,17 +68,23 @@ def normalize_layer(value: Any) -> str:
     if "variable" in text:
         return "variable"
     if "template" in text:
-        return "template"
+        return "customTemplate"
+    if "client" in text:
+        return "client"
+    if "transformation" in text:
+        return "transformation"
     return text
 
 
 def row_matches(row: dict[str, Any], layer: str, source_id: str, source_name: str) -> bool:
     row_layer = normalize_layer(row.get("layer"))
-    if row_layer and layer != row_layer:
+    if row_layer and normalize_layer(layer) != row_layer:
         return False
     row_id = str(row.get("object_id") or row.get("object_path") or "").strip()
     row_name = str(row.get("object_name") or row.get("before_name") or "").strip()
-    return bool((source_id and row_id == source_id) or (source_name and row_name == source_name))
+    if source_id:
+        return row_id == source_id
+    return bool(source_name and row_name == source_name)
 
 
 def covered(rows: Iterable[dict[str, Any]], layer: str, source_id: str, source_name: str) -> bool:
@@ -83,17 +93,22 @@ def covered(rows: Iterable[dict[str, Any]], layer: str, source_id: str, source_n
 
 def semantic_decision_complete(row: dict[str, Any]) -> bool:
     required = (
-        "inferred_business_role",
-        "decision_outcome",
-        "conversion_hierarchy",
-        "platform_role",
-        "expected_data_contract",
+        "business_role",
+        "expected_contract",
+        "official_doc_basis",
+        "actual_inputs_or_sources",
+        "literal_behavior",
+        "output_or_side_effect",
+        "consumer_context",
+        "analyst_judgment",
+        "cleanup_implication",
+        "evidence_or_qa_blocker",
         "semantic_status",
         "depth_completed",
-        "trigger_context_status",
-        "configuration_logic_status",
-        "source_or_code_logic_status",
-        "evidence_level",
+        "object_key",
+        "config_hash",
+        "source_json_path",
+        "evidence_anchors",
     )
     if not all(str(row.get(field) or "").strip() for field in required):
         return False
@@ -104,8 +119,12 @@ def semantic_decision_complete(row: dict[str, Any]) -> bool:
     if "D3" in required_depths:
         if "D3" not in completed_depths:
             return False
-        has_legacy = all(field in row and not generic_or_blank(row.get(field)) for field in D3_REQUIRED_FIELDS)
-        has_compact = all(field in row and not generic_or_blank(row.get(field)) for field in COMPACT_D3_FIELDS)
+        has_legacy = all(
+            field in row and not generic_or_blank(row.get(field)) for field in D3_REQUIRED_FIELDS
+        )
+        has_compact = all(
+            field in row and not generic_or_blank(row.get(field)) for field in COMPACT_D3_FIELDS
+        )
         if not has_legacy and not has_compact:
             return False
         if not d3_proof_complete(row):
@@ -252,6 +271,26 @@ def source_objects(cv: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[
         semantic_scope.append(row)
         custom_code.append(row)
 
+    for client in cv.get("client", []) or []:
+        semantic_scope.append(
+            {
+                "layer": "client",
+                "id": object_id(client, "clientId"),
+                "name": object_name(client),
+                "type": str(client.get("type") or ""),
+            }
+        )
+
+    for transformation in cv.get("transformation", []) or []:
+        semantic_scope.append(
+            {
+                "layer": "transformation",
+                "id": object_id(transformation, "transformationId"),
+                "name": object_name(transformation),
+                "type": str(transformation.get("type") or ""),
+            }
+        )
+
     return semantic_scope, custom_code
 
 
@@ -286,20 +325,126 @@ def validate_reconciliation(
 
 
 def validate_semantic_object_coverage(
-    semantic_scope: list[dict[str, str]], semantic_rows: list[dict[str, Any]], limited: bool
+    semantic_scope: list[dict[str, Any]], semantic_rows: list[dict[str, Any]], limited: bool
 ) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
     for obj in semantic_scope:
-        if not semantic_row_complete(semantic_rows, obj["layer"], obj["id"], obj["name"]):
+        source_id = str(obj.get("id") or obj.get("object_id") or "")
+        source_name = str(obj.get("name") or obj.get("object_name") or "")
+        matching = [
+            row for row in semantic_rows if row_matches(row, obj["layer"], source_id, source_name)
+        ]
+        if not any(semantic_decision_complete(row) for row in matching):
             message = (
-                f"missing complete semantic row for {obj['layer']} "
-                f"{obj['id']} {obj['name']!r}"
+                f"missing complete semantic row for {obj['layer']} {source_id} {source_name!r}"
             )
             if limited:
                 warnings.append(message)
             else:
                 errors.append(message)
+            continue
+
+        row = next(row for row in matching if semantic_decision_complete(row))
+        expected_hash = str(obj.get("config_hash") or "")
+        if expected_hash and str(row.get("config_hash") or "") != expected_hash:
+            errors.append(f"semantic row config_hash mismatch for {obj['layer']} {source_id}")
+
+        anchors_text = str(row.get("evidence_anchors") or "")
+        missing_anchors = [
+            anchor for anchor in obj.get("required_logic_anchors", []) if anchor not in anchors_text
+        ]
+        if missing_anchors:
+            errors.append(
+                f"semantic row for {obj['layer']} {source_id} misses "
+                f"{len(missing_anchors)} required configuration branch anchor(s)"
+            )
+
+        required_branches = {
+            item["json_path"]: item for item in obj.get("required_branch_reviews", [])
+        }
+        branch_reviews = {
+            str(item.get("json_path") or ""): item
+            for item in row.get("configuration_branch_reviews", [])
+            if isinstance(item, dict)
+        }
+        if set(branch_reviews) != set(required_branches):
+            errors.append(
+                f"semantic row for {obj['layer']} {source_id} lacks exact branch-review coverage"
+            )
+        for path, required_branch in required_branches.items():
+            branch = branch_reviews.get(path)
+            if not branch:
+                continue
+            if branch.get("value_hash") != required_branch["value_hash"]:
+                errors.append(
+                    f"semantic row for {obj['layer']} {source_id} has a branch hash mismatch"
+                )
+            if not review_text_valid(branch.get("interpretation")):
+                errors.append(
+                    f"semantic row for {obj['layer']} {source_id} has a generic branch interpretation"
+                )
+
+        required_lines = {item["line_hash"]: item for item in obj.get("code_line_facts", [])}
+        line_reviews = {
+            str(item.get("line_hash") or ""): item
+            for item in row.get("code_line_reviews", [])
+            if isinstance(item, dict)
+        }
+        if set(line_reviews) != set(required_lines):
+            errors.append(
+                f"semantic row for {obj['layer']} {source_id} lacks exact code-line coverage"
+            )
+        for line_hash, source_line in required_lines.items():
+            line = line_reviews.get(line_hash)
+            if not line:
+                continue
+            if line.get("line_number") != source_line["line_number"] or not review_text_valid(
+                line.get("interpretation")
+            ):
+                errors.append(
+                    f"semantic row for {obj['layer']} {source_id} has an invalid code-line review"
+                )
+
+        traces = {
+            str(trace.get("reference") or ""): trace
+            for trace in row.get("reference_traces", [])
+            if isinstance(trace, dict)
+        }
+        for requirement in obj.get("reference_trace_requirements", []):
+            reference = requirement["reference"]
+            trace = traces.get(reference)
+            if not trace:
+                errors.append(
+                    f"semantic row for {obj['layer']} {source_id} lacks trace for {reference!r}"
+                )
+                continue
+            if set(trace.get("object_chain", [])) != set(
+                requirement.get("required_object_keys", [])
+            ) or set(trace.get("evidence_anchors", [])) != set(
+                requirement.get("required_evidence_anchors", [])
+            ):
+                errors.append(
+                    f"semantic row for {obj['layer']} {source_id} has a source-inconsistent trace for {reference!r}"
+                )
+
+        expected_consumers = {
+            consumer["consumer_key"] for consumer in obj.get("export_consumers", [])
+        }
+        raw_consumers = row.get("consumer_evidence_keys") or []
+        if isinstance(raw_consumers, list):
+            actual_consumers = {str(value) for value in raw_consumers}
+        else:
+            actual_consumers = set(re.split(r"[;,\n\s]+", str(raw_consumers)))
+        if expected_consumers - actual_consumers:
+            errors.append(
+                f"semantic row for {obj['layer']} {source_id} lacks mapped consumer evidence"
+            )
+
+        if obj.get("sibling_comparison_required") and word_count(row.get("sibling_comparison")) < 6:
+            errors.append(
+                f"semantic row for {obj['layer']} {source_id} lacks required sibling comparison"
+            )
     return errors, warnings
 
 
@@ -339,18 +484,33 @@ def validate_custom_code_coverage(
     return errors
 
 
-def validate_package(export_path: Path, workbook_path: Path, limited: bool) -> tuple[list[str], list[str]]:
+def validate_package(
+    export_path: Path, workbook_path: Path, limited: bool
+) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
 
     cv = container_version(json.loads(export_path.read_text(encoding="utf-8")))
     workbook = load_xlsx_workbook(workbook_path)
-    semantic_scope, custom_code = source_objects(cv)
+    _, custom_code = source_objects(cv)
+    semantic_scope = list(expected_rows(export_path).values())
 
-    semantic_name, semantic_rows = find_sheet(workbook, ["semantic", "matrix"])
-    custom_name, custom_rows = find_sheet(workbook, ["custom", "code"])
-    reconciliation_name, reconciliation_rows = find_sheet(workbook, ["reconciliation"])
-    baseline_name, baseline_rows = find_sheet(workbook, ["baseline"])
+    semantic_name, semantic_rows = find_sheet_aliases(
+        workbook, (("semantic", "matrix"), ("d3", "evidence"))
+    )
+    semantic_rows = expand_structured_rows(semantic_rows)
+    custom_name, custom_rows = find_sheet_aliases(
+        workbook, (("custom", "code"), ("technical", "code"))
+    )
+    custom_rows = expand_structured_rows(custom_rows)
+    reconciliation_name, reconciliation_rows = find_sheet_aliases(
+        workbook, (("reconciliation",), ("reconciled", "operations"))
+    )
+    reconciliation_rows = expand_structured_rows(reconciliation_rows)
+    baseline_name, baseline_rows = find_sheet_aliases(
+        workbook, (("deterministic", "baseline"), ("baseline",))
+    )
+    baseline_rows = expand_structured_rows(baseline_rows)
 
     errors.extend(validate_semantic_sheet(semantic_name, semantic_rows))
     if not limited and not baseline_name:

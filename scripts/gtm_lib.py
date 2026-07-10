@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -16,7 +17,18 @@ ID_KEYS = {
     "folder": "folderId",
     "customTemplate": "templateId",
     "builtInVariable": "name",
+    "client": "clientId",
+    "transformation": "transformationId",
 }
+
+SEMANTIC_LAYERS = (
+    "tag",
+    "trigger",
+    "variable",
+    "customTemplate",
+    "client",
+    "transformation",
+)
 
 IGNORED_FIELDS = {"path", "fingerprint"}
 REF_RE = re.compile(r"\{\{([^{}]+)\}\}")
@@ -45,6 +57,21 @@ def load_container_version(path: Path) -> dict[str, Any]:
     return container_version(load_json(path))
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def source_descriptor(path: Path) -> dict[str, str]:
+    return {
+        "source_file": path.name,
+        "source_sha256": file_sha256(path),
+    }
+
+
 def object_id(obj: dict[str, Any], id_key: str) -> str:
     value = obj.get(id_key) or obj.get("name")
     return "" if value is None else str(value)
@@ -66,12 +93,65 @@ def comparable_container(cv: dict[str, Any], ignored: set[str] | None = None) ->
     for key, value in cv.items():
         if isinstance(value, list):
             clean[key] = [
-                comparable(obj, ignored) if isinstance(obj, dict) else obj
-                for obj in value
+                comparable(obj, ignored) if isinstance(obj, dict) else obj for obj in value
             ]
         elif key not in ignored:
             clean[key] = value
     return clean
+
+
+def stable_hash(value: Any, length: int = 16) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:length]
+
+
+def safe_scalar_preview(value: Any, limit: int = 160) -> str:
+    if value is None or isinstance(value, (bool, int, float)):
+        return json.dumps(value, ensure_ascii=False)
+    text = str(value)
+    text = re.sub(
+        r"(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password)"
+        r"\s*[:=]\s*[^&\s,;]+",
+        r"\1=<redacted>",
+        text,
+    )
+    text = re.sub(r"(?i)(https?://[^/@\s]+):[^/@\s]+@", r"\1:<redacted>@", text)
+    return text if len(text) <= limit else text[: limit - 1] + "..."
+
+
+def walk_json_fields(value: Any, path: str = "$") -> list[dict[str, Any]]:
+    """Return stable leaf facts with exact JSON paths and variable references."""
+    rows: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        for key in sorted(value):
+            child_path = f"{path}.{key}"
+            rows.extend(walk_json_fields(value[key], child_path))
+        return rows
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            rows.extend(walk_json_fields(item, f"{path}[{index}]"))
+        if not value:
+            rows.append(
+                {
+                    "json_path": path,
+                    "value_type": "list",
+                    "value_preview": "[]",
+                    "value_hash": stable_hash(value),
+                    "referenced_variables": [],
+                }
+            )
+        return rows
+
+    rows.append(
+        {
+            "json_path": path,
+            "value_type": type(value).__name__,
+            "value_preview": safe_scalar_preview(value),
+            "value_hash": stable_hash(value),
+            "referenced_variables": sorted(refs(value)),
+        }
+    )
+    return rows
 
 
 def apply_patch(original_cv: dict[str, Any], patch_cv: dict[str, Any]) -> dict[str, Any]:
@@ -80,11 +160,7 @@ def apply_patch(original_cv: dict[str, Any], patch_cv: dict[str, Any]) -> dict[s
         replacements = patch_cv.get(layer)
         if not replacements:
             continue
-        by_id = {
-            object_id(obj, id_key): obj
-            for obj in replacements
-            if object_id(obj, id_key)
-        }
+        by_id = {object_id(obj, id_key): obj for obj in replacements if object_id(obj, id_key)}
         seen: set[str] = set()
         next_objects = []
         for obj in merged.get(layer, []) or []:
@@ -115,9 +191,7 @@ def trigger_group_members(trigger: dict[str, Any]) -> list[str]:
     for parameter in trigger.get("parameter", []) or []:
         if parameter.get("key") == "triggerIds":
             members.extend(
-                item.get("value")
-                for item in parameter.get("list", []) or []
-                if item.get("value")
+                item.get("value") for item in parameter.get("list", []) or [] if item.get("value")
             )
     return members
 
@@ -127,7 +201,9 @@ def is_system_variable_reference(name: str) -> bool:
 
 
 def is_system_trigger_reference(trigger_id: str) -> bool:
-    return trigger_id in KNOWN_SYSTEM_TRIGGER_REFERENCES or bool(SYSTEM_TRIGGER_RE.match(trigger_id))
+    return trigger_id in KNOWN_SYSTEM_TRIGGER_REFERENCES or bool(
+        SYSTEM_TRIGGER_RE.match(trigger_id)
+    )
 
 
 def system_reference_description(kind: str, value: str) -> str:

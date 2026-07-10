@@ -25,8 +25,9 @@ Add this layer after the three scans and reconciliation:
 raw evidence
 -> source model navigation map
 -> deterministic_findings.json
--> semantic_findings.json
+-> semantic_coverage_tasks.json
 -> technical_code_findings.json
+-> completed source-bound semantic_review.json
 -> reconciled_operations.json
 -> human_problem_rows
 -> cleanup plan or change log

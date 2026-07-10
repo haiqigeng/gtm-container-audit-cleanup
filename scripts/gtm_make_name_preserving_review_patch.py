@@ -28,7 +28,15 @@ from gtm_make_merge_patch import (
     reconstruct,
 )
 
-NAME_PRESERVE_LAYERS = ("tag", "trigger", "variable", "folder", "customTemplate")
+NAME_PRESERVE_LAYERS = (
+    "tag",
+    "trigger",
+    "variable",
+    "folder",
+    "customTemplate",
+    "client",
+    "transformation",
+)
 
 
 def objects_by_id(cv: dict[str, Any], layer: str) -> dict[str, dict[str, Any]]:
@@ -69,7 +77,9 @@ def name_maps(
     return variable_names, tag_names, layer_id_to_name
 
 
-def restore_references(value: Any, variable_names: dict[str, str], tag_names: dict[str, str]) -> Any:
+def restore_references(
+    value: Any, variable_names: dict[str, str], tag_names: dict[str, str]
+) -> Any:
     if isinstance(value, list):
         return [restore_references(item, variable_names, tag_names) for item in value]
     if isinstance(value, dict):
@@ -82,13 +92,17 @@ def restore_references(value: Any, variable_names: dict[str, str], tag_names: di
         return restored
     if isinstance(value, str):
         restored = value
-        for new_name, old_name in sorted(variable_names.items(), key=lambda item: len(item[0]), reverse=True):
+        for new_name, old_name in sorted(
+            variable_names.items(), key=lambda item: len(item[0]), reverse=True
+        ):
             restored = restored.replace("{{" + new_name + "}}", "{{" + old_name + "}}")
         return restored
     return value
 
 
-def name_preserving_target(original_cv: dict[str, Any], optimized_cv: dict[str, Any]) -> dict[str, Any]:
+def name_preserving_target(
+    original_cv: dict[str, Any], optimized_cv: dict[str, Any]
+) -> dict[str, Any]:
     target = deepcopy(optimized_cv)
     variable_names, tag_names, layer_id_to_name = name_maps(original_cv, optimized_cv)
     target = restore_references(target, variable_names, tag_names)
@@ -110,7 +124,7 @@ def ensure_full_schema_layers(patch_cv: dict[str, Any], target_cv: dict[str, Any
 
     referenced_template_ids = {
         template_id
-        for layer in ("tag", "variable")
+        for layer in ("tag", "variable", "client", "transformation")
         for obj in patch_cv.get(layer, []) or []
         for template_id in [custom_template_id(obj)]
         if template_id
@@ -160,9 +174,7 @@ def main() -> int:
     )
 
     summary = {
-        layer: len(patch_cv.get(layer, []) or [])
-        for layer in ID_KEYS
-        if patch_cv.get(layer)
+        layer: len(patch_cv.get(layer, []) or []) for layer in ID_KEYS if patch_cv.get(layer)
     }
     print(json.dumps({"output": str(args.output), "includedObjectCounts": summary}))
     return 0

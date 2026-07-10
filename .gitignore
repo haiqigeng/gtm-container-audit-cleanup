@@ -8,6 +8,7 @@ htmlcov/
 venv/
 *.pyc
 *.pyo
+*.egg-info/
 *.tmp
 *.bak
 *.log

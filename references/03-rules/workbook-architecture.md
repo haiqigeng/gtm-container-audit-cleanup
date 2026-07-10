@@ -1,190 +1,95 @@
 # Workbook Architecture
 
-Use this reference when producing XLSX cleanup plans, audit workbooks, change
-logs with proof tabs, or any stakeholder-facing spreadsheet.
+Use this reference for stakeholder-facing cleanup plans and change logs. The
+canonical completion rules remain in `execution-contract.md`.
 
-## Contents
+## Cleanup Plan Workbook
 
-- Audience Layers
-- Default Visible Tabs
-- Change Log Workbooks
-- Hidden Proof Tabs
-- Column Discipline
-- Validation
+Use exactly these tabs by default:
 
-## Audience Layers
+| Tab | Visibility | Purpose |
+| --- | --- | --- |
+| `01 Summary` | Visible | Status, route, cleanup level, counts, blockers, validation, next step. |
+| `02 Cleanup Plan` | Visible | Decisions requiring approval, assignment, or QA. |
+| `03 Workstream Reconciliation` | Hidden | Source, review, decision, and unresolved counts by object family. |
+| `04 Reconciled Operations` | Hidden | Complete operation packets behind visible rows. |
+| `05 Semantic Object Matrix` | Hidden | Source-bound D1-D3 purpose, logic, consumers, judgment, and proof. |
+| `06 Deterministic Baseline` | Hidden | Mechanical findings and zero-finding module evidence. |
+| `07 Custom Code Review` | Hidden | Line-level behavior, side effects, technical facts, judgment, and QA. |
+| `08 Source Model & QA` | Hidden | Source coverage, unresolved edges, and gate status. |
 
-Treat workbook presentation as part of deliverable quality:
+Use normal Excel `hidden`, not `veryHidden`. A reviewer must be able to unhide
+proof without special tooling.
 
-- `Visible decision layer`: what the user needs to approve, assign, debug, or QA.
-- `Hidden proof layer`: inventories, semantic evidence, official docs maps,
-  technical reconciliation, and validator evidence.
-- `Traceability`: IDs that connect visible decisions to hidden proof.
+## Visible Cleanup Plan
 
-Use normal Excel `hidden` sheets for proof tabs. Do not use `veryHidden` unless
-the user explicitly asks for locked-down technical evidence. Do not delete proof
-tabs merely to simplify the user view; validators and expert reviewers need
-them.
+Use no more than six columns:
 
-## Default Visible Tabs
+1. `ID`
+2. `Level`
+3. `Area / problem type`
+4. `Affected object(s)`
+5. `Problem / evidence`
+6. `Action / priority / QA`
 
-A normal cleanup-plan workbook should open on two visible tabs and should not
-exceed 7-8 total tabs, hidden tabs included, unless the user requests a
-technical appendix or the validator explicitly requires an expanded artifact.
+Use one `Single` row per distinct semantic problem. A `Summary` row may
+introduce adjacent `Detail` rows for a related family. Group exact duplicates,
+unused objects, naming batches, or identical folder moves only when evidence,
+action, QA, rollback, and dependency risk are the same.
 
-- `01 Summary`: overall status, top risks, recommended
-  route, cleanup level, safe-now work, blocked work, owner decisions, validation
-  status, and next step.
-- `02 Cleanup Plan`: one operational table that organizes findings, roadmap,
-  operations, deferred blockers, runtime QA, route, and naming into actionable
-  rows. Consolidate visually, not semantically: do not hide distinct
-  object-level findings inside one broad category row.
+Visible text must explain the concrete GTM problem in language a web analyst or
+marketing owner can use. Avoid internal categories such as `semantic issue`,
+`technical finding`, or `payload problem` without the actual behavior.
 
-Default `02 Cleanup Plan` columns:
+## Consolidated Proof Columns
 
-- `ID`
-- `Level`
-- `Area / problem type`
-- `Affected object(s)`
-- `Problem / evidence`
-- `Action / priority / QA`
+Every tab should normally use six or fewer purposeful columns. Consolidate
+related machine fields into structured cells rather than spreading one decision
+across twenty columns. The canonical builder uses these proof groups:
 
-Add extra visible tabs only when the user asks, the execution route needs a
-separate working tracker, or merging unrelated audiences would make the visible
-table harder to use.
+- semantic: object identity; purpose and contract; configuration logic; output
+  and consumers; judgment; proof and trace;
+- operations: operation; objects and behavior; problem and impact; expected
+  state and action; QA and rollback; governance;
+- custom code: object; purpose; code behavior; side effects and output;
+  judgment; context and QA;
+- baseline: finding; objects; evidence; action; source; status.
 
-Use parent/detail rows when several findings share one category or family:
+Structured cells keep their JSON keys so validators can recover exact fields.
+Do not repeat the same content in several groups. Raw code, complete exports,
+secrets, local paths, and scratch reasoning do not belong in a workbook.
 
-- parent row: `Level = Summary`, ID such as `F001`, family/category scope, and
-  the overall action;
-- detail rows immediately below: `Level = Detail`, IDs such as `F001.1`,
-  `F001.2`, one object or tightly coupled object pair per row, concrete
-  evidence, action, QA/status;
-- do not use a parent row without detail rows when the underlying issue affects
-  multiple objects differently;
-- do not merge away a concrete object-level anomaly merely because the visible
-  sheet is compact.
+## Formatting
 
-Generic hygiene findings may stay as one `Single` row when the evidence,
-decision, action, QA, and rollback are identical for the whole set. This
-applies to straightforward unused-object deletion candidates, exact duplicate
-objects, one naming-convention batch, folder moves, and other mechanical
-cleanup buckets. Use detail rows when any object in the bucket has a different
-semantic reason, different dependency risk, different owner blocker, or
-different recommended action.
+- Open on `01 Summary`.
+- Freeze the header row and enable filters on every table.
+- Wrap text and align it at the top.
+- Use stable widths: compact IDs/statuses, wider problem/action/proof columns.
+- Use a readable fixed row height that does not produce empty poster-sized rows.
+- Keep all text selectable; do not use screenshots as tables.
+- Preserve unique operation and object IDs for debugging.
 
-Apply `references/03-rules/human-problem-taxonomy.md` before writing visible
-rows. `Area / problem type` should combine a human area and a second-level
-problem, for example `Media platform tracking / Duplicate firing` or
-`Consent & compliance / Consent mismatch`. Do not use internal labels such as
-`semantic issue`, `media issue`, `configuration problem`, or `custom-code
-review` as the visible problem.
+## Separate Change Log
 
-## Change Log Workbooks
+Create the change log only after execution or generated-artifact creation. It
+is a separate workbook with:
 
-For a real post-cleanup change log, use two visible tabs:
+- `01 Change Log Summary` visible;
+- `02 Change Log Details` visible;
+- `03 Field Diff Proof` hidden.
 
-- `01 Change Log Summary`: scope, route, counts by action/layer, validation
-  result, rollback source, blockers, and next step.
-- `02 Change Log Details`: one row per modified object, field, dependency,
-  trigger route, variable source, folder move, template/code update, deletion,
-  creation, rename, documented exception, or route-limited no-op.
-
-The detail tab must not collapse distinct modifications into a single family
-summary. It should still be readable by non-specialists: plain before/after
-wording, linked operation ID, impact, QA status, rollback note, and status.
-Keep operation packets, raw diffs, validators, and source findings in hidden
-proof tabs.
-
-Default visible change-log detail columns:
-
-- `Change ID`
-- `Area / object`
-- `Change made`
-- `Before`
-- `After`
-- `Reason / QA / status`
-
-Keep full operation IDs, source finding IDs, raw diffs, rollback source,
-validator output, and technical proof in hidden tabs when the compact visible
-schema would otherwise become too wide.
-
-## Hidden Proof Tabs
-
-Recommended compact hidden/supporting tabs:
-
-- `03 Reconciled Operations`
-- `04 D3 Evidence`
-- `05 Deterministic Baseline`
-- `06 Technical Code Findings`
-- `07 Source Model & Dependencies`
-- `08 QA & Validation`
-
-`03 Reconciled Operations` is the hidden operation-packet source for the visible
-cleanup plan. `04 D3 Evidence` may include the Semantic Object Matrix and
-independent semantic source scan. `05 Deterministic Baseline` keeps mechanical
-findings and zero-finding proof. `06 Technical Code Findings` keeps custom-code
-fact extraction and technical code review fields. `07 Source Model &
-Dependencies` keeps the navigation map, unresolved edges, consumers, and
-dependency proof.
-
-Split these tabs only when the user asks for a technical workbook, a validator
-requires the older schema, or a container is too large for readable compact
-tabs. Even hidden tabs must remain human-readable when unhidden.
-
-Hidden proof tabs must also be information-clean:
-
-- remove duplicate columns when the schema allows it;
-- if a validator requires both fields, make their content distinct;
-- use observed-evidence columns for source/input/side effects;
-- use judgment columns for expectation, decision, owner question, or QA impact;
-- keep deterministic baseline output, custom-code technical review output, and
-  independent semantic source scan output separate until the reconciliation
-  rows explain how they combine into visible cleanup actions;
-- ensure every visible cleanup row links to an operation packet, except pure
-  summary rows whose immediate detail rows have packets;
-- keep `current_behavior`, `expected_clean_state`, `exact_proposed_action`,
-  `qa_steps`, `rollback`, `blocker`, and `source_finding_ids` in the hidden
-  operation packet even if the visible row uses shorter wording;
-- hide constant, blank, validator-only, or raw-proof columns when humans may
-  unhide the sheet;
-- keep required reconciliation fields even when counts/statuses naturally match,
-  but hide duplicate proof columns and add a compact phase summary when useful.
-
-## Column Discipline
-
-Visible columns must earn their place for real human use. Keep a column visible
-only when it supports approval, debugging, assignment, QA, impact understanding,
-or next action.
-
-Before delivery:
-
-- scan visible and hidden tabs for exact duplicate column contents;
-- merge columns that answer the same human question;
-- hide or remove blank and constant columns unless a validator requires them;
-- keep operation IDs and finding IDs visible when they trace to proof rows;
-- keep parent/detail IDs visible when a summary row represents several object
-  findings;
-- keep raw code, raw template fields, hashes, full dependency graphs, and
-  validator traces out of user-facing tabs.
-- keep visible and hidden tabs around 5-6 useful columns by default. If more
-  columns are required for a technical appendix, hide or move the appendix out
-  of the main user-facing workbook.
-- consolidate columns that answer the same question. For example, merge D3
-  source, logic, output, consumer, and decision fields into `Literal behavior`,
-  `Consumer / context`, `Analyst judgment`, `Cleanup implication`, and
-  `Evidence / QA blocker`.
+Use six detail columns: Change ID, Area/object, Change made, Before, After, and
+Reason/QA/status. Every field or dependency change gets its own row and links
+to an approved operation ID. Planned or simulated output must say so.
 
 ## Validation
 
-For completed full-audit or cleanup-plan workbooks, run when Python is
-available:
-
 ```powershell
-python scripts/gtm_audit_gate_check.py --strict-evidence workbook.xlsx
-python scripts/gtm_audit_package_check.py export.json workbook.xlsx
+python -B scripts/gtm_audit_gate_check.py --strict-evidence cleanup_plan.xlsx
+python -B scripts/gtm_audit_package_check.py container.json cleanup_plan.xlsx
+python -B scripts/gtm_privacy_scan.py cleanup_plan.xlsx --all-sheets
 ```
 
-If either gate fails, label the deliverable `Incomplete / blocked` and list the
-failed workstream, affected objects, blocker, risk, required evidence, and next
-step.
+Delivery fails when a tab exceeds eight columns without a documented technical
+exception, source-bound proof cannot be recovered, visible rows lack operation
+links, privacy scanning fails, or either audit gate fails.

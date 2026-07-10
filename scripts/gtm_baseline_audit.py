@@ -22,6 +22,7 @@ from gtm_lib import (
     is_system_trigger_reference,
     is_system_variable_reference,
     refs,
+    source_descriptor,
     system_reference_description,
     trigger_group_members,
 )
@@ -77,6 +78,8 @@ def object_id(obj: dict[str, Any], layer: str) -> str:
         "folder": "folderId",
         "customTemplate": "templateId",
         "builtInVariable": "name",
+        "client": "clientId",
+        "transformation": "transformationId",
     }
     value = obj.get(keys[layer]) or obj.get("name")
     return "" if value is None else str(value)
@@ -292,9 +295,14 @@ def strip_known_prefix(name: str, prefixes: set[str]) -> str:
 
 def proposed_tag_name(name: str, tag_order: str, selected_policy: str) -> tuple[str, str]:
     parts = name_parts(name)
-    target_local_scope_event = selected_policy == "local-normalized" and tag_order == "vendor_scope_event"
+    target_local_scope_event = (
+        selected_policy == "local-normalized" and tag_order == "vendor_scope_event"
+    )
     if len(parts) < 3:
-        return "", "Tag name does not contain enough vendor/event/scope tokens to propose a safe final name."
+        return (
+            "",
+            "Tag name does not contain enough vendor/event/scope tokens to propose a safe final name.",
+        )
     vendor = vendor_label(parts[0])
     if target_local_scope_event:
         scope, event = parts[1], parts[2]
@@ -310,12 +318,16 @@ def proposed_tag_name(name: str, tag_order: str, selected_policy: str) -> tuple[
 
 
 def proposed_trigger_name(trigger: dict[str, Any], prefix: str) -> str:
-    base = strip_known_prefix(object_name(trigger), set(TRIGGER_PREFIX_BY_TYPE.values()) | {"Block"})
+    base = strip_known_prefix(
+        object_name(trigger), set(TRIGGER_PREFIX_BY_TYPE.values()) | {"Block"}
+    )
     return f"{prefix} - {base}" if base else ""
 
 
 def proposed_variable_name(variable: dict[str, Any], prefix: str) -> str:
-    base = strip_known_prefix(object_name(variable), set(VARIABLE_PREFIX_BY_TYPE.values()) | {"Util"})
+    base = strip_known_prefix(
+        object_name(variable), set(VARIABLE_PREFIX_BY_TYPE.values()) | {"Util"}
+    )
     return f"{prefix} - {base}" if base else ""
 
 
@@ -453,21 +465,15 @@ def ua_style_signals(layer: str, obj: dict[str, Any]) -> list[str]:
 
     old_paths = short_matches(UA_ECOMMERCE_PATH_RE, text)
     if old_paths:
-        signals.append(
-            "old Universal Analytics ecommerce path(s): " + ", ".join(old_paths)
-        )
+        signals.append("old Universal Analytics ecommerce path(s): " + ", ".join(old_paths))
 
     fixed_indexes = short_matches(FIXED_PRODUCT_INDEX_RE, text)
     if fixed_indexes:
-        signals.append(
-            "fixed product position path(s): " + ", ".join(fixed_indexes)
-        )
+        signals.append("fixed product position path(s): " + ", ".join(fixed_indexes))
 
     legacy_events = short_matches(UA_STYLE_EVENT_RE, text)
     if legacy_events:
-        signals.append(
-            "legacy checkout/product event name(s): " + ", ".join(legacy_events)
-        )
+        signals.append("legacy checkout/product event name(s): " + ", ".join(legacy_events))
 
     return signals
 
@@ -664,14 +670,18 @@ def add_signature_findings(
         )
 
 
-def build_consumers(cv: dict[str, Any]) -> tuple[dict[str, list[dict[str, str]]], dict[str, list[dict[str, str]]]]:
+def build_consumers(
+    cv: dict[str, Any],
+) -> tuple[dict[str, list[dict[str, str]]], dict[str, list[dict[str, str]]]]:
     variable_consumers: dict[str, list[dict[str, str]]] = collections.defaultdict(list)
     trigger_consumers: dict[str, list[dict[str, str]]] = collections.defaultdict(list)
 
     for tag in as_list(cv.get("tag")):
         for ref in sorted(refs(tag)):
             variable_consumers[ref].append(object_summary(tag, "tag"))
-        for trigger_id in as_list(tag.get("firingTriggerId")) + as_list(tag.get("blockingTriggerId")):
+        for trigger_id in as_list(tag.get("firingTriggerId")) + as_list(
+            tag.get("blockingTriggerId")
+        ):
             trigger_consumers[str(trigger_id)].append(object_summary(tag, "tag"))
 
     for trigger in as_list(cv.get("trigger")):
@@ -685,6 +695,11 @@ def build_consumers(cv: dict[str, Any]) -> tuple[dict[str, list[dict[str, str]]]
             if ref == variable.get("name"):
                 continue
             variable_consumers[ref].append(object_summary(variable, "variable"))
+
+    for layer in ("client", "transformation"):
+        for obj in as_list(cv.get(layer)):
+            for ref in sorted(refs(obj)):
+                variable_consumers[ref].append(object_summary(obj, layer))
 
     return dict(variable_consumers), dict(trigger_consumers)
 
@@ -701,13 +716,23 @@ def add_missing_reference_findings(
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     builtins = as_list(cv.get("builtInVariable"))
+    clients = as_list(cv.get("client"))
+    transformations = as_list(cv.get("transformation"))
 
     builder.add_module(
         "missing_references",
-        len(tags) + len(triggers) + len(variables) + len(folders) + len(templates),
+        len(tags)
+        + len(triggers)
+        + len(variables)
+        + len(folders)
+        + len(templates)
+        + len(clients)
+        + len(transformations),
     )
 
-    variable_names = {item.get("name") for item in variables} | {item.get("name") for item in builtins}
+    variable_names = {item.get("name") for item in variables} | {
+        item.get("name") for item in builtins
+    }
     for name in sorted(
         ref
         for ref in variable_consumers
@@ -751,7 +776,10 @@ def add_missing_reference_findings(
                         "missing_references",
                         f"missing_{relation}_reference",
                         "tag_reference",
-                        [object_summary(tag, "tag"), {"object_id": tag_name, "object_name": tag_name}],
+                        [
+                            object_summary(tag, "tag"),
+                            {"object_id": tag_name, "object_name": tag_name},
+                        ],
                         f"{relation}:{tag_name}",
                         f"Tag {tag.get('name')!r} references missing {relation} tag {tag_name!r}.",
                         "Resolve sequencing reference before cleanup execution.",
@@ -759,7 +787,13 @@ def add_missing_reference_findings(
                     )
 
     folder_ids = {str(folder.get("folderId")) for folder in folders}
-    for layer, items in (("tag", tags), ("trigger", triggers), ("variable", variables)):
+    for layer, items in (
+        ("tag", tags),
+        ("trigger", triggers),
+        ("variable", variables),
+        ("client", clients),
+        ("transformation", transformations),
+    ):
         for item in items:
             folder_id = item.get("parentFolderId")
             if folder_id and str(folder_id) not in folder_ids:
@@ -767,14 +801,22 @@ def add_missing_reference_findings(
                     "missing_references",
                     "missing_folder_reference",
                     layer,
-                    [object_summary(item, layer), {"object_id": str(folder_id), "object_name": str(folder_id)}],
+                    [
+                        object_summary(item, layer),
+                        {"object_id": str(folder_id), "object_name": str(folder_id)},
+                    ],
                     f"folder:{folder_id}",
                     f"{layer} {item.get('name')!r} references missing folder {folder_id}.",
                     "Restore folder reference or move object to an existing folder.",
                 )
 
     template_ids = {str(template.get("templateId")) for template in templates}
-    for layer, items in (("tag", tags), ("variable", variables)):
+    for layer, items in (
+        ("tag", tags),
+        ("variable", variables),
+        ("client", clients),
+        ("transformation", transformations),
+    ):
         for item in items:
             template_id = custom_template_id(item)
             if template_id and template_id not in template_ids:
@@ -782,7 +824,10 @@ def add_missing_reference_findings(
                     "missing_references",
                     "missing_custom_template_reference",
                     layer,
-                    [object_summary(item, layer), {"object_id": template_id, "object_name": template_id}],
+                    [
+                        object_summary(item, layer),
+                        {"object_id": template_id, "object_name": template_id},
+                    ],
                     f"template:{template_id}",
                     f"{layer} {item.get('name')!r} uses custom template {template_id}, but it is not in customTemplate.",
                     "Restore or include the required custom template before cleanup execution.",
@@ -800,6 +845,8 @@ def add_unused_findings(
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     tags = as_list(cv.get("tag"))
+    clients = as_list(cv.get("client"))
+    transformations = as_list(cv.get("transformation"))
 
     builder.add_module("unused_variables", len(variables))
     for variable in variables:
@@ -846,7 +893,7 @@ def add_unused_findings(
     builder.add_module("unused_custom_templates", len(templates))
     used_template_ids = {
         custom_template_id(item)
-        for item in tags + variables
+        for item in tags + variables + clients + transformations
         if custom_template_id(item)
     }
     for template in templates:
@@ -866,7 +913,7 @@ def add_unused_findings(
     builder.add_module("unused_folders", len(folders))
     used_folder_ids = {
         str(item.get("parentFolderId"))
-        for item in tags + triggers + variables
+        for item in tags + triggers + variables + clients + transformations
         if item.get("parentFolderId")
     }
     for folder in folders:
@@ -942,7 +989,15 @@ def add_duplicate_code_findings(
 
 def add_name_hygiene_findings(builder: BaselineBuilder, cv: dict[str, Any]) -> None:
     items: list[tuple[str, dict[str, Any]]] = []
-    for layer in ("tag", "trigger", "variable", "folder", "customTemplate"):
+    for layer in (
+        "tag",
+        "trigger",
+        "variable",
+        "folder",
+        "customTemplate",
+        "client",
+        "transformation",
+    ):
         items.extend((layer, item) for item in as_list(cv.get(layer)))
     builder.add_module("name_hygiene", len(items))
     for layer, item in items:
@@ -978,16 +1033,18 @@ def add_naming_architecture_findings(
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     module_name = "naming_architecture_standardization"
-    builder.add_module(module_name, len(tags) + len(triggers) + len(variables) + len(folders) + len(templates))
+    builder.add_module(
+        module_name, len(tags) + len(triggers) + len(variables) + len(folders) + len(templates)
+    )
 
     tag_order = str(naming_policy.get("tag_order") or "vendor_event_scope")
     selected = str(naming_policy.get("selected_policy") or "default-standardized")
     blocking_trigger_ids = {
-        str(trigger_id)
-        for tag in tags
-        for trigger_id in as_list(tag.get("blockingTriggerId"))
+        str(trigger_id) for tag in tags for trigger_id in as_list(tag.get("blockingTriggerId"))
     }
-    candidate_counts: dict[str, collections.Counter[str]] = collections.defaultdict(collections.Counter)
+    candidate_counts: dict[str, collections.Counter[str]] = collections.defaultdict(
+        collections.Counter
+    )
     for tag in tags:
         if default_tag_issue(object_name(tag), tag_order):
             proposed, _ = proposed_tag_name(object_name(tag), tag_order, selected)
@@ -1030,10 +1087,7 @@ def add_naming_architecture_findings(
             "tag",
             [object_summary(tag, "tag")],
             f"tag_name:{object_id(tag, 'tag')}",
-            (
-                f"{issue}. Selected naming policy is {selected}; target tag "
-                f"pattern is {pattern}."
-            ),
+            (f"{issue}. Selected naming policy is {selected}; target tag pattern is {pattern}."),
             (
                 "Rename after behavior, scope, and destination are confirmed. "
                 "Use the selected naming policy and keep every final tag name unique."
@@ -1149,13 +1203,25 @@ def audit_export(path: Path) -> dict[str, Any]:
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     builtins = as_list(cv.get("builtInVariable"))
+    clients = as_list(cv.get("client"))
+    transformations = as_list(cv.get("transformation"))
 
     builder = BaselineBuilder()
     variable_consumers, trigger_consumers = build_consumers(cv)
     system_refs = recognized_system_references(variable_consumers, trigger_consumers)
     naming_policy = infer_tag_order(tags)
 
-    builder.add_module("inventory", len(tags) + len(triggers) + len(variables) + len(folders) + len(templates) + len(builtins))
+    builder.add_module(
+        "inventory",
+        len(tags)
+        + len(triggers)
+        + len(variables)
+        + len(folders)
+        + len(templates)
+        + len(builtins)
+        + len(clients)
+        + len(transformations),
+    )
     builder.add_module(
         "recognized_system_references",
         sum(len(values) for values in system_refs.values()),
@@ -1165,6 +1231,13 @@ def audit_export(path: Path) -> dict[str, Any]:
     add_duplicate_name_findings(builder, "duplicate_trigger_names", "trigger", triggers)
     add_duplicate_name_findings(builder, "duplicate_variable_names", "variable", variables)
     add_duplicate_name_findings(builder, "duplicate_folder_names", "folder", folders)
+    add_duplicate_name_findings(builder, "duplicate_client_names", "client", clients)
+    add_duplicate_name_findings(
+        builder,
+        "duplicate_transformation_names",
+        "transformation",
+        transformations,
+    )
     add_signature_findings(
         builder,
         "duplicate_tag_configurations",
@@ -1201,6 +1274,24 @@ def audit_export(path: Path) -> dict[str, Any]:
         VARIABLE_ID_IGNORED,
         "Consolidate duplicate variable logic after consumer value QA.",
     )
+    add_signature_findings(
+        builder,
+        "duplicate_client_configurations",
+        "duplicate_configuration",
+        "client",
+        clients,
+        COMMON_IGNORED | {"clientId", "name"},
+        "Consolidate duplicate server clients only after request-claiming and event-output QA.",
+    )
+    add_signature_findings(
+        builder,
+        "duplicate_transformation_configurations",
+        "duplicate_configuration",
+        "transformation",
+        transformations,
+        COMMON_IGNORED | {"transformationId", "name"},
+        "Consolidate duplicate transformations only after affected-tag and event-data QA.",
+    )
 
     builder.add_module("duplicate_variable_paths", len(variables))
     path_groups = group_by(
@@ -1229,7 +1320,7 @@ def audit_export(path: Path) -> dict[str, Any]:
     builder.close_zero_modules()
 
     return {
-        "artifact": str(path),
+        **source_descriptor(path),
         "kind": "gtm_deterministic_baseline",
         "counts": {
             "tags": len(tags),
@@ -1238,6 +1329,8 @@ def audit_export(path: Path) -> dict[str, Any]:
             "folders": len(folders),
             "customTemplates": len(templates),
             "builtInVariables": len(builtins),
+            "clients": len(clients),
+            "transformations": len(transformations),
         },
         "recognized_system_references": system_refs,
         "naming_policy": naming_policy,
