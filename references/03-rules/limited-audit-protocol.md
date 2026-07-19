@@ -10,12 +10,12 @@ Before starting, state the boundary in operational terms:
 - included evidence sources;
 - included layers and object families;
 - excluded layers and object families;
-- whether runtime/browser QA is included;
 - whether cleanup planning is included;
 - whether naming standardization is included;
 - whether the result may be used for cleanup execution.
 
 If the user gives no explicit boundary, default to the complete audit workflow.
+Live-site and browser QA remain outside scope in every mode.
 
 ## Minimum Safety Floor
 
@@ -27,7 +27,7 @@ Even in a limited audit, never skip these for the objects in scope:
 - measurement diagnosis for scoped meaningful objects;
 - consent/privacy impact when scoped objects can fire tags or send data;
 - official documentation basis for scoped vendor/event payload judgments;
-- semantic validation for scoped objects;
+- configuration and architecture validation for scoped objects;
 - blocker rows for any required evidence not available;
 - no deletion recommendation without dependency sweep;
 - no production mutation without explicit approval and mutation playbook.
@@ -72,5 +72,5 @@ objects. It must say:
 
 For destructive changes, broad renaming, consent changes, ecommerce payload
 changes, or cross-layer consolidation, require a full dependency sweep and full
-measurement diagnosis plus semantic validation of affected families before
+measurement diagnosis plus configuration and architecture validation of affected families before
 execution.

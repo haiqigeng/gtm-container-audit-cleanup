@@ -4,14 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import json
-import re
 from pathlib import Path
 from typing import Any
 
+from gtm_future_state_check import apply_operations
 from gtm_lib import ID_KEYS, apply_patch, comparable, load_container_version, object_id, sort_ids
-from gtm_privacy import redact_text
+from gtm_privacy import redact_text, spreadsheet_safe_text
 
 LAYER_LABELS = {
     "tag": "Tag",
@@ -34,6 +35,19 @@ CSV_COLUMNS = [
 ]
 
 DIFF_IGNORED_FIELDS = {"path", "fingerprint", "accountId", "containerId"}
+
+OPERATION_PHASE_FIELDS = (
+    "creations",
+    "additions",
+    "changes",
+    "remaps",
+    "renames",
+    "deletions",
+)
+
+
+def as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
 
 
 def action_for(before: dict[str, Any] | None, after: dict[str, Any] | None) -> str:
@@ -81,18 +95,124 @@ def field_diffs(before: Any, after: Any, path: str = "$") -> list[dict[str, Any]
     return [{"field_path": path, "before": before, "after": after}]
 
 
-def operation_lookup(payload: dict[str, Any] | None) -> dict[tuple[str, str], dict[str, Any]]:
-    lookup: dict[tuple[str, str], dict[str, Any]] = {}
+def mutation_signature(
+    layer: str,
+    object_id_value: str,
+    action: str,
+    field_path: str,
+    before: Any,
+    after: Any,
+) -> str:
+    return json.dumps(
+        [layer, object_id_value, action, field_path, before, after],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def state_field_diffs(
+    before_cv: dict[str, Any], after_cv: dict[str, Any]
+) -> list[tuple[str, str, str, str, Any, Any]]:
+    rows: list[tuple[str, str, str, str, Any, Any]] = []
+    for layer, key in ID_KEYS.items():
+        before_by_id = {
+            object_id(obj, key): obj
+            for obj in before_cv.get(layer, []) or []
+            if object_id(obj, key)
+        }
+        after_by_id = {
+            object_id(obj, key): obj
+            for obj in after_cv.get(layer, []) or []
+            if object_id(obj, key)
+        }
+        for oid in sort_ids(set(before_by_id) | set(after_by_id)):
+            before = before_by_id.get(oid)
+            after = after_by_id.get(oid)
+            if before is None:
+                rows.append((layer, oid, "Created", "$", None, comparable(after or {})))
+                continue
+            if after is None:
+                rows.append((layer, oid, "Deleted", "$", comparable(before), None))
+                continue
+            for change in field_diffs(comparable(before), comparable(after)):
+                action = "Renamed" if change["field_path"].endswith(".name") else "Updated"
+                rows.append(
+                    (
+                        layer,
+                        oid,
+                        action,
+                        change["field_path"],
+                        change["before"],
+                        change["after"],
+                    )
+                )
+    return rows
+
+
+def approved_field_lookup(
+    before_cv: dict[str, Any], payload: dict[str, Any] | None
+) -> dict[str, dict[str, Any]]:
     if not payload:
-        return lookup
-    for operation in payload.get("operations", []) or []:
-        identity = str(operation.get("object_identity") or "")
-        for match in re.finditer(
-            r"(?:^|;\s*)(tag|trigger|variable|folder|customTemplate|builtInVariable|client|transformation):([^|;]+)",
-            identity,
-        ):
-            lookup[(match.group(1), match.group(2))] = operation
+        return {}
+
+    operation_rows = as_list(payload.get("operations"))
+    expected, expected_errors = apply_operations(
+        {"containerVersion": copy.deepcopy(before_cv)},
+        {"operations": operation_rows},
+    )
+    if expected_errors:
+        return {}
+
+    # Replay the approved plan by global execution phase so dependencies between
+    # operations do not depend on their presentation order in the workbook.
+    current = {"containerVersion": copy.deepcopy(before_cv)}
+    trace: list[tuple[str, str, str, str, dict[str, Any]]] = []
+    for phase in OPERATION_PHASE_FIELDS:
+        for operation in operation_rows:
+            if not as_list(operation.get(phase)):
+                continue
+            phase_operation = {
+                key: copy.deepcopy(operation.get(key, [])) if key == phase else []
+                for key in OPERATION_PHASE_FIELDS
+            }
+            previous_cv = copy.deepcopy(load_container_version_from_payload(current))
+            updated, apply_errors = apply_operations(
+                current,
+                {"operations": [phase_operation]},
+            )
+            if apply_errors:
+                continue
+            updated_cv = load_container_version_from_payload(updated)
+            for layer, oid, action, path, _before, _after in state_field_diffs(
+                previous_cv, updated_cv
+            ):
+                trace.append((layer, oid, action, path, operation))
+            current = updated
+
+    lookup: dict[str, dict[str, Any]] = {}
+    expected_cv = load_container_version_from_payload(expected)
+    for layer, oid, action, path, before, after in state_field_diffs(before_cv, expected_cv):
+        candidates: dict[int, dict[str, Any]] = {}
+        for traced_layer, traced_oid, traced_action, traced_path, operation in trace:
+            if traced_layer != layer or traced_oid != oid:
+                continue
+            if action == "Deleted":
+                if traced_action != "Deleted":
+                    continue
+            elif action != "Created" and traced_path != path:
+                continue
+            candidates[id(operation)] = operation
+        if len(candidates) == 1:
+            lookup[mutation_signature(layer, oid, action, path, before, after)] = next(
+                iter(candidates.values())
+            )
     return lookup
+
+
+def load_container_version_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    value = payload.get("containerVersion")
+    return value if isinstance(value, dict) else payload
 
 
 def category_for_path(layer: str, field_path: str, action: str) -> str:
@@ -118,18 +238,89 @@ def category_for_path(layer: str, field_path: str, action: str) -> str:
     return "Configuration"
 
 
-def default_category(layer: str, action: str) -> str:
-    if action == "Removed":
-        return "Deletion"
-    if action == "Added":
-        return "Creation"
-    if action == "Renamed":
-        return "Naming"
-    if "Renamed" in action:
-        return "Naming + configuration"
-    if layer == "builtInVariable":
-        return "Built-in variable set"
-    return "Configuration"
+def objects_by_id(cv: dict[str, Any], layer: str, id_key: str) -> dict[str, dict[str, Any]]:
+    return {
+        object_id(obj, id_key): obj
+        for obj in cv.get(layer, []) or []
+        if object_id(obj, id_key)
+    }
+
+
+def object_field_changes(
+    before: dict[str, Any] | None, after: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    if before is None or after is None:
+        return [
+            {
+                "field_path": "$",
+                "before": comparable(before) if before is not None else None,
+                "after": comparable(after) if after is not None else None,
+            }
+        ]
+    return field_diffs(comparable(before), comparable(after))
+
+
+def change_action(
+    before: dict[str, Any] | None, after: dict[str, Any] | None, field_path: str
+) -> str:
+    if before is None:
+        return "Created"
+    if after is None:
+        return "Deleted"
+    return "Renamed" if field_path.endswith(".name") else "Updated"
+
+
+def change_status(execution_mode: str, approved: dict[str, Any] | None) -> str:
+    if execution_mode != "executed":
+        return "Proposed"
+    return "Applied" if approved else "Blocked: missing approved operation link"
+
+
+def change_log_row(
+    number: int,
+    layer: str,
+    oid: str,
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    change: dict[str, Any],
+    approved: dict[str, Any] | None,
+    route: str,
+    aggressiveness: str,
+    execution_mode: str,
+) -> dict[str, Any]:
+    field_path = str(change["field_path"])
+    action = change_action(before, after, field_path)
+    reason = str((approved or {}).get("why_it_matters") or "")
+    if not reason:
+        reason = (
+            "Unlinked export difference; reconcile this field with an approved cleanup "
+            "operation before treating it as executed."
+        )
+    return {
+        "change_id": f"GTM-OP-{number:03d}",
+        "aggressiveness": aggressiveness,
+        "route": route,
+        "layer": LAYER_LABELS[layer],
+        "action": action,
+        "object_id": oid,
+        "before_name": (before or {}).get("name", ""),
+        "after_name": (after or {}).get("name", ""),
+        "field_path": field_path,
+        "before_value": compact_value(change["before"]),
+        "after_value": compact_value(change["after"]),
+        "operation_id": str((approved or {}).get("operation_id") or ""),
+        "reason": reason,
+        "functional_impact": str((approved or {}).get("why_it_matters") or ""),
+        "qa_method": str(
+            (approved or {}).get("qa_steps")
+            or "Compare the field through GTM readback and verify the exported configuration."
+        ),
+        "rollback": "Restore from original export or reverse this operation.",
+        "status": change_status(execution_mode, approved),
+        "blocker": str((approved or {}).get("blocker") or ""),
+        "change_category": category_for_path(layer, field_path, action),
+        "qa_status": "Not started" if execution_mode == "planned" else "Requires verification",
+    }
 
 
 def operations(
@@ -142,85 +333,47 @@ def operations(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     change_number = 1
-    approved_lookup = operation_lookup(approved_operations)
+    approved_lookup = approved_field_lookup(before_cv, approved_operations)
     for layer, key in ID_KEYS.items():
-        before_by_id = {
-            object_id(obj, key): obj
-            for obj in before_cv.get(layer, []) or []
-            if object_id(obj, key)
-        }
-        after_by_id = {
-            object_id(obj, key): obj for obj in after_cv.get(layer, []) or [] if object_id(obj, key)
-        }
+        before_by_id = objects_by_id(before_cv, layer, key)
+        after_by_id = objects_by_id(after_cv, layer, key)
         for oid in sort_ids(set(before_by_id) | set(after_by_id)):
             before = before_by_id.get(oid)
             after = after_by_id.get(oid)
-            object_action = action_for(before, after)
-            if object_action == "No-op / Documented exception":
+            if action_for(before, after) == "No-op / Documented exception":
                 continue
-            before_name = (before or {}).get("name", "")
-            after_name = (after or {}).get("name", "")
-            layer_label = LAYER_LABELS[layer]
-            approved = approved_lookup.get((layer, oid))
-            if before is None or after is None:
-                changes = [{"field_path": "$", "before": before, "after": after}]
-            else:
-                changes = field_diffs(comparable(before), comparable(after))
-            for change in changes:
-                field_path = change["field_path"]
-                action = (
-                    "Created"
-                    if before is None
-                    else "Deleted"
-                    if after is None
-                    else "Renamed"
-                    if field_path.endswith(".name")
-                    else "Updated"
-                )
-                linked_operation_id = str((approved or {}).get("operation_id") or "")
-                reason = str((approved or {}).get("why_it_matters") or "")
-                if not reason:
-                    reason = (
-                        "Unlinked export difference; reconcile this field with an approved cleanup operation "
-                        "before treating it as executed."
+            for change in object_field_changes(before, after):
+                action = change_action(before, after, str(change["field_path"]))
+                approved = approved_lookup.get(
+                    mutation_signature(
+                        layer,
+                        oid,
+                        action,
+                        str(change["field_path"]),
+                        change["before"],
+                        change["after"],
                     )
-                status = "Applied" if execution_mode == "executed" and approved else "Proposed"
-                if execution_mode == "executed" and not approved:
-                    status = "Blocked: missing approved operation link"
-                row = {
-                    "change_id": f"GTM-OP-{change_number:03d}",
-                    "aggressiveness": aggressiveness,
-                    "route": route,
-                    "layer": layer_label,
-                    "action": action,
-                    "object_id": oid,
-                    "before_name": before_name,
-                    "after_name": after_name,
-                    "field_path": field_path,
-                    "before_value": compact_value(change["before"]),
-                    "after_value": compact_value(change["after"]),
-                    "operation_id": linked_operation_id,
-                    "reason": reason,
-                    "functional_impact": str((approved or {}).get("why_it_matters") or ""),
-                    "qa_method": str(
-                        (approved or {}).get("qa_steps")
-                        or "Compare the field in GTM Preview/readback and verify expected tag behavior."
-                    ),
-                    "rollback": "Restore from original export or reverse this operation.",
-                    "status": status,
-                    "blocker": str((approved or {}).get("blocker") or ""),
-                    "change_category": category_for_path(layer, field_path, action),
-                    "qa_status": "Not started"
-                    if execution_mode == "planned"
-                    else "Requires verification",
-                }
-                rows.append(row)
+                )
+                rows.append(
+                    change_log_row(
+                        change_number,
+                        layer,
+                        oid,
+                        before,
+                        after,
+                        change,
+                        approved,
+                        route,
+                        aggressiveness,
+                        execution_mode,
+                    )
+                )
                 change_number += 1
     return rows
 
 
 def csv_row(row: dict[str, Any]) -> dict[str, str]:
-    return {
+    rendered = {
         "Change ID": row["change_id"],
         "Area / object": f"{row['change_category']} / {row['layer']} {row['object_id']}",
         "Change made": f"{row['action']} {row['field_path']}",
@@ -231,6 +384,7 @@ def csv_row(row: dict[str, Any]) -> dict[str, str]:
             f"QA: {row['qa_method']} Status: {row['status']}"
         ),
     }
+    return {key: spreadsheet_safe_text(value) for key, value in rendered.items()}
 
 
 def main() -> int:
@@ -271,8 +425,6 @@ def main() -> int:
         "execution_mode": args.execution_mode,
         "changeCount": len(rows),
         "changes": rows,
-        "operationCount": len(rows),
-        "operations": rows,
     }
 
     if args.csv:

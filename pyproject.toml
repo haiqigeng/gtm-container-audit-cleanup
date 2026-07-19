@@ -4,16 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gtm-container-audit-cleanup"
-version = "2026.7.10"
-description = "Agent-neutral GTM cleanup intelligence and deterministic audit tooling"
-readme = "README.md"
+version = "2026.7.18"
+description = "Agent-neutral GTM web-analyst audit and cleanup tooling"
+readme = {text = "Container-only GTM web-analyst audit and cleanup tooling.", content-type = "text/plain"}
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
 analysis = ["esprima>=4.0.1", "openpyxl>=3.1.2"]
-dev = ["ruff>=0.12.0"]
+dev = ["coverage>=7.6.0", "ruff>=0.12.0", "vulture>=2.14"]
 
 [tool.setuptools]
 packages = []

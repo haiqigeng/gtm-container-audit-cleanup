@@ -1,173 +1,94 @@
-# Forward-Test Prompts
+# Forward-Test Protocol
 
-Use these prompts to test whether an agent follows the skill on realistic tasks.
-Pass raw artifacts and the skill path. Do not pass expected answers or your
-diagnosis.
+Forward tests evaluate the skill from raw artifacts, not from a description of
+the expected defect. Use previously unseen or synthetic exports and review the
+three artifacts separately before inspecting the final cleanup plan.
 
-## Contents
+## Test Families
 
-- Test 1: Export-Only Audit With Custom Code
-- Test 2: Limited Vendor Audit
-- Test 3: Runtime QA Request
-- Test 4: Same-Container Import JSON
-- Test 5: Severity Calibration
-- Test 6: Measurement-First Cleanup Blocker
-- Test 7: Literal D3 Anti-Faking
-- Test 8: Compact Output And Lifecycle
+### Operational Regression
 
-## Test 1: Export-Only Audit With Custom Code
+Include exports with:
 
-```text
-Use the GTM Cleanup Intelligence skill at <skill path>. Audit this exported
-GTM container JSON only and produce a workbook or CSV-set audit plus cleanup
-plan. Do not mutate GTM. CMP is unknown. Naming standardization is less
-important than measurement diagnosis and semantic validation.
-```
+- setup-only tags without firing triggers;
+- active and paused duplicate tags;
+- variables used only by paused tags;
+- missing variable, trigger, folder, tag-sequence, and template references;
+- empty, one-member, duplicate-member, nested, and cyclic trigger groups;
+- invalid/always-true regex, contradictory conditions, and ineffective blockers;
+- duplicate paths/code/templates and built-in wrappers;
+- empty, singleton, overloaded, and unfiled folder layouts;
+- mixed naming conventions and duplicate proposed names.
 
-Expected validation:
+Pass condition: Run 1 catches each source defect or records a correct zero row
+without relying on Runs 2 or 3.
 
-- Custom HTML and Custom JavaScript objects are semantically reviewed, not only
-  inventoried.
-- Deterministic baseline findings exist with source finding IDs and zero-finding
-  proof rows for modules without findings.
-- Every nonzero deterministic finding is reconciled to a cleanup operation,
-  documented exception, runtime blocker, owner decision, or not applicable row.
-- Measurement diagnosis is present for meaningful object families before cleanup
-  recommendations.
-- Workstream reconciliation is present.
-- Reconciliation includes `measurement_diagnosed_count`.
-- Missing runtime/CMP evidence is deferred with blockers.
-- Cleanup plan includes no-change/deferred rows for families without mutations.
+### Configuration Regression
 
-## Test 2: Limited Vendor Audit
+Include:
 
-```text
-Use the GTM Cleanup Intelligence skill at <skill path>. Perform a limited
-audit only for Piano Analytics and consent routing in this exported GTM
-container JSON. Produce a client-readable report. Do not review unrelated vendor
-payloads except where they share triggers, variables, or consent dependencies.
-```
+- wrong dataLayer paths and event-time availability;
+- revenue or quantity formulas that are syntactically valid but logically wrong;
+- arrays required by vendor tags but scalars supplied by variables;
+- nested variables, cycles, missing values, null fallbacks, and type coercion;
+- GA4 standard events with wrong ecommerce dataLayer/item contracts;
+- media events with wrong IDs, item shape, currency/value, or deduplication;
+- consent outputs with duplicated conditions;
+- server-bound transporter tags without client blockers in two variants: one
+  with a complete recursively sourced consent parameter/settings contract and
+  one with missing or partial forwarding;
+- custom code with multiple branches, returns, network/storage/DOM effects,
+  unsafe APIs, fixed product slots, and parse failures;
+- client/server routing fields that should not be judged like ordinary browser tags.
 
-Expected validation:
+Pass condition: Run 2 states literal object behavior, covers every logic leaf and
+code line, traces all references, checks official contracts, and produces
+source-linked defects. Generic prose must fail validation.
 
-- Output says `Limited audit`.
-- Excluded workstreams are `User-excluded`, not `Done`.
-- Scoped Piano/consent objects have measurement diagnosis before judgment.
-- Piano Analytics official docs/playbook are used.
-- Shared consent dependencies are mapped.
+### Architecture Regression
 
-## Test 3: Runtime QA Request
+Include:
 
-```text
-Use the GTM Cleanup Intelligence skill at <skill path>. Build a runtime QA
-plan for validating consent, pageview tags, ecommerce events, and server-side
-routing after a GTM cleanup. Use Tag Assistant/network/vendor-platform evidence
-where available, but do not invent observed results.
-```
+- funnel `question 1`, `Q1`, and `step 1` paths with different conditions;
+- duplicate loaders with different names;
+- same payload on different routes;
+- standard and custom purchase events with revenue duplication risk;
+- shared consent helpers used for different Consent Mode outputs;
+- product/country variants that are meaningful and variants that are naming drift;
+- browser/server duplicate event paths with and without event-ID deduplication;
+- individually correct but business-obsolete tags;
+- intentionally distinct same-vendor destinations.
 
-Expected validation:
+Pass condition: Run 3 assesses every member and chain, distinguishes intentional
+variants from real overlap, and defines an exact target architecture.
 
-- QA matrix includes consent states, pageview/SPA behavior, ecommerce, network,
-  and server-side checks.
-- Unknown evidence is blocked, not guessed.
+## Reconciliation Adversaries
 
-## Test 4: Same-Container Import JSON
+Test that compilation fails when:
 
-```text
-Use the GTM Cleanup Intelligence skill at <skill path>. From this original
-export and this proposed cleaned export, create a same-container GTM View
-Changes import artifact and a change log. Preserve review readability.
-```
+- sanitation says consolidate but architecture says intentional variant;
+- two reviews reuse one operation key for different mutations;
+- one operation deletes an object another operation changes;
+- remaps omit consumers or target a deleted object;
+- a high-risk operation lacks challenge evidence;
+- one run is pending or uses a different source hash.
 
-Expected validation:
+Test that future-state validation fails when a planned change creates a missing
+reference, duplicate ID, orphan, new folder/trigger issue, or unresolved cleanup finding.
 
-- Name-preserving route is selected for View Changes.
-- Built-in variables, folders, and custom-template dependencies are handled.
-- Generated artifact is self-QA'd.
-- Broad rename churn is avoided or deferred.
+Test that shard merge fails when one item or file is missing, duplicated,
+pending, belongs to another run kind, or uses another source hash.
 
-## Test 5: Severity Calibration
+## Human Review
 
-```text
-Use the GTM Cleanup Intelligence skill at <skill path>. Review these findings
-and assign severity, priority, confidence, and recommended next action:
-<raw finding list>
-```
+Ask a web analyst who did not inspect the source export to review the workbook.
+They should be able to understand each problem, affected objects, impact, exact
+action, priority, readiness, and QA. The workbook must not reveal client secrets,
+repeat the same conclusion across columns, exceed eight tabs/six columns, or mix
+the cleanup plan with a change log.
 
-Expected validation:
+## No-Cheat Rule
 
-- Consent/revenue issues are not undercalled.
-- Naming-only/hygiene issues are not overcalled.
-- Confidence remains separate from severity.
-
-## Test 6: Measurement-First Cleanup Blocker
-
-```text
-Use the GTM Cleanup Intelligence skill at <skill path>. This export contains
-several similar lead and media tags with unclear form names and campaign tokens.
-Prepare a cleanup plan, but do not mutate GTM.
-```
-
-Expected validation:
-
-- Similar tags are not automatically consolidated or renamed.
-- The plan records owner questions or runtime/dataLayer blockers for unclear
-  business outcomes, conversion hierarchy, platform role, or payload contract.
-- Cleanup operations are proposed only for objects whose measurement diagnosis
-  and semantic validation are complete.
-
-## Test 7: Literal D3 Anti-Faking
-
-```text
-Use the GTM Cleanup Intelligence skill at <skill path>. Audit this exported
-GTM container JSON with Custom JavaScript variables and Custom HTML tags. Produce
-a cleanup plan with D3 evidence. Do not mutate GTM.
-```
-
-Expected validation:
-
-- D3 rows state literal behavior, such as `returns Date.now()` or `pushes
-  e.data.payload to dataLayer`; they do not replace behavior with categories
-  like `computed value`, `payload transformer`, or `browser side effect`.
-- D3 rows name actual consumers and expected consumer meaning before judgment.
-- Cleanup operations link to D3 evidence and graph paths, not isolated object
-  names or category guesses.
-- Boilerplate phrases such as `according to configured type` or `tags and
-  downstream reports need event context` fail validation.
-
-## Test 8: Compact Output And Lifecycle
-
-```text
-Use the GTM Cleanup Intelligence skill at <skill path>. Audit this exported
-GTM container JSON and produce an audit plus cleanup plan. Do not execute
-cleanup and do not create a real change log.
-```
-
-Expected validation:
-
-- Cleanup plan workbook uses compact tabs and columns by default, normally 7-8
-  tabs or fewer and 5-6 useful columns per tab.
-- Hidden tabs remain human-readable and do not duplicate similar columns.
-- A real change log is not produced before cleanup execution. If a hypothetical
-  output is requested, it is called planned change preview or simulated
-  post-cleanup change log.
-
-## Test 9: Deterministic Baseline Protection
-
-```text
-Use the GTM Cleanup Intelligence skill at <skill path>. Audit this exported
-GTM container JSON and prepare a cleanup plan. The export contains duplicate
-template tags, duplicate trigger logic, duplicate variables, duplicate Custom
-JavaScript code, a single-member trigger group, and Custom HTML references.
-Do not mutate GTM.
-```
-
-Expected validation:
-
-- The deterministic baseline surfaces every mechanical finding before semantic
-  review.
-- Semantic review may confirm, downgrade, or document exceptions, but no
-  baseline finding disappears.
-- The cleanup plan links visible rows to source finding IDs or lists them as
-  documented exceptions/blockers.
-- `gtm_findings_reconcile.py` passes on the baseline and resolution artifact.
+Do not include expected findings in the execution prompt. Keep fixture labels
+neutral. Evaluate false positives as well as misses, and compare each run's raw
+artifact before viewing reconciliation.

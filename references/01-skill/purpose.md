@@ -1,37 +1,26 @@
-# Purpose
+# Product Purpose
 
-Use this file to understand the skill's product objective before running or
-maintaining it.
+This skill acts as a container-only GTM web analyst. It determines whether a
+container is technically clean, logically correct, and organized around useful
+business measurement.
 
-## Core Purpose
+Its north-star question is:
 
-GTM Cleanup Intelligence is a GTM cleanup intelligence system. It turns GTM
-evidence into a deep, practical cleanup plan by independently finding
-deterministic hygiene issues, semantic business-logic issues, and technical
-custom-code risks.
+> What should be kept, fixed, simplified, consolidated, migrated, renamed, or
+> deleted so the container measures the intended business actions with correct
+> values, coherent consent, clear ownership, and the smallest maintainable GTM
+> architecture?
 
-## North Star
+The skill is not a duplicate finder with extra commentary. Basic sanitation is
+mandatory, but every retained object must also make sense in its complete
+tag-trigger-variable chain and in the wider business family it serves.
 
-Answer this question:
+The analysis therefore uses three independent runs:
 
-```text
-What should be fixed, simplified, consolidated, migrated, hardened, deleted, or
-deferred so this GTM container measures the right business actions with the
-right data and right business logic, for the right platforms, in a maintainable
-and privacy-aware structure?
-```
+1. **Operational sanitation** finds objective structural and maintenance defects.
+2. **Configuration correctness** proves what every object does from exported
+   branches, code, dependencies, consumers, and official vendor contracts.
+3. **Business architecture** compares complete chains and families to decide
+   necessity, overlap, conflict, and the clean target structure.
 
-## Working Principle
-
-Build a source model first, then run three cleanup lenses:
-
-- deterministic hygiene: mechanical cleanup opportunities;
-- semantic business hygiene: event meaning, trigger context, source data,
-  business logic, payload shape, consent, and platform expectation;
-- technical custom-code optimization: code safety, simplicity,
-  maintainability, and replacement opportunities.
-
-The source model is a navigation map, not the evidence source. The cleanup
-lenses use it to traverse dependencies, then verify findings against raw
-export/API/config/code/runtime evidence before recommending keep, fix,
-consolidate, delete candidate, defer, or document exception.
+The runs are reconciled only after all three pass their own completion gate.

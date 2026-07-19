@@ -1,95 +1,82 @@
-# Workbook Architecture
+# Cleanup Workbook Architecture
 
-Use this reference for stakeholder-facing cleanup plans and change logs. The
-canonical completion rules remain in `execution-contract.md`.
+The cleanup plan is a decision document for web analysts and marketing teams,
+not a dump of agent internals.
 
-## Cleanup Plan Workbook
-
-Use exactly these tabs by default:
+## Canonical Tabs
 
 | Tab | Visibility | Purpose |
 | --- | --- | --- |
-| `01 Summary` | Visible | Status, route, cleanup level, counts, blockers, validation, next step. |
-| `02 Cleanup Plan` | Visible | Decisions requiring approval, assignment, or QA. |
-| `03 Workstream Reconciliation` | Hidden | Source, review, decision, and unresolved counts by object family. |
-| `04 Reconciled Operations` | Hidden | Complete operation packets behind visible rows. |
-| `05 Semantic Object Matrix` | Hidden | Source-bound D1-D3 purpose, logic, consumers, judgment, and proof. |
-| `06 Deterministic Baseline` | Hidden | Mechanical findings and zero-finding module evidence. |
-| `07 Custom Code Review` | Hidden | Line-level behavior, side effects, technical facts, judgment, and QA. |
-| `08 Source Model & QA` | Hidden | Source coverage, unresolved edges, and gate status. |
+| `01 Summary` | Visible | Source, scope, counts, status, route, level, next step. |
+| `02 Cleanup Plan` | Visible | Concise actionable issues and proposed operations. |
+| `03 Operational Review` | Hidden | Run 1 findings, evidence, disposition, action. |
+| `04 Configuration Review` | Hidden | Run 2 literal behavior, branches, traces, contracts, defects. |
+| `05 Architecture Review` | Hidden | Run 3 families, chains, comparisons, target state. |
+| `06 Custom Code Review` | Hidden | Code behavior, effects, health, findings, decision. |
+| `07 Reconciled Operations` | Hidden | Exact structured mutation packets. |
+| `08 Source & Gates` | Hidden | Source hash and completion statuses. |
 
-Use normal Excel `hidden`, not `veryHidden`. A reviewer must be able to unhide
-proof without special tooling.
+Hidden tabs remain available by unhiding. Do not password-protect them.
 
-## Visible Cleanup Plan
+## Limits
 
-Use no more than six columns:
+- maximum eight tabs;
+- maximum six columns per tab;
+- only Summary and Cleanup Plan visible;
+- wrapped top-aligned text;
+- stable column widths, capped at 92;
+- content-aware row heights, capped at 120;
+- filters and frozen header row;
+- no exact duplicate columns;
+- no raw full export or full source code in visible tabs.
+- no silent truncation in visible or hidden tabs. Hidden proof that exceeds one
+  cell is continued losslessly on adjacent rows; overlong visible prose fails
+  the build and must be rewritten more concisely.
 
-1. `ID`
-2. `Level`
-3. `Area / problem type`
-4. `Affected object(s)`
-5. `Problem / evidence`
-6. `Action / priority / QA`
+## Cleanup Plan Columns
 
-Use one `Single` row per distinct semantic problem. A `Summary` row may
-introduce adjacent `Detail` rows for a related family. Group exact duplicates,
-unused objects, naming batches, or identical folder moves only when evidence,
-action, QA, rollback, and dependency risk are the same.
+1. ID
+2. Level
+3. Area / problem type
+4. Affected object(s)
+5. Problem / evidence
+6. Action / priority / QA
 
-Visible text must explain the concrete GTM problem in language a web analyst or
-marketing owner can use. Avoid internal categories such as `semantic issue`,
-`technical finding`, or `payload problem` without the actual behavior.
+Keep one row per distinct actionable issue. A summary row may precede detailed
+rows only when visual hierarchy makes the relationship clear. Homogeneous exact
+duplicates, unused objects, naming, or folder work may remain one batch row.
 
-## Consolidated Proof Columns
+Also show operations deferred by the selected aggressiveness, unresolved owner
+questions, and container-evidence limits. The Summary status must reflect these
+states and must not say `Ready for human approval` while an owner decision is
+outstanding.
 
-Every tab should normally use six or fewer purposeful columns. Consolidate
-related machine fields into structured cells rather than spreading one decision
-across twenty columns. The canonical builder uses these proof groups:
+## Wording
 
-- semantic: object identity; purpose and contract; configuration logic; output
-  and consumers; judgment; proof and trace;
-- operations: operation; objects and behavior; problem and impact; expected
-  state and action; QA and rollback; governance;
-- custom code: object; purpose; code behavior; side effects and output;
-  judgment; context and QA;
-- baseline: finding; objects; evidence; action; source; status.
+State the business or operational problem first, then enough technical detail to
+debug it. Avoid internal terms such as run gate, source hash, candidate score,
+branch ledger, or parser trace in visible rows. Avoid vague text such as
+`review configuration`, `fix tracking`, or `custom code inspected`.
 
-Structured cells keep their JSON keys so validators can recover exact fields.
-Do not repeat the same content in several groups. Raw code, complete exports,
-secrets, local paths, and scratch reasoning do not belong in a workbook.
+The visible plan and hidden proof must agree. The plan may consolidate wording,
+but cannot blend unrelated problem types or hide a material object-level defect.
+Hidden proof uses separate rows for the object contract, each D3 cross-check,
+each configuration branch, each recursive trace and node, each official
+contract, each code behavior block/finding, and each architecture member or
+comparison. Do not collapse these obligations into one repeated summary cell.
 
-## Formatting
+All cell content derived from container or analyst input must be literal text;
+escape spreadsheet-formula prefixes. Privacy scanning covers hidden and visible
+tabs by default.
 
-- Open on `01 Summary`.
-- Freeze the header row and enable filters on every table.
-- Wrap text and align it at the top.
-- Use stable widths: compact IDs/statuses, wider problem/action/proof columns.
-- Use a readable fixed row height that does not produce empty poster-sized rows.
-- Keep all text selectable; do not use screenshots as tables.
-- Preserve unique operation and object IDs for debugging.
+## Separation From Change Log
 
-## Separate Change Log
+Never add a change-log tab to the cleanup plan. The cleanup plan records proposed
+work; the separate change log records executed/generated differences.
 
-Create the change log only after execution or generated-artifact creation. It
-is a separate workbook with:
-
-- `01 Change Log Summary` visible;
-- `02 Change Log Details` visible;
-- `03 Field Diff Proof` hidden.
-
-Use six detail columns: Change ID, Area/object, Change made, Before, After, and
-Reason/QA/status. Every field or dependency change gets its own row and links
-to an approved operation ID. Planned or simulated output must say so.
-
-## Validation
+Validate with:
 
 ```powershell
-python -B scripts/gtm_audit_gate_check.py --strict-evidence cleanup_plan.xlsx
-python -B scripts/gtm_audit_package_check.py container.json cleanup_plan.xlsx
-python -B scripts/gtm_privacy_scan.py cleanup_plan.xlsx --all-sheets
+python -B scripts/gtm_audit_gate_check.py cleanup_plan.xlsx --operations reconciled_operations.json --pretty
+python -B scripts/gtm_privacy_scan.py cleanup_plan.xlsx
 ```
-
-Delivery fails when a tab exceeds eight columns without a documented technical
-exception, source-bound proof cannot be recovered, visible rows lack operation
-links, privacy scanning fails, or either audit gate fails.

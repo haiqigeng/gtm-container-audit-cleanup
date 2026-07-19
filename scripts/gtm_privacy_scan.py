@@ -42,7 +42,7 @@ def scan_text(path: Path) -> list[str]:
     return errors
 
 
-def scan_xlsx(path: Path, all_sheets: bool) -> list[str]:
+def scan_xlsx(path: Path, all_sheets: bool = True) -> list[str]:
     try:
         import openpyxl
     except ImportError as exc:
@@ -65,13 +65,23 @@ def scan_xlsx(path: Path, all_sheets: bool) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("artifact", type=Path)
-    parser.add_argument("--all-sheets", action="store_true")
+    visibility = parser.add_mutually_exclusive_group()
+    visibility.add_argument(
+        "--visible-only",
+        action="store_true",
+        help="Scan only visible workbook tabs; all tabs are scanned by default.",
+    )
+    visibility.add_argument(
+        "--all-sheets",
+        action="store_true",
+        help="Explicitly request the default all-tab scan.",
+    )
     args = parser.parse_args()
     suffix = args.artifact.suffix.lower()
     if suffix == ".json":
         errors = scan_json(args.artifact)
     elif suffix == ".xlsx":
-        errors = scan_xlsx(args.artifact, args.all_sheets)
+        errors = scan_xlsx(args.artifact, not args.visible_only)
     else:
         errors = scan_text(args.artifact)
     if errors:

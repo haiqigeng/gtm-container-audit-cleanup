@@ -73,7 +73,7 @@ than adding an arbitrary suffix as the preferred final name.
 | Form triggers | `FORM - Description Scope` | `FORM - Newsletter`, `FORM - User Provided Data` |
 | Blocking triggers | `Block - condition_or_reason` | `Block - Consent Refused`, `Block - Internal Traffic`, `Block - Missing Ecommerce Items` |
 | Trigger groups | `TG - event Vendor Scope` | `TG - purchase GA4 All`, `TG - add_to_cart Meta EU`, `TG - page_view GADS All` |
-| Variables | `Type acronym - Variable name/source` | `DLV - ecommerce.items`, `cJS - Cart Total Price`, `LT - Currency`, `Util - Page URL` |
+| Variables | `Type acronym - Variable name/source` | `DLV - ecommerce.items`, `CJS - Cart Total Price`, `LT - Currency`, `Util - Page URL` |
 | Folders | `Area` by default | `GA4`, `Media`, `Consent`, `Utilities`, `Ecommerce` |
 
 Use area-only folders by default. Split folders into `Area - Scope` only when a
@@ -130,7 +130,7 @@ Variable type acronyms:
 - Preserve official event casing and technical keys, such as `page.display`,
   `click.action`, `add_to_cart`, `ViewContent`, or `Purchase`.
 - Keep acronyms uppercase, such as `PA`, `GA4`, `GADS`, `CMP`, `DLV`, `URL`,
-  and `JS`. Use `cJS` for Custom JavaScript variables when following the
+  and `JS`. Use `CJS` for Custom JavaScript variables when following the
   integrated default.
 - Use one readable case for human labels, such as `Analytics consent denied` or
   `Newsletter CTA`.

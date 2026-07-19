@@ -25,7 +25,8 @@ Priority values:
 
 | Finding | Suggested severity | Suggested priority |
 | --- | --- | --- |
-| Marketing tags fire before consent in regulated regions. | Critical | P0 Now |
+| A direct browser marketing/vendor request is initiated before its required consent. | Critical | P0 Now |
+| A first-party server transporter fires without a client blocker but forwards a complete consent contract for server enforcement. | Info; no client-side defect by itself | No action unless the forwarding contract is incomplete |
 | Purchase event does not fire or is blocked for all users. | Critical | P0 Now |
 | GA4 purchase value/currency/item payload materially wrong. | High | P1 This sprint |
 | Ads/Floodlight/Meta purchase conversion missing order ID or value. | High | P1 This sprint |
@@ -38,7 +39,7 @@ Priority values:
 | Unused trigger/variable with no consumers after dependency sweep. | Low or Medium if confusing/risky | P2 or P3 |
 | Duplicate names obscure maintenance but behavior is correct. | Low or Medium depending on release risk | P2 or P3 |
 | Missing folder organization. | Low | P3 Backlog |
-| Missing runtime evidence from export-only audit. | Info or More info needed; severity follows possible impact | Decision needed |
+| External behavior is not verifiable from a container-only audit. | Info or More info needed; severity follows the configured risk | Decision needed |
 
 ## Escalation Rules
 
@@ -48,13 +49,14 @@ Escalate when:
 - revenue/conversion or paid-media optimization is affected;
 - a shared helper or trigger powers many tags;
 - a custom-code error can break several vendors;
-- server-side routing makes the browser export inconclusive but risk is high;
+- a server-bound route has missing, partial, swapped, stale, or inconsistent
+  consent forwarding and the affected destination risk is high;
 - an issue affects all pageviews or all purchases.
 
 Downgrade when:
 
 - object is paused and has no consumers;
-- runtime/platform evidence proves no impact;
+- stronger container or owner evidence proves no impact;
 - issue is naming-only with no behavior risk;
 - issue is inside a user-excluded scope.
 
@@ -62,8 +64,9 @@ Downgrade when:
 
 Always pair severity with confidence:
 
-- `High`: export/API and runtime/vendor/platform evidence agree.
-- `Medium`: export/API evidence is strong but runtime/platform proof is missing.
+- `High`: complete export/API evidence and the official contract agree.
+- `Medium`: export/API evidence is strong but external behavior is not
+  verifiable from the container.
 - `Low`: inference from names, old evidence, partial screenshots, or missing
   official documentation.
 

@@ -23,7 +23,7 @@ def build_change_log(payload: dict[str, Any], output: Path) -> None:
     except ImportError as exc:
         raise RuntimeError("openpyxl is required to build XLSX output") from exc
 
-    changes = as_list(payload.get("changes") or payload.get("operations"))
+    changes = as_list(payload.get("changes"))
     actions = Counter(str(row.get("action") or "") for row in changes)
     statuses = Counter(str(row.get("status") or "") for row in changes)
     summary = [
@@ -33,7 +33,7 @@ def build_change_log(payload: dict[str, Any], output: Path) -> None:
         {"Decision": "Statuses", "Value": json.dumps(statuses, ensure_ascii=False, sort_keys=True)},
         {
             "Decision": "Validation",
-            "Value": "Verify every applied row through GTM readback, Preview, and destination QA.",
+            "Value": "Verify every applied row through GTM readback, export diff, and dependency validation.",
         },
         {
             "Decision": "Next step",
@@ -62,7 +62,35 @@ def build_change_log(payload: dict[str, Any], output: Path) -> None:
             "Reason / QA / status",
         ],
     )
-    add_table(proof_sheet, changes)
+    proof_rows = [
+        {
+            "Change / operation": (
+                f"{row.get('change_id')} / {row.get('operation_id') or 'unlinked'}"
+            ),
+            "Object": (
+                f"{row.get('layer')} {row.get('object_id')} / "
+                f"{row.get('before_name')} -> {row.get('after_name')}"
+            ),
+            "Field / action": (
+                f"{row.get('change_category')} / {row.get('action')} / "
+                f"{row.get('field_path')} / {row.get('route')} / "
+                f"{row.get('aggressiveness')}"
+            ),
+            "Before / after": (
+                f"Before: {row.get('before_value')}\nAfter: {row.get('after_value')}"
+            ),
+            "Reason / impact": (
+                f"{row.get('reason')} Impact: {row.get('functional_impact')}"
+                + (f" Blocker: {row.get('blocker')}" if row.get("blocker") else "")
+            ),
+            "QA / rollback / status": (
+                f"QA: {row.get('qa_method')} ({row.get('qa_status')}). "
+                f"Rollback: {row.get('rollback')} Status: {row.get('status')}"
+            ),
+        }
+        for row in changes
+    ]
+    add_table(proof_sheet, proof_rows)
     proof_sheet.sheet_state = "hidden"
     workbook.active = 0
     output.parent.mkdir(parents=True, exist_ok=True)

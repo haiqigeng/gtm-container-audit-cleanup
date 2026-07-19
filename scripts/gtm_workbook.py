@@ -3,92 +3,18 @@
 
 from __future__ import annotations
 
-import json
 import re
 import zipfile
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
-
-HEADER_ALIASES = {
-    "total": "total_source_count",
-    "total_count": "total_source_count",
-    "source_count": "total_source_count",
-    "total_source_objects": "total_source_count",
-    "dependency_mapped": "dependency_mapped_count",
-    "measurement_diagnosed": "measurement_diagnosed_count",
-    "business_diagnosed_count": "measurement_diagnosed_count",
-    "measurement_diagnosis_count": "measurement_diagnosed_count",
-    "semantically_validated": "semantically_validated_count",
-    "semantic_validated_count": "semantically_validated_count",
-    "cleanup_decided_count": "cleanup_decision_count",
-    "cleanup_decisioned_count": "cleanup_decision_count",
-    "cleanup_decision_objects": "cleanup_decision_count",
-    "not_applicable": "not_applicable_count",
-    "user_excluded": "user_excluded_count",
-    "unresolved": "unresolved_count",
-    "source_output_status": "source_or_code_logic_status",
-    "source_logic_status": "source_or_code_logic_status",
-    "code_logic_status": "source_or_code_logic_status",
-    "configuration_code_logic_status": "configuration_logic_status",
-    "business_role": "inferred_business_role",
-    "business_intent": "inferred_business_role",
-    "business_outcome": "decision_outcome",
-    "outcome": "decision_outcome",
-    "conversion_type": "conversion_hierarchy",
-    "signal_type": "conversion_hierarchy",
-    "vendor_platform_role": "platform_role",
-    "destination_role": "platform_role",
-    "data_contract": "expected_data_contract",
-    "expected_contract": "expected_data_contract",
-    "payload_contract": "expected_data_contract",
-    "linked_finding_operation": "finding_or_operation_id",
-    "linked_finding_or_operation": "finding_or_operation_id",
-    "finding_operation_id": "finding_or_operation_id",
-    "blocker_next_evidence": "blocker_or_next_evidence",
-    "trigger_consumer_context": "trigger_or_consumer_context",
-    "consumer_context": "trigger_or_consumer_context",
-    "expected_output_side_effect": "expected_output_or_side_effect",
-    "expected_output": "expected_output_or_side_effect",
-    "operation": "operation_id",
-    "operationid": "operation_id",
-    "op_id": "operation_id",
-    "objects": "affected_objects",
-    "affected_object_s": "affected_objects",
-    "identity": "object_identity",
-    "object_key": "object_identity",
-    "lenses": "source_lenses",
-    "current_state": "current_behavior",
-    "current_behaviour": "current_behavior",
-    "why_matters": "why_it_matters",
-    "expected_state": "expected_clean_state",
-    "clean_state": "expected_clean_state",
-    "exact_action": "exact_proposed_action",
-    "proposed_action": "exact_proposed_action",
-    "qa": "qa_steps",
-    "qa_status": "qa_steps",
-    "source_findings": "source_finding_ids",
-    "linked_source_finding_ids": "source_finding_ids",
-    "d3_source_inputs": "d3_inputs_or_sources",
-    "d3_sources": "d3_inputs_or_sources",
-    "d3_inputs": "d3_inputs_or_sources",
-    "d3_output": "d3_output_or_side_effect",
-    "d3_side_effect": "d3_output_or_side_effect",
-    "d3_consumer": "d3_consumer_expectation",
-    "d3_decision": "d3_correctness_decision",
-}
 
 
 def normalize_header(value: Any) -> str:
     text = str(value or "").strip().lower()
     text = re.sub(r"[^a-z0-9]+", "_", text)
     text = text.strip("_")
-    return HEADER_ALIASES.get(text, text)
-
-
-def normalize_sheet_name(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+    return text
 
 
 def column_index(cell_ref: str) -> int:
@@ -119,24 +45,6 @@ def rows_from_values(parsed_rows: list[list[Any]]) -> list[dict[str, Any]]:
             continue
         rows.append({headers[i]: values[i] for i in range(min(len(headers), len(values)))})
     return rows
-
-
-def expand_structured_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Expand first-level JSON objects stored in consolidated workbook cells."""
-    expanded_rows: list[dict[str, Any]] = []
-    for row in rows:
-        expanded = dict(row)
-        for value in row.values():
-            if not isinstance(value, str) or not value.lstrip().startswith("{"):
-                continue
-            try:
-                payload = json.loads(value)
-            except (json.JSONDecodeError, TypeError):
-                continue
-            if isinstance(payload, dict):
-                expanded.update(payload)
-        expanded_rows.append(expanded)
-    return expanded_rows
 
 
 def load_xlsx_workbook_openpyxl(path: Path) -> dict[str, list[dict[str, Any]]]:
@@ -213,34 +121,13 @@ def load_xlsx_workbook_stdlib(path: Path) -> dict[str, list[dict[str, Any]]]:
 
 def load_xlsx_workbook(path: Path) -> dict[str, list[dict[str, Any]]]:
     try:
+        import openpyxl  # type: ignore  # noqa: F401
+    except ImportError:
+        return load_xlsx_workbook_stdlib(path)
+    try:
         return load_xlsx_workbook_openpyxl(path)
-    except Exception as first_exc:  # noqa: BLE001 - stdlib fallback covers missing optional deps.
-        try:
-            return load_xlsx_workbook_stdlib(path)
-        except Exception as second_exc:  # noqa: BLE001 - preserve both failure reasons.
-            raise RuntimeError(
-                f"Unable to read XLSX workbook with openpyxl or stdlib fallback. "
-                f"openpyxl error: {first_exc}; fallback error: {second_exc}"
-            ) from second_exc
-
-
-def find_sheet(
-    workbook_rows: dict[str, list[dict[str, Any]]], required_terms: Iterable[str]
-) -> tuple[str | None, list[dict[str, Any]]]:
-    terms = [term.lower() for term in required_terms]
-    for sheet_name, rows in workbook_rows.items():
-        normalized = normalize_sheet_name(sheet_name)
-        if all(term in normalized for term in terms):
-            return sheet_name, rows
-    return None, []
-
-
-def find_sheet_aliases(
-    workbook_rows: dict[str, list[dict[str, Any]]],
-    aliases: Iterable[Iterable[str]],
-) -> tuple[str | None, list[dict[str, Any]]]:
-    for required_terms in aliases:
-        name, rows = find_sheet(workbook_rows, required_terms)
-        if name:
-            return name, rows
-    return None, []
+    except Exception as exc:  # noqa: BLE001 - preserve artifact parsing failure.
+        raise RuntimeError(
+            "Unable to read XLSX workbook with openpyxl; refusing the stdlib reader "
+            "because parser failure may indicate a malformed artifact."
+        ) from exc

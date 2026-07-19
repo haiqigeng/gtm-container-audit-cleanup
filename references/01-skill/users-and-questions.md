@@ -1,51 +1,35 @@
 # Users And Questions
 
-Use this file to keep the skill focused on the people and questions it serves.
+## Primary Users
 
-## Users
+- web analysts, analytics consultants, and GTM specialists;
+- agencies and internal measurement teams using Codex, Claude Code, Gemini, or
+  another file- and tool-capable agent;
+- marketing, media, consent, and development stakeholders who need an
+  understandable cleanup decision or implementation brief.
 
-Primary users:
+## Questions Resolved
 
-- web analysts;
-- analytics consultants;
-- GTM specialists;
-- tracking auditors;
-- agencies and internal analytics teams using AI agents to review GTM.
+- Is every GTM object valid, referenced, readable, uniquely named, and placed in
+  a maintainable structure?
+- What does each tag, trigger, variable, template, client, transformation, and
+  custom-code block actually do?
+- Do trigger timing, variable sources, formulas, output types, event names,
+  consent settings, and payload mappings agree with that purpose?
+- Do standard business values such as transaction ID, currency, revenue, total
+  price, quantity, items, product IDs, categories, lead value, and consent state
+  use logically correct sources and formats?
+- Does each vendor receive the fields and data types required by its current
+  official documentation?
+- Are apparently similar objects duplicates, overlapping paths, intentional
+  variants, or complementary implementations?
+- Do tags, triggers, variables, templates, consent helpers, and server-routing
+  settings work together in the simplest readable architecture?
+- Which objects are unnecessary, obsolete, too specific, fragmented, or
+  carrying unclear business value?
+- What exact changes are justified by container evidence, and what requires one
+  precise owner decision or another container export?
 
-Secondary users:
-
-- marketing and media teams checking signal quality;
-- developers and dataLayer owners receiving implementation blockers;
-- privacy/CMP owners reviewing consent risks;
-- AI agents such as Codex, Claude Code, Gemini, or similar tools.
-
-## Questions The Skill Resolves
-
-- Does the GTM container correctly support business measurement objectives?
-- Are meaningful tags, triggers, variables, templates, and custom code aligned
-  with intended user actions and business outcomes?
-- Are vendors receiving the right signals for reporting, bidding, attribution,
-  audience building, consent handling, or server-side routing?
-- Are event names, trigger contexts, variables, formulas, values, item arrays,
-  lead fields, consent states, and payload formats logically correct?
-- Do computed business fields make real-world sense, such as total price,
-  quantity, item count, revenue, and lead value matching the actual cart, order,
-  form, or conversion event?
-- Are GTM objects created in synergy, using the simplest, clearest, most
-  readable, and easiest-to-maintain structure possible?
-- Is the source model complete enough to show how tags, triggers, variables,
-  custom code, field mappings, and consumers connect before cleanup findings are
-  trusted?
-- Are duplicated, fragmented, obsolete, over-specific, or unnecessarily complex
-  objects safe to consolidate or redesign?
-- Are similar objects true duplicates, or do they preserve meaningful business,
-  market, consent, vendor, or platform differences?
-- Does the setup make future QA, debugging, ownership, and scaling easy?
-- What can be safely fixed now, what needs runtime/owner/dataLayer/server
-  evidence, and what should not be touched yet?
-
-## Successful Answer
-
-A successful answer connects configuration to business meaning. It explains not
-only what exists in GTM, but whether the setup produces useful, correct,
-maintainable measurement.
+A successful answer explains concrete object behavior and then connects it to
+the complete container architecture. Names and similarity scores may raise a
+question, but never decide it.

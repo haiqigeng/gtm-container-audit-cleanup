@@ -1,28 +1,34 @@
 schema_version = 1
-reviewed_on = "2026-07-10"
+reviewed_on = "2026-07-18"
+
+[[vendors]]
+name = "Universal Analytics (legacy)"
+category = "legacy_analytics"
+patterns = ["\\bUA-[0-9]", "universal analytics", "\\\"type\\\"\\s*:\\s*\\\"ua\\\""]
+official_docs = ["https://support.google.com/analytics/answer/10220206?hl=en", "https://support.google.com/analytics/answer/10089681?hl=en"]
 
 [[vendors]]
 name = "GA4 / Google tag"
 category = "analytics"
-patterns = ["\\bga4\\b", "google analytics", "measurement id", "G-[A-Z0-9]+"]
-official_docs = ["https://developers.google.com/analytics/devguides/collection/ga4/reference/events", "https://developers.google.com/analytics/devguides/collection/ga4/ecommerce"]
+patterns = ["\\bga4\\b", "google analytics", "measurement id", "G-[A-Z0-9]+", "\\bgaawe\\b", "\\bgaawc\\b", "\\bgoogtag\\b", "google tag"]
+official_docs = ["https://developers.google.com/analytics/devguides/collection/ga4/reference/events", "https://developers.google.com/analytics/devguides/collection/ga4/reference/recommended-events", "https://developers.google.com/analytics/devguides/collection/ga4/ecommerce", "https://support.google.com/analytics/answer/13316687?hl=en", "https://developers.google.com/tag-platform/tag-manager/gateway/setup-guide"]
 
 [[vendors]]
 name = "Google Ads"
 category = "media"
 patterns = ["google ads", "adwords", "AW-", "conversion linker"]
-official_docs = ["https://support.google.com/tagmanager/answer/6105160"]
+official_docs = ["https://support.google.com/tagmanager/answer/6105160?hl=en", "https://developers.google.com/tag-platform/tag-manager/gateway/setup-guide"]
 
 [[vendors]]
 name = "Floodlight"
 category = "media"
-patterns = ["floodlight", "doubleclick", "DC-[0-9]", "activity"]
-official_docs = ["https://support.google.com/campaignmanager/answer/7554821"]
+patterns = ["floodlight", "doubleclick", "DC-[0-9]", "fls\\.doubleclick\\.net"]
+official_docs = ["https://support.google.com/campaignmanager/answer/7554821?hl=en"]
 
 [[vendors]]
 name = "Meta"
 category = "media"
-patterns = ["\\bmeta\\b", "facebook", "fbq", "content_ids", "contents"]
+patterns = ["\\bmeta(?: pixel| conversions api)?\\b", "facebook", "\\bfbq\\s*\\(", "content_ids"]
 official_docs = ["https://developers.facebook.com/docs/meta-pixel/reference/"]
 
 [[vendors]]
@@ -77,7 +83,7 @@ official_docs = ["https://developers.didomi.io/cmp/web-sdk/third-parties/tags-ma
 name = "OneTrust"
 category = "cmp"
 patterns = ["onetrust", "optanon"]
-official_docs = ["https://support.google.com/tagmanager/answer/14545200"]
+official_docs = ["https://support.google.com/tagmanager/answer/14545200?hl=en"]
 
 [[vendors]]
 name = "Cookiebot"
@@ -88,7 +94,7 @@ official_docs = ["https://support.cookiebot.com/hc/en-us/articles/360003793854-G
 [[vendors]]
 name = "Piano Analytics"
 category = "analytics"
-patterns = ["\\bpiano\\b", "pa\\.", "page\\.display", "click\\.action"]
+patterns = ["\\bpiano analytics\\b", "\\bpa\\.(?:sendEvent|setConfiguration|setProperties)\\b", "page\\.display", "click\\.action"]
 official_docs = ["https://analytics-docs.piano.io/en/analytics/v1/google-tag-manager-pa-sdk-template"]
 
 [[vendors]]

@@ -7,7 +7,7 @@ import argparse
 import shutil
 from pathlib import Path
 
-ROOT_FILES = ("SKILL.md", "LICENSE")
+ROOT_FILES = ("SKILL.md", "LICENSE", "pyproject.toml")
 ROOT_DIRECTORIES = ("agents", "references", "scripts")
 EXCLUDED_NAMES = {
     "__pycache__",

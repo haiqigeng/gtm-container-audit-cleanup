@@ -10,38 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from gtm_privacy import redact_text
-
-AREAS = {
-    "Stack & architecture",
-    "GTM hygiene",
-    "Tracking plan / dataLayer",
-    "Event firing logic",
-    "Ecommerce payload quality",
-    "Media platform tracking",
-    "Consent & compliance",
-    "Server-side tracking",
-    "Data quality / reporting",
-    "Web performance",
-    "Governance / ownership",
-}
-PROBLEM_TYPES = {
-    "Missing tracking",
-    "Wrong trigger timing",
-    "Over-firing",
-    "Under-firing",
-    "Duplicate firing",
-    "Wrong product, market, or page scope",
-    "Incomplete payload",
-    "Wrong data format",
-    "Wrong value or formula logic",
-    "Obsolete or legacy setup",
-    "Unclear business purpose",
-    "Consent mismatch",
-    "Server-side routing unclear",
-    "Performance overhead",
-    "Naming or ownership unclear",
-    "Generic hygiene batch",
-}
+from gtm_taxonomy import AREAS, PROBLEM_TYPES
 
 
 def as_list(value: Any) -> list[Any]:
@@ -51,7 +20,8 @@ def as_list(value: Any) -> list[Any]:
 def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]]:
     rows: list[dict[str, str]] = []
     errors: list[str] = []
-    for index, operation in enumerate(as_list(payload.get("operations")), start=1):
+
+    def append_operation(operation: dict[str, Any], index: int, level: str) -> None:
         area = str(operation.get("area") or "")
         problem_type = str(operation.get("problem_type") or "")
         if area not in AREAS:
@@ -68,7 +38,7 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
         rows.append(
             {
                 "ID": str(operation.get("operation_id") or f"OP-{index:04d}"),
-                "Level": "Single",
+                "Level": level,
                 "Area / problem type": f"{area} / {problem_type}",
                 "Affected object(s)": redact_text(operation.get("affected_objects")),
                 "Problem / evidence": f"{problem} Impact: {impact}".strip(),
@@ -77,6 +47,48 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
                     f"Readiness: {operation.get('execution_readiness')}. QA: {qa}"
                     + (f" Blocker: {blocker}" if blocker else "")
                 ).strip(),
+            }
+        )
+
+    active = as_list(payload.get("operations"))
+    deferred = as_list(payload.get("deferred_operations"))
+    for index, operation in enumerate(active, start=1):
+        append_operation(operation, index, "Proposed")
+    for index, operation in enumerate(deferred, start=1):
+        append_operation(operation, index, "Deferred")
+
+    unresolved = [
+        decision
+        for decision in as_list(payload.get("decision_ledger"))
+        if decision.get("disposition")
+        in {"owner_decision_needed", "container_evidence_limit"}
+    ]
+    for decision in unresolved:
+        area = str(decision.get("area") or "Governance / ownership")
+        problem_type = str(decision.get("problem_type") or "Unclear business purpose")
+        if area not in AREAS:
+            errors.append(
+                f"decision {decision.get('decision_id')}: unsupported area {area!r}"
+            )
+        if problem_type not in PROBLEM_TYPES:
+            errors.append(
+                f"decision {decision.get('decision_id')}: unsupported problem type "
+                f"{problem_type!r}"
+            )
+        evidence_limit = decision.get("disposition") == "container_evidence_limit"
+        action = (
+            "Record the container evidence limit and keep the object unchanged."
+            if evidence_limit
+            else redact_text(decision.get("owner_question"))
+        )
+        rows.append(
+            {
+                "ID": str(decision.get("decision_id") or "DECISION"),
+                "Level": "Evidence limit" if evidence_limit else "Owner decision",
+                "Area / problem type": f"{area} / {problem_type}",
+                "Affected object(s)": redact_text(decision.get("affected_objects")),
+                "Problem / evidence": redact_text(decision.get("summary")),
+                "Action / priority / QA": action,
             }
         )
     return rows, errors

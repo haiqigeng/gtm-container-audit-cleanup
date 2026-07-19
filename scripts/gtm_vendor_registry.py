@@ -11,12 +11,14 @@ import tomllib
 import urllib.error
 import urllib.request
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 REGISTRY_PATH = (
     Path(__file__).resolve().parents[1] / "references" / "03-rules" / "vendor-registry.toml"
 )
+URL_CHECK_USER_AGENT = "Mozilla/5.0 (compatible; gtm-skill-doc-check/1.0)"
 
 
 def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
@@ -24,7 +26,10 @@ def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
         return tomllib.load(handle)
 
 
-def compiled_vendors(path: Path = REGISTRY_PATH) -> list[dict[str, Any]]:
+@lru_cache(maxsize=8)
+def _compiled_vendors(path_text: str, modified_ns: int) -> tuple[dict[str, Any], ...]:
+    del modified_ns
+    path = Path(path_text)
     vendors = []
     for entry in load_registry(path).get("vendors", []):
         vendors.append(
@@ -35,7 +40,12 @@ def compiled_vendors(path: Path = REGISTRY_PATH) -> list[dict[str, Any]]:
                 ],
             }
         )
-    return vendors
+    return tuple(vendors)
+
+
+def compiled_vendors(path: Path = REGISTRY_PATH) -> tuple[dict[str, Any], ...]:
+    resolved = path.resolve()
+    return _compiled_vendors(str(resolved), resolved.stat().st_mtime_ns)
 
 
 def detect_vendor_text(text: str) -> tuple[str, str]:
@@ -44,10 +54,40 @@ def detect_vendor_text(text: str) -> tuple[str, str]:
 
 
 def vendor_record(text: str) -> dict[str, Any]:
-    for entry in compiled_vendors():
+    entries = compiled_vendors()
+    preferred_names: list[str] = []
+    if re.search(r"\bUA-\d|universal analytics|\"type\"\s*:\s*\"ua\"", text, re.I):
+        preferred_names.append("Universal Analytics (legacy)")
+    elif re.search(r"\bAW-[A-Z0-9-]+|google ads|adwords|conversion linker", text, re.I):
+        preferred_names.append("Google Ads")
+    for preferred_name in preferred_names:
+        for entry in entries:
+            if entry.get("name") == preferred_name:
+                return entry
+    for entry in entries:
         if any(pattern.search(text) for pattern in entry["compiled_patterns"]):
             return entry
     return {"name": "Unclassified", "category": "unclassified", "official_docs": []}
+
+
+def official_url_error(url: str, timeout: int = 12) -> str | None:
+    """Return an error only when both lightweight HEAD and GET checks fail."""
+    last_error = "unknown response"
+    for method in ("HEAD", "GET"):
+        headers = {"User-Agent": URL_CHECK_USER_AGENT}
+        if method == "GET":
+            headers["Range"] = "bytes=0-0"
+        request = urllib.request.Request(url, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                if response.status < 400:
+                    return None
+                last_error = f"HTTP {response.status}"
+        except urllib.error.HTTPError as exc:
+            last_error = f"HTTP {exc.code}"
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            last_error = str(exc)
+    return last_error
 
 
 def validate_registry(
@@ -84,17 +124,9 @@ def validate_registry(
             errors.append(f"vendor {name!r}: missing official_docs")
         if online:
             for url in docs:
-                request = urllib.request.Request(
-                    url, method="HEAD", headers={"User-Agent": "gtm-skill-doc-check/1.0"}
-                )
-                try:
-                    with urllib.request.urlopen(request, timeout=12) as response:
-                        if response.status >= 400:
-                            warnings.append(
-                                f"{name}: official URL returned {response.status}: {url}"
-                            )
-                except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-                    warnings.append(f"{name}: official URL check failed: {url}: {exc}")
+                url_error = official_url_error(url)
+                if url_error:
+                    warnings.append(f"{name}: official URL check failed: {url}: {url_error}")
     return errors, warnings
 
 

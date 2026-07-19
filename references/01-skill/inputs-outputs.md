@@ -1,77 +1,67 @@
 # Inputs And Outputs
 
-Use this file to define what the skill needs and what it should produce.
+## Required Evidence
 
-## Inputs
+- a complete GTM container JSON export or equivalent complete read-only GTM
+  API/UI configuration evidence;
+- container type: web or server;
+- website/domain and business model when relevant to interpretation;
+- known CMP, browser-to-server routing, ecommerce, lead, media, publisher, or
+  market context.
 
-Required or inferred inputs:
+The agent should infer safe facts from the export and supplied website context.
+Ask only for material unknowns, especially unexplained product/market prefixes,
+business-specific event families, legal consent decisions, or missing server
+container scope.
 
-- GTM export JSON, GTM API evidence, GTM UI evidence, or screenshots;
-- website domain and business model;
-- web GTM, server-side GTM, or combined scope;
-- CMP and consent assumptions when known;
-- ecommerce, lead generation, media, publisher, SaaS, school, marketplace, or
-  other business context;
-- runtime evidence when available, such as Tag Assistant, browser/network
-  traces, consent-state tests, screenshots, or vendor-platform diagnostics;
-- requested mode: audit only, cleanup plan, direct cleanup, importable JSON,
-  runtime QA, or change log.
+Persist context in a small JSON object when supplied explicitly. Typical keys
+are `website_url`, `business_model`, `container_type`, `cmp`, `markets`,
+`product_scopes`, `server_routing_hosts`, `known_owner_exceptions`, and
+`unresolved_questions`. The package merges this with deterministic inference
+and records a context hash.
 
-## Outputs
+Live browser requests, Tag Assistant, CMP interaction, website dataLayer
+inspection, and vendor-platform results are not evidence for this skill.
 
-Possible outputs:
+## Deliverables
+
+Depending on the request:
 
 - audit summary;
-- cleanup action plan;
-- source model coverage proof;
-- planned change preview when requested before execution;
-- measurement diagnosis evidence;
-- semantic object matrix;
-- custom code semantic review;
-- official docs and vendor coverage map;
-- QA plan;
-- deferred blocker list;
-- importable GTM JSON when explicitly requested;
-- post-cleanup change log.
+- cleanup plan as a dedicated XLSX workbook;
+- planned change preview;
+- validated importable GTM JSON;
+- approved direct GTM workspace changes;
+- post-execution change log as a separate XLSX workbook.
 
-Lifecycle rules:
+The audit evidence package contains `context.json`, `source_model.json`,
+`shared_facts.json`, three independent review artifacts, technical code facts,
+reconciled operations with a decision ledger, projected object counts, and the
+future-state gate. These are working/proof artifacts; the visible workbook
+remains concise.
 
-- `audit_cleanup_plan`: produced after the audit. It is a decision document for
-  proposed changes, blockers, QA, and execution route.
-- `planned_change_preview`: optional, produced only when the user asks to see
-  what would change before execution.
-- `change_log`: produced after cleanup execution or generated cleanup artifact
-  creation. It is an execution record of what actually changed.
+The visible plan includes proposed operations, operations deferred by the
+selected aggressiveness, unresolved owner questions, and documented container-
+evidence limits. Hidden proof remains unprotected and privacy-scanned.
 
-Do not integrate the change log into the cleanup plan by default. When the user
-asks for both, produce separate deliverables. If no real cleanup was executed
-but the user asks to act "as if" cleanup happened, label the file and status as
-simulated or virtual, not as a verified GTM change log.
+## Lifecycle
 
-## Change Log Granularity
+1. **Audit and cleanup plan:** proposed decisions only.
+2. **Approval and route selection:** direct GTM/API/MCP or import JSON, plus
+   mutation aggressiveness.
+3. **Execution:** only after explicit approval.
+4. **Change log:** what actually changed, produced only after execution or
+   generated cleanup artifact creation.
 
-The change log must be granular enough for an end user to understand what was
-modified without opening GTM View Changes.
+Never integrate the change log into the cleanup plan. A requested hypothetical
+record must be labelled `planned change preview` or `simulated change log`, not
+presented as executed GTM work.
 
-After real cleanup execution or generated cleanup artifact creation, produce a
-summary plus a detailed change log. The summary may group counts and outcomes;
-the detailed change log must list one row per modified object, field,
-dependency, trigger route, variable source, folder move, code/template change,
-rename, deletion, creation, documented exception, or route-limited no-op.
+## Change-Log Detail
 
-Each applied or generated change detail row should include:
-
-- change ID and linked operation ID;
-- layer and object name/ID;
-- action performed;
-- before name, state, value, behavior, or dependency when relevant;
-- after name, state, value, behavior, or dependency when relevant;
-- reason for the change;
-- business, measurement, consent, or maintainability impact;
-- dependencies updated or affected;
-- QA method and QA status;
-- rollback note;
-- owner, blocker, and status when incomplete.
-
-Do not dump raw JSON or full configuration unless the change cannot be
-understood without it. Put raw proof in technical tabs or appendices.
+The post-execution change log must be understandable without GTM View Changes.
+Use one row per changed object field, dependency, route, source, folder, code
+block, rename, deletion, or creation. Include linked operation ID, before,
+after, reason, impact, QA status, rollback, and blocker where applicable.
+Link an approved operation only when its simulated field mutation exactly
+matches the observed layer, object ID, path, before value, and after value.

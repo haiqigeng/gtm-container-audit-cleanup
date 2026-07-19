@@ -1,114 +1,137 @@
 # Validation Commands
 
-Run commands from the repository root. Use Python 3.11 or newer.
+Run from the repository or installed skill root. Paths are examples.
 
 ## Contents
 
-- Audit evidence and D1-D3 validation
-- Operation compilation and cleanup workbook
-- JSON and post-execution change logs
-- Vendor, repository, and release checks
+- Install and build the source-locked package
+- Shard and validate the three reviews
+- Compile, simulate, and build the cleanup plan
+- Validate import JSON and create a separate change log
+- Run project checks
 
-## Build Audit Evidence
+## Install
+
+```powershell
+python -m pip install -e ".[analysis,dev]"
+```
+
+## Build The Source-Locked Package
 
 ```powershell
 python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --pretty
 ```
 
-This creates the source model, deterministic baseline, semantic coverage tasks,
-technical custom-code facts, semantic review scaffold, and manifest. Coverage
-tasks are not findings.
-
-For individual debugging:
+With analyst-provided context:
 
 ```powershell
-python -B scripts/gtm_source_model.py container.json --pretty
-python -B scripts/gtm_baseline_audit.py container.json --pretty
-python -B scripts/gtm_custom_code_extract.py container.json --pretty
-python -B scripts/gtm_semantic_source_scan.py container.json --pretty
+python -B scripts/gtm_audit_package_build.py container.json --context audit-context.json --out-dir audit-package --pretty
 ```
 
-## Complete And Validate D1-D3
+This creates:
 
-Complete every row in `audit-package/semantic_review.json`, including exact
-configuration-branch, code-line, consumer, sibling, and recursive-reference
-proof. Then run:
+- `source_model.json`
+- `context.json`
+- `shared_facts.json`
+- `operational_scan.json`
+- `operational_review.json`
+- `technical_code_findings.json`
+- `configuration_review.json`
+- `architecture_review.json`
+- `audit_package_manifest.json`
+
+Complete the three review JSON files. Do not alter generated source fields.
+
+## Shard Large Reviews
+
+Use bounded shards when one review is too large for a reliable agent context.
+Repeat for operational, configuration, and architecture review files as needed.
 
 ```powershell
-python -B scripts/gtm_semantic_review.py validate container.json audit-package/semantic_review.json
+python -B scripts/gtm_review_shards.py split audit-package/configuration_review.json configuration-shards --max-items 40 --max-obligations 30
+python -B scripts/gtm_review_shards.py merge audit-package/configuration_review.json configuration-shards completed-configuration-review.json
 ```
 
-To reuse only source-identical completed rows from an earlier review:
+After merging, place the completed artifact at the expected package path. The
+merge fails on missing, duplicated, pending, wrong-kind, or wrong-source items.
+Shards from separate runs must remain separate. Configuration obligation shards
+also preserve the exact generated branch, trace, contract, technical-finding,
+D3-cross-check, and custom-code-line set. Lower `--max-obligations` when a code
+or configuration object still exceeds the reliable agent context.
+
+Architecture splitting also creates `*.open_discovery.0001.json`. Complete its
+analyst-added `DISC-*` comparisons and `open_discovery_attestation`; merge will
+not mark the architecture run complete while that file is pending.
+
+## Validate The Three Independent Runs
 
 ```powershell
-python -B scripts/gtm_semantic_review.py scaffold container.json audit-package/semantic_review.json --reuse-review previous-review.json --pretty
+python -B scripts/gtm_operational_review.py validate container.json audit-package/operational_review.json
+python -B scripts/gtm_configuration_review.py validate container.json audit-package/configuration_review.json
+python -B scripts/gtm_architecture_review.py validate container.json audit-package/architecture_review.json
 ```
 
-## Compile Cleanup Operations
+Any failure means the audit is incomplete.
+
+## Compile And Simulate The Plan
 
 ```powershell
-python -B scripts/gtm_operation_compile.py container.json audit-package/semantic_review.json reconciled_operations.json --baseline audit-package/deterministic_findings.json --technical audit-package/technical_code_findings.json --route "Direct GTM workspace" --aggressiveness Standard --pretty
-python -B scripts/gtm_findings_reconcile.py audit-package/deterministic_findings.json reconciled_operations.json --operation-packets --technical audit-package/technical_code_findings.json
+python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json reconciled_operations.json --route "Pending user selection" --aggressiveness Undecided --pretty
+python -B scripts/gtm_future_state_check.py container.json reconciled_operations.json --output future_state_gate.json --pretty
+python -B scripts/gtm_three_run_gate.py container.json audit-package --operations reconciled_operations.json --output completion_gate.json --pretty
 ```
 
-Every deterministic finding must be resolved. Operations must use a valid
-readiness, risk class, route, and cleanup level.
+For an audit-only delivery with no cleanup plan, use `--audit-only` and omit
+`--operations`. A cleanup plan always requires compiled operations and
+future-state simulation, even when the operation list is empty.
 
-## Build And Validate Cleanup Plan
+## Build And Gate The Cleanup Workbook
 
 ```powershell
 python -B scripts/gtm_human_rows.py reconciled_operations.json human_rows.json --pretty
-python -B scripts/gtm_workbook_build.py audit-package audit-package/semantic_review.json reconciled_operations.json human_rows.json cleanup_plan.xlsx
-python -B scripts/gtm_audit_gate_check.py --strict-evidence cleanup_plan.xlsx
-python -B scripts/gtm_audit_package_check.py container.json cleanup_plan.xlsx
-python -B scripts/gtm_privacy_scan.py cleanup_plan.xlsx --all-sheets
+python -B scripts/gtm_workbook_build.py audit-package reconciled_operations.json human_rows.json cleanup_plan.xlsx
+python -B scripts/gtm_audit_gate_check.py cleanup_plan.xlsx --operations reconciled_operations.json --pretty
+python -B scripts/gtm_privacy_scan.py cleanup_plan.xlsx
 ```
 
-Any failed gate makes the deliverable `Incomplete / blocked`.
+The privacy command scans visible and hidden tabs by default. Use
+`--visible-only` only for an explicit diagnostic, never for the delivery gate.
 
-## Validate JSON Artifacts
+The cleanup workbook is not a change log.
 
-Choose the import route before generating JSON.
+## Validate A Generated GTM JSON
+
+First generate the complete future container from approved operations:
 
 ```powershell
-python -B scripts/gtm_validate_artifact.py artifact.json --mode overwrite
-python -B scripts/gtm_validate_artifact.py artifact.json --original original.json --mode same-container-view
+python -B scripts/gtm_future_state_check.py container.json reconciled_operations.json --future-export optimized-container.json --output future_state_gate.json --pretty
 ```
 
-Do not call an artifact import-ready when validation fails.
-
-## Build A Post-Execution Change Log
-
-Link executed differences to approved operation packets:
-
 ```powershell
-python -B scripts/gtm_diff_operations.py original.json cleaned.json --operations reconciled_operations.json --execution-mode executed --json field_diff.json
-python -B scripts/gtm_change_log_build.py field_diff.json change_log.xlsx
-python -B scripts/gtm_privacy_scan.py change_log.xlsx --all-sheets
+python -B scripts/gtm_validate_artifact.py optimized-container.json --original container.json --mode overwrite --pretty
 ```
 
-Without real execution, use `planned` mode and label the output planned or
-simulated.
+Use the route matching the artifact: `direct-readback`, `same-container-view`,
+`same-container-final`, `overwrite`, or `new-container`.
 
-## Official Documentation Registry
+## Produce A Separate Change Log
+
+After real execution or artifact generation:
 
 ```powershell
-python -B scripts/gtm_vendor_registry.py
-python -B scripts/gtm_vendor_registry.py --online
+python -B scripts/gtm_diff_operations.py container.json post-cleanup.json --route "Direct GTM/MCP/API" --aggressiveness Deep --operations reconciled_operations.json --execution-mode executed --json field_changes.json --pretty
+python -B scripts/gtm_change_log_build.py field_changes.json change_log.xlsx
 ```
 
-Use the online check when current vendor behavior materially affects a formal
-audit and network access is available.
+Use `planned` execution mode for a planned preview. Never label it executed.
 
-## Repository And Release Checks
+## Project Checks
 
 ```powershell
-python -m ruff check --no-cache .
-python -m unittest discover -s tests -v
-python -B scripts/gtm_self_test.py
-python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag vYYYY.MM.DD.N
-python -B scripts/build_skill_package.py dist\gtm-cleanup-intelligence-vYYYY.MM.DD.N
+python -m ruff check --no-cache scripts tests
+python -B -m unittest discover -s tests -v
+python -B scripts/gtm_self_test.py --pretty
+python -B scripts/gtm_vendor_registry.py --max-age-days 365
+python -B scripts/check_release.py
 git diff --check
-git status --short
 ```

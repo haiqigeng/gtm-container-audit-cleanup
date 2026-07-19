@@ -1,1309 +1,201 @@
 #!/usr/bin/env python3
-"""Validate GTM audit completion-gate reconciliation rows.
-
-Input may be:
-- CSV exported from the Workstream Reconciliation tab.
-- JSON list of row objects, or {"rows": [...]}.
-- XLSX workbook with a sheet whose name contains "Workstream Reconciliation".
-
-Use --strict-evidence with XLSX workbooks that claim full audit or cleanup-plan
-completion. Strict mode also checks Semantic Object Matrix and Custom Code
-Semantic Review evidence and rejects cleanup-operation placeholders that defer
-audit work into execution.
-"""
+"""Validate the compact GTM cleanup-plan workbook structure and content."""
 
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import re
 import sys
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from gtm_workbook import (
-    expand_structured_rows,
-    find_sheet_aliases,
-    load_xlsx_workbook,
-    normalize_header,
-    normalize_sheet_name,
+from gtm_workbook import load_xlsx_workbook
+from gtm_workbook_build import CANONICAL_SHEETS
+
+PLACEHOLDER_PATTERNS = (
+    re.compile(r"\b(?:tbd|to" r"do|lorem ipsum)\b", re.I),
+    re.compile(r"\b(?:configuration|code) (?:reviewed|inspected)\b", re.I),
+    re.compile(r"\b(?:review|check) (?:later|in gtm)\b", re.I),
 )
 
-COUNT_FIELDS = [
-    "total_source_count",
-    "inventoried_count",
-    "dependency_mapped_count",
-    "measurement_diagnosed_count",
-    "semantically_validated_count",
-    "cleanup_decision_count",
-    "deferred_count",
-    "not_applicable_count",
-    "user_excluded_count",
-    "unresolved_count",
-]
 
-REQUIRED_FIELDS = ["workstream", "object_family"] + COUNT_FIELDS
-
-SEMANTIC_MATRIX_REQUIRED_FIELDS = [
-    "object_key",
-    "object_id",
-    "object_name",
-    "layer",
-    "config_hash",
-    "source_json_path",
-    "depth_required",
-    "depth_completed",
-    "business_role",
-    "expected_contract",
-    "official_doc_basis",
-    "actual_inputs_or_sources",
-    "literal_behavior",
-    "output_or_side_effect",
-    "consumer_context",
-    "sibling_comparison",
-    "analyst_judgment",
-    "cleanup_implication",
-    "evidence_or_qa_blocker",
-    "semantic_status",
-    "confidence",
-    "evidence_anchors",
-    "configuration_branch_reviews",
-    "code_line_reviews",
-    "consumer_evidence_keys",
-    "reference_traces",
-]
-
-CUSTOM_CODE_REQUIRED_FIELDS = [
-    "layer",
-    "object_id",
-    "object_name",
-    "type",
-    "role_category",
-    "purpose",
-    "export_review_completed",
-    "trigger_or_consumer_context",
-    "consent_assumption",
-    "external_urls_storage_cookie_dom_datalayer_side_effects",
-    "variable_references",
-    "expected_output_or_side_effect",
-    "runtime_risks",
-    "semantic_status",
-    "cleanup_recommendation",
-    "qa_method",
-    "blocker",
-]
-
-OPERATION_PACKET_REQUIRED_FIELDS = [
-    "operation_id",
-    "affected_objects",
-    "object_identity",
-    "source_lenses",
-    "current_behavior",
-    "problem",
-    "why_it_matters",
-    "expected_clean_state",
-    "exact_proposed_action",
-    "preconditions",
-    "qa_steps",
-    "rollback",
-    "confidence",
-    "blocker",
-    "priority",
-    "resolution_status",
-    "source_finding_ids",
-    "route",
-    "aggressiveness",
-    "execution_readiness",
-    "risk_class",
-]
-
-OPERATION_PACKET_NONBLANK_FIELDS = [
-    "operation_id",
-    "affected_objects",
-    "object_identity",
-    "source_lenses",
-    "current_behavior",
-    "problem",
-    "why_it_matters",
-    "expected_clean_state",
-    "exact_proposed_action",
-    "qa_steps",
-    "rollback",
-    "confidence",
-    "priority",
-    "resolution_status",
-    "source_finding_ids",
-    "route",
-    "aggressiveness",
-    "execution_readiness",
-    "risk_class",
-]
-
-TECHNICAL_PACKET_HANDOFF_FIELDS = [
-    "technical_handoff_packet",
-    "handoff_packet",
-    "handoff_evidence",
-]
-
-BASELINE_REQUIRED_FIELDS = [
-    "module_name",
-    "module_status",
-    "objects_scanned",
-    "finding_id",
-    "finding_type",
-    "object_type",
-    "object_ids",
-    "object_names",
-    "signature_key",
-    "deterministic_evidence",
-    "default_action",
-    "required_resolution",
-]
-
-PROTECTED_BASELINE_MODULES = {
-    "inventory",
-    "recognized_system_references",
-    "missing_references",
-    "duplicate_tag_names",
-    "duplicate_trigger_names",
-    "duplicate_variable_names",
-    "duplicate_folder_names",
-    "duplicate_tag_configurations",
-    "normalized_duplicate_tag_signatures",
-    "duplicate_trigger_logic",
-    "duplicate_variable_logic",
-    "duplicate_variable_paths",
-    "outdated_ua_styled_setup_objects",
-    "unused_variables",
-    "unused_triggers",
-    "tags_without_firing_triggers",
-    "unused_custom_templates",
-    "unused_folders",
-    "single_member_trigger_groups",
-    "duplicate_custom_code",
-    "name_hygiene",
-    "naming_architecture_standardization",
-}
-
-D3_REQUIRED_FIELDS = [
-    "d3_inputs_or_sources",
-    "d3_logic_summary",
-    "d3_output_or_side_effect",
-    "d3_consumer_expectation",
-    "d3_correctness_decision",
-]
-
-COMPACT_D3_FIELDS = [
-    "literal_behavior",
-    "consumer_context",
-    "analyst_judgment",
-    "cleanup_implication",
-    "evidence_or_qa_blocker",
-]
-
-SEMANTIC_SUMMARY_FIELDS = [
-    "d3_logic_summary",
-    "d3_output_or_side_effect",
-    "d3_correctness_decision",
-    "literal_behavior",
-    "consumer_context",
-    "analyst_judgment",
-    "cleanup_implication",
-    "evidence_or_qa_blocker",
-]
-
-CUSTOM_CODE_SUMMARY_FIELDS = [
-    "purpose",
-    "external_urls_storage_cookie_dom_datalayer_side_effects",
-    "expected_output_or_side_effect",
-    "runtime_risks",
-    "cleanup_recommendation",
-]
-
-CLEANUP_PLAN_TAXONOMY_FIELDS = [
-    "area_problem_type",
-    "area",
-    "problem_type",
-]
-
-CLEANUP_PLAN_PROBLEM_FIELDS = [
-    "problem_evidence",
-    "issue_evidence",
-    "issue_or_evidence",
-    "problem",
-]
-
-CLEANUP_PLAN_ACTION_FIELDS = [
-    "action_priority_qa",
-    "recommended_action",
-    "action_qa_status",
-    "qa_status",
-]
-
-PLACEHOLDER_PATTERNS = [
-    re.compile(r"\bperform\s+line[- ]level(?:\s+custom[- ]code)?\s+review\b", re.I),
-    re.compile(r"\breview\s+custom\s+code\b", re.I),
-    re.compile(r"\bcheck\s+(?:the\s+)?variables?\b", re.I),
-    re.compile(r"\bvalidate\s+trigger\s+logic\b", re.I),
-]
-
-VAGUE_ACTION_PATTERNS = [
-    re.compile(r"^\s*(?:review|check|validate|investigate)\b", re.I),
-    re.compile(
-        r"^\s*(?:simplify|consolidate|harden|fix)\s*(?:custom\s+code|code|logic|where\s+possible)?\s*$",
-        re.I,
-    ),
-    re.compile(r"\bsimplify\s+custom\s+code\b", re.I),
-    re.compile(r"\bconsolidate\s+where\s+possible\b", re.I),
-    re.compile(r"\bharden\s+risky\s+code\b", re.I),
-]
-
-INCOMPLETE_DEPTH_PATTERNS = [
-    re.compile(r"\bd3\s*/\s*d4\s+blocked\b", re.I),
-    re.compile(r"\bd3\s+(?:required|needed)\b", re.I),
-    re.compile(r"\bstatic\s+scan\s+only\b", re.I),
-    re.compile(r"\b(?:full\s+)?code\s+walkthrough\s+(?:required|needed)\b", re.I),
-    re.compile(r"\breview\s+later\b", re.I),
-]
-
-GENERIC_SUMMARY_PATTERNS = [
-    re.compile(r"\bcustom\s+code\s+inspected\b", re.I),
-    re.compile(r"\bconfiguration\s+reviewed\b", re.I),
-    re.compile(r"\bcode\s+scanned\b", re.I),
-    re.compile(r"\bexternal\s+url\s+found\b", re.I),
-    re.compile(r"\bno\s+external\s+urls?\s+detected\b", re.I),
-    re.compile(r"\bdatalayer\s+push\s+detected\b", re.I),
-    re.compile(r"\bno\s+obvious\s+browser\s+side\s+effect\b", re.I),
-    re.compile(r"\bno\s+issue\s+found\b", re.I),
-    re.compile(r"\bsee\s+(?:the\s+)?config\b", re.I),
-    re.compile(r"\bsee\s+(?:the\s+)?export\b", re.I),
-    re.compile(r"\bstatic\s+scan\s+completed\b", re.I),
-    re.compile(r"\breviewed\s+manually\b", re.I),
-    re.compile(r"\breturns?\s+(?:a\s+)?computed\s+values?\b", re.I),
-    re.compile(r"\bcomputed\s+scalar\s*/\s*object\b", re.I),
-    re.compile(r"\bbrowser\s+side\s+effects?\b", re.I),
-    re.compile(r"\bpayload\s+transformer\b", re.I),
-    re.compile(r"\bvendor\s+loader\b", re.I),
-    re.compile(r"\baccording\s+to\s+(?:its\s+)?configured\s+type\b", re.I),
-    re.compile(
-        r"\bobject\s+configuration,\s*GTM\s+event,\s*browser,\s*DOM,\s*storage,\s*or\s*template\s+fields\b",
-        re.I,
-    ),
-    re.compile(r"\bloads,\s*writes,\s*pushes,\s*or\s*mutates\s+browser\s+state\b", re.I),
-    re.compile(r"\btags\s+and\s+downstream\s+reports\s+need\s+event\s+context\b", re.I),
-    re.compile(r"^\s*semantic\s+(?:issue|problem)\s*$", re.I),
-    re.compile(r"^\s*media\s+(?:issue|problem)\s*$", re.I),
-    re.compile(r"^\s*configuration\s+(?:issue|problem)\s*$", re.I),
-    re.compile(r"^\s*tracking\s+(?:issue|problem)\s*$", re.I),
-    re.compile(r"^\s*tag\s+(?:issue|problem)\s*$", re.I),
-    re.compile(r"^\s*trigger\s+(?:issue|problem)\s*$", re.I),
-    re.compile(r"^\s*variable\s+(?:issue|problem)\s*$", re.I),
-    re.compile(r"^\s*custom[- ]code\s+(?:issue|problem)\s*$", re.I),
-]
-
-GENERIC_D3_VALUES = {
-    "",
-    "n/a",
-    "na",
-    "not applicable",
-    "see export",
-    "see config",
-    "static scan",
-    "static scan completed",
-    "runtime required",
-    "runtime qa required",
-    "more info needed",
-    "blocked",
-    "pending",
-}
-
-SOURCE_SIGNAL_PATTERNS = [
-    re.compile(pattern, re.I)
-    for pattern in (
-        r"\breads?\b",
-        r"\buses?\b",
-        r"\bsource\b",
-        r"\bfrom\b",
-        r"\bdatalayer\b",
-        r"\bdl[v ]?\b",
-        r"\{\{",
-        r"\bcookies?\b",
-        r"\bstorage\b",
-        r"\burl\b",
-        r"\bdom\b",
-        r"\bcmp\b",
-        r"\btemplate\b",
-        r"\bfields?\b",
-        r"\bparameters?\b",
-        r"\btriggers?\b",
-        r"\bevents?\b",
-    )
-]
-
-LOGIC_ACTION_PATTERNS = [
-    re.compile(pattern, re.I)
-    for pattern in (
-        r"\breads?\b",
-        r"\bmaps?\b",
-        r"\breturns?\b",
-        r"\bbuilds?\b",
-        r"\blistens?\b",
-        r"\bpush(?:es)?\b",
-        r"\bloads?\b",
-        r"\bsets?\b",
-        r"\bextracts?\b",
-        r"\bjoins?\b",
-        r"\bcalculat(?:es|ing)\b",
-        r"\bforwards?\b",
-        r"\bsends?\b",
-        r"\btriggers?\b",
-        r"\bfilters?\b",
-        r"\bmatches?\b",
-        r"\bchecks?\b",
-        r"\bcalls?\b",
-        r"\bwrites?\b",
-        r"\bnormaliz(?:es|ing)\b",
-        r"\bparses?\b",
-        r"\bstores?\b",
-        r"\bupdates?\b",
-        r"\bblocks?\b",
-        r"\bfires?\b",
-        r"\bevaluates?\b",
-    )
-]
-
-OUTPUT_SIGNAL_PATTERNS = [
-    re.compile(pattern, re.I)
-    for pattern in (
-        r"\breturns?\b",
-        r"\boutputs?\b",
-        r"\bproduces?\b",
-        r"\bpush(?:es)?\b",
-        r"\bloads?\b",
-        r"\bsends?\b",
-        r"\bfires?\b",
-        r"\bblocks?\b",
-        r"\bsets?\b",
-        r"\bwrites?\b",
-        r"\bmutates?\b",
-        r"\bside[- ]effects?\b",
-        r"\bpayload\b",
-        r"\bevents?\b",
-        r"\bvalues?\b",
-        r"\barrays?\b",
-        r"\bobjects?\b",
-        r"\bbooleans?\b",
-        r"\bstrings?\b",
-        r"\bnumbers?\b",
-        r"\bcookies?\b",
-        r"\bstorage\b",
-        r"\bdatalayer\b",
-        r"\brequests?\b",
-        r"\bnetwork\b",
-    )
-]
-
-CONSUMER_SIGNAL_PATTERNS = [
-    re.compile(pattern, re.I)
-    for pattern in (
-        r"\bconsumed\s+by\b",
-        r"\bused\s+by\b",
-        r"\bexpected\s+by\b",
-        r"\bfeeds?\b",
-        r"\bconsumers?\b",
-        r"\bdestinations?\b",
-        r"\btags?\b",
-        r"\btriggers?\b",
-        r"\bvariables?\b",
-        r"\bvendors?\b",
-        r"\bplatforms?\b",
-        r"\bga4\b",
-        r"\bgoogle\b",
-        r"\bpiano\b",
-        r"\bmeta\b",
-        r"\bpixels?\b",
-        r"\bconsent\b",
-        r"\bservers?\b",
-    )
-]
-
-DECISION_SIGNAL_PATTERNS = [
-    re.compile(pattern, re.I)
-    for pattern in (
-        r"\bcoherent\b",
-        r"\bissues?\b",
-        r"\blikely\s+issue\b",
-        r"\bmismatch\b",
-        r"\bcorrect\b",
-        r"\bincorrect\b",
-        r"\bfix\b",
-        r"\bkeep\b",
-        r"\bconsolidate\b",
-        r"\bdelete\s+candidate\b",
-        r"\bruntime\s+qa\b",
-        r"\bowner\b",
-        r"\bblockers?\b",
-        r"\bdeferred\b",
-        r"\bneeds?\b",
-        r"\bsafe\b",
-        r"\brisky\b",
-        r"\bunclear\b",
-        r"\bfunctional\b",
-        r"\bnot\s+functional\b",
-    )
-]
+def as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
 
 
-def to_int(row: dict[str, Any], field: str) -> tuple[int, str | None]:
-    raw = row.get(field, "")
-    if raw is None or raw == "":
-        return 0, f"missing count '{field}'"
-    try:
-        return int(float(str(raw).strip())), None
-    except ValueError:
-        return 0, f"invalid count '{field}'={raw!r}"
-
-
-def load_csv(path: Path) -> list[dict[str, Any]]:
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        rows = []
-        for raw in reader:
-            rows.append({normalize_header(k): v for k, v in raw.items()})
-        return rows
-
-
-def load_json(path: Path) -> list[dict[str, Any]]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(data, dict) and isinstance(data.get("rows"), list):
-        data = data["rows"]
-    if not isinstance(data, list):
-        raise ValueError("JSON input must be a list of rows or {'rows': [...]}")
-    return [{normalize_header(k): v for k, v in row.items()} for row in data]
-
-
-def load_xlsx(path: Path) -> list[dict[str, Any]]:
-    workbook = load_xlsx_workbook(path)
-    name, rows = find_sheet_aliases(workbook, (("reconciliation",),))
-    if not name:
-        raise ValueError("No reconciliation sheet found")
-    return expand_structured_rows(rows)
-
-
-def load_rows(path: Path) -> list[dict[str, Any]]:
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        return load_csv(path)
-    if suffix == ".json":
-        return load_json(path)
-    if suffix == ".xlsx":
-        return load_xlsx(path)
-    raise ValueError("Unsupported file type. Use .csv, .json, or .xlsx")
-
-
-def validate_rows(rows: Iterable[dict[str, Any]]) -> tuple[list[str], list[str]]:
-    errors: list[str] = []
-    warnings: list[str] = []
-    row_list = list(rows)
-    if not row_list:
-        return ["no reconciliation rows found"], warnings
-
-    for index, row in enumerate(row_list, start=2):
-        label = f"row {index}"
-        missing = [field for field in REQUIRED_FIELDS if field not in row]
-        if missing:
-            errors.append(f"{label}: missing required fields: {', '.join(missing)}")
-            continue
-
-        counts: dict[str, int] = {}
-        for field in COUNT_FIELDS:
-            value, problem = to_int(row, field)
-            counts[field] = value
-            if problem:
-                errors.append(f"{label}: {problem}")
-
-        semantic_total = (
-            counts["semantically_validated_count"]
-            + counts["deferred_count"]
-            + counts["not_applicable_count"]
-            + counts["user_excluded_count"]
-        )
-        if counts["total_source_count"] != semantic_total:
-            errors.append(
-                f"{label}: semantic coverage mismatch: total_source_count="
-                f"{counts['total_source_count']} but semantically_validated + deferred "
-                f"+ not_applicable + user_excluded = {semantic_total}"
-            )
-        if counts["unresolved_count"] != 0:
-            errors.append(f"{label}: unresolved_count is {counts['unresolved_count']}")
-        if counts["inventoried_count"] < counts["total_source_count"]:
-            warnings.append(f"{label}: inventoried_count is below total_source_count")
-        if counts["dependency_mapped_count"] < counts["semantically_validated_count"]:
-            warnings.append(
-                f"{label}: dependency_mapped_count is below semantically_validated_count"
-            )
-        if counts["measurement_diagnosed_count"] < counts["semantically_validated_count"]:
-            errors.append(
-                f"{label}: measurement_diagnosed_count is below semantically_validated_count"
-            )
-        if counts["cleanup_decision_count"] < counts["semantically_validated_count"]:
-            warnings.append(
-                f"{label}: cleanup_decision_count is below semantically_validated_count"
-            )
-
-    return errors, warnings
-
-
-def field_is_blank(value: Any) -> bool:
-    return value is None or str(value).strip() == ""
-
-
-def validate_required_table(
-    rows: list[dict[str, Any]], required_fields: list[str], label: str
-) -> list[str]:
-    errors: list[str] = []
+def duplicate_columns(sheet_name: str, rows: list[dict[str, Any]]) -> list[str]:
     if not rows:
-        return [f"{label}: no data rows found"]
-
-    available = set(rows[0])
-    missing = [field for field in required_fields if field not in available]
-    if missing:
-        errors.append(f"{label}: missing required fields: {', '.join(missing)}")
-        return errors
-
-    key_fields = [
-        field
-        for field in ("object_id", "object_name", "layer", "semantic_status")
-        if field in required_fields
-    ]
-    key_fields.extend(
-        field
-        for field in (
-            "inferred_business_role",
-            "decision_outcome",
-            "conversion_hierarchy",
-            "platform_role",
-            "expected_data_contract",
-        )
-        if field in required_fields
-    )
-    for index, row in enumerate(rows, start=2):
-        for field in key_fields:
-            if field_is_blank(row.get(field)):
-                errors.append(f"{label} row {index}: blank {field}")
-    return errors
-
-
-def depth_tokens(value: Any) -> set[str]:
-    return {match.group(0).upper() for match in re.finditer(r"\bD[1-4]\b", str(value or ""), re.I)}
-
-
-def generic_or_blank(value: Any) -> bool:
-    text = str(value or "").strip().lower()
-    return text in GENERIC_D3_VALUES
-
-
-def compact_text(value: Any) -> str:
-    return re.sub(r"\s+", " ", str(value or "").strip().lower())
-
-
-def has_signal(value: Any, patterns: list[re.Pattern[str]]) -> bool:
-    text = str(value or "")
-    return any(pattern.search(text) for pattern in patterns)
-
-
-def word_count(value: Any) -> int:
-    return len(re.findall(r"\b[\w{}.-]+\b", str(value or "")))
-
-
-def d3_proof_errors(row: dict[str, Any], label: str, index: int) -> list[str]:
-    errors: list[str] = []
-    available = set(row)
-    if any(field in available for field in COMPACT_D3_FIELDS):
-        missing = [field for field in COMPACT_D3_FIELDS if field not in available]
-        if missing:
-            return [
-                f"{label} row {index}: compact D3 proof is missing columns: {', '.join(missing)}"
-            ]
-        return compact_d3_proof_errors(row, label, index)
-
-    field_values = {field: str(row.get(field) or "").strip() for field in D3_REQUIRED_FIELDS}
-
-    for field, text in field_values.items():
-        if generic_or_blank(text):
-            errors.append(f"{label} row {index}: D3 field {field} is blank or generic")
-        elif word_count(text) < 5:
-            errors.append(
-                f"{label} row {index}: D3 field {field} is too short to prove "
-                "source, logic, output, consumer expectation, or judgment"
-            )
-
-    normalized_to_fields: dict[str, list[str]] = {}
-    for field, text in field_values.items():
-        normalized = compact_text(text)
-        if normalized:
-            normalized_to_fields.setdefault(normalized, []).append(field)
-    for fields in normalized_to_fields.values():
-        if len(fields) > 1:
-            errors.append(
-                f"{label} row {index}: D3 fields repeat the same content: {', '.join(fields)}"
-            )
-
-    signal_checks = [
-        ("d3_inputs_or_sources", SOURCE_SIGNAL_PATTERNS, "a concrete source/input"),
-        ("d3_logic_summary", LOGIC_ACTION_PATTERNS, "a logic/action verb"),
-        ("d3_output_or_side_effect", OUTPUT_SIGNAL_PATTERNS, "an output or side-effect signal"),
-        ("d3_consumer_expectation", CONSUMER_SIGNAL_PATTERNS, "a consumer/destination signal"),
-        ("d3_correctness_decision", DECISION_SIGNAL_PATTERNS, "a correctness judgment"),
-    ]
-    for field, patterns, requirement in signal_checks:
-        if field in field_values and not has_signal(field_values[field], patterns):
-            errors.append(f"{label} row {index}: D3 field {field} lacks {requirement}")
-    return errors
-
-
-def d3_proof_complete(row: dict[str, Any]) -> bool:
-    return not d3_proof_errors(row, "semantic row", 0)
-
-
-def compact_d3_proof_errors(row: dict[str, Any], label: str, index: int) -> list[str]:
-    errors: list[str] = []
-    values = {field: str(row.get(field) or "").strip() for field in COMPACT_D3_FIELDS}
-    for field, text in values.items():
-        if generic_or_blank(text):
-            errors.append(f"{label} row {index}: compact D3 field {field} is blank or generic")
-        elif word_count(text) < 5:
-            errors.append(
-                f"{label} row {index}: compact D3 field {field} is too short to prove "
-                "literal behavior, consumer context, judgment, or cleanup implication"
-            )
-        for pattern in GENERIC_SUMMARY_PATTERNS:
-            if pattern.search(text):
-                errors.append(
-                    f"{label} row {index} field {field}: generic or fake-precision "
-                    f"phrase {pattern.pattern!r}"
-                )
-
-    normalized_to_fields: dict[str, list[str]] = {}
-    for field, text in values.items():
-        normalized = compact_text(text)
-        if normalized:
-            normalized_to_fields.setdefault(normalized, []).append(field)
-    for fields in normalized_to_fields.values():
-        if len(fields) > 1:
-            errors.append(
-                f"{label} row {index}: compact D3 fields repeat the same content: "
-                f"{', '.join(fields)}"
-            )
-
-    checks = [
-        ("literal_behavior", LOGIC_ACTION_PATTERNS, "literal object behavior"),
-        ("consumer_context", CONSUMER_SIGNAL_PATTERNS, "actual consumer/context"),
-        ("analyst_judgment", DECISION_SIGNAL_PATTERNS, "analyst judgment"),
-        (
-            "cleanup_implication",
-            DECISION_SIGNAL_PATTERNS + LOGIC_ACTION_PATTERNS,
-            "cleanup implication",
-        ),
-        (
-            "evidence_or_qa_blocker",
-            SOURCE_SIGNAL_PATTERNS + DECISION_SIGNAL_PATTERNS,
-            "evidence or QA blocker",
-        ),
-    ]
-    for field, patterns, requirement in checks:
-        if not has_signal(values[field], patterns):
-            errors.append(f"{label} row {index}: compact D3 field {field} lacks {requirement}")
-    return errors
-
-
-def validate_semantic_depth_rows(rows: list[dict[str, Any]], label: str) -> list[str]:
-    errors: list[str] = []
-    available = set(rows[0]) if rows else set()
-    missing_d3_columns = [field for field in D3_REQUIRED_FIELDS if field not in available]
-    missing_compact_d3_columns = [field for field in COMPACT_D3_FIELDS if field not in available]
-
-    for index, row in enumerate(rows, start=2):
-        required = depth_tokens(row.get("depth_required"))
-        completed = depth_tokens(row.get("depth_completed"))
-        missing_depths = sorted(required.intersection({"D1", "D2", "D3"}) - completed)
-        if missing_depths:
-            errors.append(
-                f"{label} row {index}: depth_required includes "
-                f"{', '.join(missing_depths)} but depth_completed does not"
-            )
-
-        depth_completed_text = str(row.get("depth_completed") or "")
-        source_logic_text = str(row.get("source_or_code_logic_status") or "")
-        for pattern in INCOMPLETE_DEPTH_PATTERNS:
-            if pattern.search(depth_completed_text) or pattern.search(source_logic_text):
-                errors.append(
-                    f"{label} row {index}: incomplete-depth wording found: {pattern.pattern!r}"
-                )
-
-        if "D3" in required:
-            if missing_d3_columns and missing_compact_d3_columns:
-                errors.append(
-                    f"{label} row {index}: D3 required but matrix is missing both "
-                    "legacy and compact D3 proof columns"
-                )
-                continue
-            if "D3" not in completed:
-                continue
-            errors.extend(d3_proof_errors(row, label, index))
-    return errors
-
-
-def validate_summary_quality(
-    rows: list[dict[str, Any]], fields: list[str], label: str
-) -> list[str]:
-    errors: list[str] = []
-    if not rows:
-        return errors
-
-    available = set(rows[0])
-    target_fields = [field for field in fields if field in available]
-    for index, row in enumerate(rows, start=2):
-        for field in target_fields:
-            text = str(row.get(field) or "")
-            for pattern in GENERIC_SUMMARY_PATTERNS:
-                if pattern.search(text):
-                    errors.append(
-                        f"{label} row {index} field {field}: generic summary phrase "
-                        f"{pattern.pattern!r}; explain category, source/input, "
-                        "logic/action, output or side effect, and judgment"
-                    )
-    return errors
-
-
-def custom_code_required(reconciliation_rows: Iterable[dict[str, Any]]) -> bool:
-    for row in reconciliation_rows:
-        label = f"{row.get('workstream', '')} {row.get('object_family', '')}".lower()
-        if "custom" not in label:
-            continue
-        total, problem = to_int(row, "total_source_count")
-        if problem:
-            continue
-        not_applicable, _ = to_int(row, "not_applicable_count")
-        user_excluded, _ = to_int(row, "user_excluded_count")
-        if total > not_applicable + user_excluded:
-            return True
-    return False
-
-
-def validate_full_audit_object_family_rows(rows: Iterable[dict[str, Any]]) -> list[str]:
-    errors: list[str] = []
-    row_list = list(rows)
-    required_families = {
-        "tags": ("tag", "tags"),
-        "triggers": ("trigger", "triggers"),
-        "variables": ("variable", "variables"),
+        return []
+    headers = list(rows[0])
+    columns = {
+        header: tuple(str(row.get(header, "") or "").strip() for row in rows) for header in headers
     }
-    for label, terms in required_families.items():
-        matching = [
-            row
-            for row in row_list
-            if any(term in str(row.get("object_family", "")).lower() for term in terms)
-        ]
-        if not matching:
-            errors.append(
-                f"strict evidence: missing reconciliation/object-family row for {label}; "
-                "full audits must reconcile tags, triggers, and variables separately"
-            )
+    errors = []
+    for index, left in enumerate(headers):
+        if not any(columns[left]):
             continue
-        if not any((to_int(row, "total_source_count")[0] > 0) for row in matching):
-            errors.append(
-                f"strict evidence: reconciliation rows for {label} have zero total_source_count"
-            )
+        for right in headers[index + 1 :]:
+            if columns[left] == columns[right]:
+                errors.append(f"{sheet_name}: duplicate column content in {left!r} and {right!r}")
     return errors
 
 
-def validate_custom_code_rows(rows: list[dict[str, Any]], label: str) -> list[str]:
-    errors = validate_required_table(rows, CUSTOM_CODE_REQUIRED_FIELDS, label)
-    if errors:
-        return errors
-
-    for index, row in enumerate(rows, start=2):
-        review_status = str(row.get("export_review_completed", "")).strip().lower()
-        semantic_status = str(row.get("semantic_status", "")).strip().lower()
-        if review_status not in {"yes", "not applicable", "n/a"}:
-            errors.append(
-                f"{label} row {index}: export_review_completed must be Yes or Not applicable"
-            )
-        if semantic_status in {"", "review later", "pending", "pending review"}:
-            errors.append(f"{label} row {index}: semantic_status is not a decision")
-        if review_status == "yes" and semantic_status not in {"not applicable", "n/a"}:
-            output_text = row.get("expected_output_or_side_effect", "")
-            if word_count(output_text) < 5 or not has_signal(output_text, OUTPUT_SIGNAL_PATTERNS):
+def placeholder_errors(sheet_name: str, rows: list[dict[str, Any]]) -> list[str]:
+    errors = []
+    for row_number, row in enumerate(rows, start=2):
+        for header, value in row.items():
+            text = str(value or "")
+            if any(pattern.search(text) for pattern in PLACEHOLDER_PATTERNS):
                 errors.append(
-                    f"{label} row {index}: expected_output_or_side_effect must describe "
-                    "what the code returns, pushes, loads, writes, calls, or mutates"
+                    f"{sheet_name}!{header} row {row_number}: generic or deferred wording"
                 )
-    errors.extend(validate_summary_quality(rows, CUSTOM_CODE_SUMMARY_FIELDS, label))
     return errors
 
 
-def validate_baseline_rows(rows: list[dict[str, Any]], label: str) -> list[str]:
-    errors = validate_required_table(rows, BASELINE_REQUIRED_FIELDS, label)
-    if errors:
-        return errors
-    seen_modules = set()
-    for index, row in enumerate(rows, start=2):
-        module_name = str(row.get("module_name") or "").strip()
-        module_status = str(row.get("module_status") or "").strip().lower()
-        finding_type = str(row.get("finding_type") or "").strip().lower()
-        if module_name:
-            seen_modules.add(module_name)
-        if module_status not in {"findings", "zero_findings"}:
-            errors.append(f"{label} row {index}: module_status must be findings or zero_findings")
-        if finding_type != "zero_findings" and not str(row.get("default_action") or "").strip():
-            errors.append(f"{label} row {index}: finding lacks default_action")
-        if (
-            finding_type != "zero_findings"
-            and not str(row.get("required_resolution") or "").strip()
-        ):
-            errors.append(f"{label} row {index}: finding lacks required_resolution")
-    if not seen_modules:
-        errors.append(f"{label}: no baseline modules found")
-    else:
-        missing_modules = sorted(PROTECTED_BASELINE_MODULES - seen_modules)
-        if missing_modules:
-            errors.append(
-                f"{label}: missing protected deterministic baseline module(s): "
-                + ", ".join(missing_modules)
-            )
-    return errors
-
-
-def validate_operation_packet_rows(rows: list[dict[str, Any]], label: str) -> list[str]:
-    errors = validate_required_table(rows, OPERATION_PACKET_REQUIRED_FIELDS, label)
-    if errors:
-        return errors
-
-    seen_ids: set[str] = set()
-    for index, row in enumerate(rows, start=2):
-        for field in OPERATION_PACKET_NONBLANK_FIELDS:
-            if field_is_blank(row.get(field)):
-                errors.append(f"{label} row {index}: blank {field}")
-
-        operation_id = str(row.get("operation_id") or "").strip()
-        if operation_id:
-            if operation_id in seen_ids:
-                errors.append(f"{label} row {index}: duplicate operation_id {operation_id}")
-            seen_ids.add(operation_id)
-
-        resolution = compact_text(row.get("resolution_status")).replace(" ", "_")
-        accepted = {
-            "cleanup_operation",
-            "documented_exception",
-            "runtime_blocker",
-            "owner_decision_needed",
-            "not_applicable",
-        }
-        if resolution not in accepted:
-            errors.append(
-                f"{label} row {index}: resolution_status must be one of "
-                f"{', '.join(sorted(accepted))}"
-            )
-        if resolution in {"runtime_blocker", "owner_decision_needed"} and field_is_blank(
-            row.get("blocker")
-        ):
-            errors.append(f"{label} row {index}: blocker is required for {resolution}")
-
-        readiness = compact_text(row.get("execution_readiness")).replace(" ", "_")
-        accepted_readiness = {
-            "safe_now",
-            "approval_required",
-            "d4_required",
-            "owner_blocked",
-            "no_change",
-        }
-        if readiness not in accepted_readiness:
-            errors.append(
-                f"{label} row {index}: execution_readiness must be one of "
-                f"{', '.join(sorted(accepted_readiness))}"
-            )
-        aggressiveness = compact_text(row.get("aggressiveness"))
-        if aggressiveness not in {"conservative", "standard", "deep", "transformational"}:
-            errors.append(f"{label} row {index}: invalid aggressiveness")
-        if compact_text(row.get("risk_class")) not in {"low", "medium", "high", "critical"}:
-            errors.append(f"{label} row {index}: invalid risk_class")
-
-        if "technical" in str(row.get("source_lenses") or "").lower() and not any(
-            not field_is_blank(row.get(field)) for field in TECHNICAL_PACKET_HANDOFF_FIELDS
-        ):
-            errors.append(
-                f"{label} row {index}: technical source lens requires "
-                "technical_handoff_packet, handoff_packet, or handoff_evidence"
-            )
-
-        action_text = str(row.get("exact_proposed_action") or "")
-        for pattern in VAGUE_ACTION_PATTERNS:
-            if pattern.search(action_text):
-                errors.append(
-                    f"{label} row {index}: exact_proposed_action is vague: {action_text!r}"
-                )
-                break
-    return errors
-
-
-def validate_cleanup_rows_backed_by_packets(
-    workbook_rows: dict[str, list[dict[str, Any]]], packet_rows: list[dict[str, Any]]
+def workbook_structure_errors(
+    workbook_rows: dict[str, list[dict[str, Any]]]
 ) -> list[str]:
     errors: list[str] = []
-    packet_ids = {
-        str(row.get("operation_id") or "").strip()
-        for row in packet_rows
-        if str(row.get("operation_id") or "").strip()
-    }
-    for sheet_name, rows in workbook_rows.items():
-        normalized = normalize_sheet_name(sheet_name)
-        if "cleanup" not in normalized or "plan" not in normalized:
-            continue
-        if not rows:
-            continue
-        headers = {normalize_header(header): header for header in rows[0]}
-        level_key = headers.get("level")
-        id_key = headers.get("operation_id") or headers.get("id")
-        if not id_key:
-            errors.append(
-                f"{sheet_name}: cleanup plan needs ID or operation_id values that link to operation packets"
-            )
-            continue
-        for index, row in enumerate(rows, start=2):
-            level = str(row.get(level_key) or "").strip().lower() if level_key else "single"
-            if level == "summary":
-                continue
-            row_id = str(row.get(id_key) or "").strip()
-            if not row_id:
-                errors.append(f"{sheet_name} row {index}: cleanup row lacks operation packet ID")
-                continue
-            if row_id not in packet_ids:
-                errors.append(
-                    f"{sheet_name} row {index}: cleanup row ID {row_id!r} has no matching operation packet"
-                )
-    return errors
-
-
-def validate_placeholder_language(workbook_rows: dict[str, list[dict[str, Any]]]) -> list[str]:
-    errors: list[str] = []
-    target_sheet_terms = ("finding", "operation", "roadmap", "cleanup", "plan")
-    for sheet_name, rows in workbook_rows.items():
-        normalized = normalize_sheet_name(sheet_name)
-        if not any(term in normalized for term in target_sheet_terms):
-            continue
-        for row_index, row in enumerate(rows, start=2):
-            for field, value in row.items():
-                text = str(value or "")
-                for pattern in PLACEHOLDER_PATTERNS:
-                    if pattern.search(text):
-                        errors.append(
-                            f"{sheet_name} row {row_index} field {field}: "
-                            f"deferred audit-work placeholder {pattern.pattern!r}"
-                        )
-                for pattern in VAGUE_ACTION_PATTERNS:
-                    if pattern.search(text):
-                        errors.append(
-                            f"{sheet_name} row {row_index} field {field}: "
-                            f"vague cleanup action {pattern.pattern!r}; state exact "
-                            "object state or blocker"
-                        )
-    return errors
-
-
-def validate_cleanup_plan_parent_detail(
-    workbook_rows: dict[str, list[dict[str, Any]]],
-) -> list[str]:
-    errors: list[str] = []
-    for sheet_name, rows in workbook_rows.items():
-        normalized = normalize_sheet_name(sheet_name)
-        if "cleanup" not in normalized or "plan" not in normalized:
-            continue
-        if not rows:
-            continue
-        headers = {normalize_header(header): header for header in rows[0]}
-        if "level" not in headers:
-            errors.append(
-                f"{sheet_name}: compact cleanup plan is missing Level column "
-                "(Summary, Detail, or Single)"
-            )
-            continue
-        level_key = headers["level"]
-        id_key = headers.get("id")
-        previous_summary_id = ""
-        previous_summary_row = 0
-        summary_has_detail = False
-        for index, row in enumerate(rows, start=2):
-            level = str(row.get(level_key) or "").strip().lower()
-            row_id = str(row.get(id_key) or "").strip() if id_key else ""
-            if level not in {"summary", "detail", "single"}:
-                errors.append(f"{sheet_name} row {index}: Level must be Summary, Detail, or Single")
-                continue
-            if level == "summary":
-                if previous_summary_id and not summary_has_detail:
-                    errors.append(
-                        f"{sheet_name} row {previous_summary_row}: Summary row has no "
-                        "immediate Detail rows; use Single for generic hygiene buckets"
-                    )
-                previous_summary_id = row_id
-                previous_summary_row = index
-                summary_has_detail = False
-            elif level == "detail":
-                if not previous_summary_id:
-                    errors.append(
-                        f"{sheet_name} row {index}: Detail row has no preceding Summary row"
-                    )
-                else:
-                    summary_has_detail = True
-                    if (
-                        row_id
-                        and previous_summary_id
-                        and not row_id.startswith(f"{previous_summary_id}.")
-                    ):
-                        errors.append(
-                            f"{sheet_name} row {index}: Detail ID {row_id!r} should "
-                            f"start with parent Summary ID {previous_summary_id!r}."
-                        )
-            elif level == "single":
-                if previous_summary_id and not summary_has_detail:
-                    errors.append(
-                        f"{sheet_name} row {previous_summary_row}: Summary row has no "
-                        "Detail rows before the next Single row"
-                    )
-                previous_summary_id = ""
-                previous_summary_row = 0
-                summary_has_detail = False
-        if previous_summary_id and not summary_has_detail:
-            errors.append(
-                f"{sheet_name} row {previous_summary_row}: Summary row has no "
-                "Detail rows before the sheet ends"
-            )
-    return errors
-
-
-def first_present(headers: dict[str, str], candidates: list[str]) -> str:
-    for candidate in candidates:
-        if candidate in headers:
-            return headers[candidate]
-    return ""
-
-
-def validate_cleanup_plan_human_taxonomy(
-    workbook_rows: dict[str, list[dict[str, Any]]],
-) -> list[str]:
-    errors: list[str] = []
-    for sheet_name, rows in workbook_rows.items():
-        normalized = normalize_sheet_name(sheet_name)
-        if "cleanup" not in normalized or "plan" not in normalized:
-            continue
-        if not rows:
-            continue
-        headers = {normalize_header(header): header for header in rows[0]}
-        level_key = headers.get("level")
-        taxonomy_key = first_present(headers, CLEANUP_PLAN_TAXONOMY_FIELDS)
-        problem_key = first_present(headers, CLEANUP_PLAN_PROBLEM_FIELDS)
-        action_key = first_present(headers, CLEANUP_PLAN_ACTION_FIELDS)
-        if not taxonomy_key:
-            errors.append(
-                f"{sheet_name}: cleanup plan needs an Area / problem type column "
-                "so rows use human problem taxonomy instead of internal scan labels"
-            )
-        if not problem_key:
-            errors.append(
-                f"{sheet_name}: cleanup plan needs a Problem / evidence column "
-                "with a concrete user-facing issue and evidence example"
-            )
-        if not action_key:
-            errors.append(
-                f"{sheet_name}: cleanup plan needs an Action / priority / QA column "
-                "with the proposed action, priority/confidence, and QA or blocker"
-            )
-        if not taxonomy_key or not problem_key or not action_key:
-            continue
-
-        for index, row in enumerate(rows, start=2):
-            level = str(row.get(level_key) or "").strip().lower() if level_key else "single"
-            if level == "summary":
-                continue
-            taxonomy = str(row.get(taxonomy_key) or "").strip()
-            problem = str(row.get(problem_key) or "").strip()
-            action = str(row.get(action_key) or "").strip()
-            if generic_or_blank(taxonomy) or word_count(taxonomy) < 3:
-                errors.append(
-                    f"{sheet_name} row {index}: Area / problem type is missing "
-                    "a human area plus second-level problem"
-                )
-            if generic_or_blank(problem) or word_count(problem) < 7:
-                errors.append(
-                    f"{sheet_name} row {index}: Problem / evidence is too short "
-                    "to explain the visible issue and evidence"
-                )
-            if generic_or_blank(action) or word_count(action) < 5:
-                errors.append(
-                    f"{sheet_name} row {index}: Action / priority / QA is too "
-                    "short to guide action, QA, priority, or blocker"
-                )
-            for field, text in (
-                (taxonomy_key, taxonomy),
-                (problem_key, problem),
-                (action_key, action),
-            ):
-                for pattern in GENERIC_SUMMARY_PATTERNS:
-                    if pattern.search(text):
-                        errors.append(
-                            f"{sheet_name} row {index} field {field}: generic "
-                            f"internal label {pattern.pattern!r}; translate it "
-                            "into a concrete human problem"
-                        )
-    return errors
-
-
-def workbook_architecture_warnings(workbook_rows: dict[str, list[dict[str, Any]]]) -> list[str]:
-    warnings: list[str] = []
+    if list(workbook_rows) != CANONICAL_SHEETS:
+        errors.append("workbook tabs do not match the canonical eight-tab order")
     if len(workbook_rows) > 8:
-        warnings.append(
-            f"workbook architecture: {len(workbook_rows)} tabs found; compact "
-            "stakeholder outputs should normally stay at 7-8 tabs or fewer"
+        errors.append("workbook has more than eight tabs")
+    for name, rows in workbook_rows.items():
+        headers = list(rows[0]) if rows else []
+        if len(headers) > 6:
+            errors.append(f"{name}: more than six columns")
+        errors.extend(duplicate_columns(name, rows))
+        errors.extend(placeholder_errors(name, rows))
+    if "Change Log" in workbook_rows:
+        errors.append("cleanup plan must not contain a change-log tab")
+    return errors
+
+
+def rendered_cell_errors(sheet: Any) -> list[str]:
+    errors: list[str] = []
+    for row in sheet.iter_rows():
+        for cell in row:
+            if isinstance(cell.value, str) and "[truncated]" in cell.value.lower():
+                errors.append(f"{sheet.title}!{cell.coordinate}: proof text was truncated")
+            if cell.data_type == "f":
+                errors.append(f"{sheet.title}!{cell.coordinate}: formulas are not allowed")
+            elif (
+                isinstance(cell.value, str)
+                and cell.value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r", "\n"))
+                and not cell.value.startswith("'")
+            ):
+                errors.append(
+                    f"{sheet.title}!{cell.coordinate}: formula-like text is not escaped"
+                )
+    return errors
+
+
+def rendered_sheet_errors(sheet: Any) -> list[str]:
+    errors: list[str] = []
+    if sheet.max_column > 6:
+        errors.append(f"{sheet.title}: rendered workbook exceeds six columns")
+    if any((dimension.width or 0) > 92 for dimension in sheet.column_dimensions.values()):
+        errors.append(f"{sheet.title}: column width exceeds 92")
+    if any((dimension.height or 0) > 120 for dimension in sheet.row_dimensions.values()):
+        errors.append(f"{sheet.title}: row height exceeds 120")
+    errors.extend(rendered_cell_errors(sheet))
+    return errors
+
+
+def rendered_workbook_errors(workbook_path: Path) -> list[str]:
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:
+        return [f"openpyxl is required for workbook state validation: {exc}"]
+    workbook = load_workbook(workbook_path, read_only=False, data_only=False)
+    errors: list[str] = []
+    visible = [sheet.title for sheet in workbook if sheet.sheet_state == "visible"]
+    if visible != CANONICAL_SHEETS[:2]:
+        errors.append("only Summary and Cleanup Plan may be visible")
+    for sheet in workbook:
+        errors.extend(rendered_sheet_errors(sheet))
+    workbook.close()
+    return errors
+
+
+def operations_alignment_errors(
+    workbook_rows: dict[str, list[dict[str, Any]]], operations: dict[str, Any]
+) -> list[str]:
+    errors: list[str] = []
+    operation_count = len(as_list(operations.get("operations"))) + len(
+        as_list(operations.get("deferred_operations"))
+    )
+    unresolved_count = sum(
+        1
+        for row in as_list(operations.get("decision_ledger"))
+        if row.get("disposition") in {"owner_decision_needed", "container_evidence_limit"}
+    )
+    cleanup_rows = workbook_rows.get("02 Cleanup Plan", [])
+    expected_rows = operation_count + unresolved_count
+    if len(cleanup_rows) != expected_rows:
+        errors.append(
+            f"Cleanup Plan has {len(cleanup_rows)} rows but {expected_rows} operation or "
+            "decision rows are required"
         )
-    for sheet_name, rows in workbook_rows.items():
-        if not rows:
-            continue
-        column_count = len(rows[0])
-        if column_count > 8:
-            warnings.append(
-                f"workbook architecture: sheet {sheet_name!r} has {column_count} "
-                "columns; compact stakeholder/proof tabs should normally stay "
-                "around 5-6 useful columns unless this is a technical appendix"
-            )
-    return warnings
+    summary_values = {
+        str(row.get("decision") or ""): str(row.get("value") or "")
+        for row in workbook_rows.get("01 Summary", [])
+    }
+    overall_status = summary_values.get("Overall status", "").lower()
+    owner_count = sum(
+        1
+        for row in as_list(operations.get("decision_ledger"))
+        if row.get("disposition") == "owner_decision_needed"
+    )
+    if owner_count and "owner decisions required" not in overall_status:
+        errors.append("Summary status does not expose unresolved owner decisions")
+    if operations.get("aggressiveness") == "Undecided" and (
+        "cleanup level decision required" not in overall_status
+    ):
+        errors.append("Summary status does not expose undecided cleanup aggressiveness")
+    if set((operations.get("run_statuses") or {}).values()) != {"complete"}:
+        errors.append("operations do not record three complete review runs")
+    return errors
 
 
-def validate_strict_evidence(
-    path: Path, reconciliation_rows: list[dict[str, Any]]
+def validate_workbook(
+    workbook_path: Path, operations_path: Path | None = None
 ) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    if path.suffix.lower() != ".xlsx":
-        return ["--strict-evidence requires an XLSX workbook"], warnings
+    if not workbook_path.is_file():
+        return [f"workbook does not exist: {workbook_path}"], warnings
+    workbook_rows = load_xlsx_workbook(workbook_path)
+    errors.extend(workbook_structure_errors(workbook_rows))
+    errors.extend(rendered_workbook_errors(workbook_path))
 
-    workbook_rows = load_xlsx_workbook(path)
-    errors.extend(validate_full_audit_object_family_rows(reconciliation_rows))
-
-    semantic_name, semantic_rows = find_sheet_aliases(
-        workbook_rows, (("semantic", "matrix"), ("d3", "evidence"))
-    )
-    semantic_rows = expand_structured_rows(semantic_rows)
-    baseline_name, baseline_rows = find_sheet_aliases(
-        workbook_rows, (("deterministic", "baseline"), ("baseline",))
-    )
-    baseline_rows = expand_structured_rows(baseline_rows)
-    packet_name, packet_rows = find_sheet_aliases(
-        workbook_rows,
-        (("reconciliation", "operations"), ("reconciled", "operations"), ("operation", "packet")),
-    )
-    packet_rows = expand_structured_rows(packet_rows)
-    if not packet_name:
-        errors.append("strict evidence: missing Reconciled Operations / Operation Packets sheet")
-    elif not packet_rows:
-        _, cleanup_rows = find_sheet_aliases(workbook_rows, (("cleanup", "plan"),))
-        actionable_cleanup_rows = [
-            row
-            for row in cleanup_rows
-            if str(row.get("level") or "single").strip().lower() != "summary"
-        ]
-        if actionable_cleanup_rows:
-            errors.append(
-                "strict evidence: cleanup-plan detail rows exist but the operation table is empty"
-            )
-    else:
-        errors.extend(validate_operation_packet_rows(packet_rows, f"{packet_name}"))
-        errors.extend(validate_cleanup_rows_backed_by_packets(workbook_rows, packet_rows))
-
-    if not semantic_name:
-        errors.append("strict evidence: missing Semantic Object Matrix sheet")
-    else:
-        errors.extend(
-            validate_required_table(
-                semantic_rows,
-                SEMANTIC_MATRIX_REQUIRED_FIELDS,
-                f"{semantic_name}",
-            )
-        )
-        if semantic_rows:
-            errors.extend(validate_semantic_depth_rows(semantic_rows, f"{semantic_name}"))
-            errors.extend(
-                validate_summary_quality(
-                    semantic_rows,
-                    SEMANTIC_SUMMARY_FIELDS,
-                    f"{semantic_name}",
-                )
-            )
-
-    if not baseline_name:
-        errors.append("strict evidence: missing Deterministic Baseline Findings sheet")
-    else:
-        errors.extend(validate_baseline_rows(baseline_rows, f"{baseline_name}"))
-
-    custom_name, custom_rows = find_sheet_aliases(
-        workbook_rows, (("custom", "code"), ("technical", "code"))
-    )
-    custom_rows = expand_structured_rows(custom_rows)
-    if custom_code_required(reconciliation_rows) and not custom_name:
-        errors.append(
-            "strict evidence: reconciliation indicates custom-code scope, "
-            "but no Custom Code Semantic Review sheet was found"
-        )
-    elif custom_name:
-        errors.extend(validate_custom_code_rows(custom_rows, f"{custom_name}"))
-
-    errors.extend(validate_placeholder_language(workbook_rows))
-    errors.extend(validate_cleanup_plan_parent_detail(workbook_rows))
-    errors.extend(validate_cleanup_plan_human_taxonomy(workbook_rows))
-    warnings.extend(workbook_architecture_warnings(workbook_rows))
-    if not custom_code_required(reconciliation_rows) and not custom_name:
-        warnings.append(
-            "strict evidence: no custom-code review sheet found; treated as not in scope"
-        )
-
+    if operations_path:
+        operations = json.loads(operations_path.read_text(encoding="utf-8"))
+        errors.extend(operations_alignment_errors(workbook_rows, operations))
     return errors, warnings
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input", type=Path, help="CSV, JSON, or XLSX reconciliation file")
-    parser.add_argument(
-        "--strict-evidence",
-        action="store_true",
-        help=(
-            "For full audit/cleanup-plan XLSX workbooks, also validate Semantic "
-            "Object Matrix and Custom Code Semantic Review evidence."
-        ),
-    )
+    parser.add_argument("workbook", type=Path)
+    parser.add_argument("--operations", type=Path)
+    parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
-
-    try:
-        rows = load_rows(args.input)
-        errors, warnings = validate_rows(rows)
-        if args.strict_evidence:
-            strict_errors, strict_warnings = validate_strict_evidence(args.input, rows)
-            errors.extend(strict_errors)
-            warnings.extend(strict_warnings)
-    except Exception as exc:  # noqa: BLE001 - CLI should report any loading problem.
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 2
-
+    errors, warnings = validate_workbook(args.workbook, args.operations)
+    report = {
+        "kind": "gtm_cleanup_workbook_gate",
+        "status": "pass" if not errors else "fail",
+        "workbook": str(args.workbook),
+        "errors": errors,
+        "warnings": warnings,
+    }
+    print(json.dumps(report, indent=2 if args.pretty else None))
     for warning in warnings:
-        print(f"WARNING: {warning}")
-    if errors:
-        for error in errors:
-            print(f"ERROR: {error}", file=sys.stderr)
-        print(f"Gate status: FAIL ({len(errors)} error(s), {len(warnings)} warning(s))")
-        return 1
-
-    print(f"Gate status: PASS ({len(rows)} row(s), {len(warnings)} warning(s))")
-    return 0
+        print(f"WARNING: {warning}", file=sys.stderr)
+    for error in errors:
+        print(f"ERROR: {error}", file=sys.stderr)
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

@@ -48,6 +48,8 @@ FIXED_PRODUCT_INDEX_RE = re.compile(
     r"(?:\[\d+\]|\.\d+)(?:[A-Za-z0-9_\.\[\]]*)",
     re.I,
 )
+RETURN_EXPRESSION_RE = re.compile(r"\breturn\s+([^;\r\n]+)", re.I)
+SLOT_SUFFIX_RE = re.compile(r"^(.*?)(?:[\s_.\-\[]+)(\d{1,3})\]?$", re.I)
 IDENTITY_IGNORED = {"accountId", "containerId", "fingerprint", "path"}
 
 
@@ -161,6 +163,64 @@ def returned_value_type(code: str) -> str:
     return "dynamic_expression"
 
 
+def expression_facts(code: str) -> dict[str, Any]:
+    """Extract source-bound formula facts without pretending to execute JavaScript."""
+    logical_lines = [line.strip() for line in code.splitlines() if line.strip()]
+    expressions = [re.sub(r"\s+", " ", value).strip() for value in RETURN_EXPRESSION_RE.findall(code)]
+    expression_rows: list[dict[str, Any]] = []
+    fixed_slot_groups: dict[str, dict[str, Any]] = {}
+    for expression in expressions:
+        references = sorted(refs(expression))
+        operators = {
+            operator: expression.count(operator)
+            for operator in ("+", "-", "*", "/", "%")
+            if expression.count(operator)
+        }
+        for reference in references:
+            normalized = re.sub(r"\s+", " ", reference.replace("_", " ").strip()).lower()
+            match = SLOT_SUFFIX_RE.match(normalized)
+            if not match:
+                continue
+            base = re.sub(r"\s+", " ", match.group(1)).strip(" ._-")
+            if not base:
+                continue
+            group = fixed_slot_groups.setdefault(
+                base,
+                {"base": base, "indexes": set(), "references": set()},
+            )
+            group["indexes"].add(int(match.group(2)))
+            group["references"].add(reference)
+        expression_rows.append(
+            {
+                "expression": expression[:600],
+                "expression_hash": stable_hash(expression),
+                "referenced_gtm_variables": references,
+                "arithmetic_operators": operators,
+            }
+        )
+
+    serialized_groups = [
+        {
+            "base": group["base"],
+            "indexes": sorted(group["indexes"]),
+            "references": sorted(group["references"]),
+        }
+        for group in fixed_slot_groups.values()
+        if len(group["indexes"]) >= 2
+    ]
+    plus_count = sum(
+        row.get("arithmetic_operators", {}).get("+", 0) for row in expression_rows
+    )
+    fixed_slot_aggregation = bool(serialized_groups and plus_count)
+    return {
+        "logical_line_count": len(logical_lines),
+        "return_expressions": expression_rows,
+        "fixed_slot_groups": sorted(serialized_groups, key=lambda row: row["base"]),
+        "fixed_slot_aggregation": fixed_slot_aggregation,
+        "formula_review_required": fixed_slot_aggregation,
+    }
+
+
 def javascript_source(layer: str, code: str) -> str:
     if layer != "tag":
         return code
@@ -169,7 +229,7 @@ def javascript_source(layer: str, code: str) -> str:
 
 
 def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
-    """Use optional esprima parsing; keep regex extraction as the portable fallback."""
+    """Add optional AST facts; line review and static signals remain separate obligations."""
     source = javascript_source(layer, code)
     if not source.strip():
         return {
@@ -184,7 +244,7 @@ def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
         import esprima  # type: ignore
     except ImportError:
         return {
-            "javascript_parser": "regex_fallback_esprima_unavailable",
+            "javascript_parser": "not_installed_static_review_still_required",
             "ast_node_counts": {},
             "ast_calls": [],
             "ast_branch_count": 0,
@@ -259,86 +319,166 @@ def side_effects(code: str) -> list[str]:
     return effects
 
 
-def technical_code_review(layer: str, code: str, effects: list[str]) -> dict[str, Any]:
-    health: list[str] = []
-    security: list[str] = []
-    optimization: list[str] = []
-    stripped = code.strip()
+def container_evidence_limits(code: str, effects: list[str]) -> list[str]:
+    limits: list[str] = []
+    if DOM_RE.search(code):
+        limits.append(
+            "The container cannot prove that referenced DOM selectors exist on every configured route."
+        )
+    if EVENT_LISTENER_RE.search(code):
+        limits.append(
+            "The container cannot prove how often the page invokes or retains exported event listeners."
+        )
+    if external_scripts(code) or NETWORK_RE.search(code):
+        limits.append(
+            "The container proves configured endpoints but not external script delivery or vendor acceptance."
+        )
+    if COOKIE_RE.search(code) or LOCAL_STORAGE_RE.search(code) or SESSION_STORAGE_RE.search(code):
+        limits.append(
+            "The container cannot prove external CMP state or browser storage availability."
+        )
+    if not limits and effects:
+        limits.append(
+            "The exported code has browser side effects whose external outcome is not provable from container configuration."
+        )
+    if not limits:
+        limits.append("No material external behavior limit affects this static code judgment.")
+    return limits
 
-    if not stripped:
-        health.append("No code body was exported for this object.")
+
+def code_health_findings(layer: str, code: str) -> list[str]:
+    findings: list[str] = []
+    if not code.strip():
+        findings.append("No code body was exported for this object.")
     if len(code) > 8000:
-        health.append(
+        findings.append(
             "Very large custom code block; split or replace with a maintained template when possible."
         )
     elif len(code) > 3000:
-        health.append("Large custom code block; simplify so future changes are easier to review.")
+        findings.append("Large custom code block; simplify so future changes are easier to review.")
     if layer == "tag" and re.search(r"<script\b", code, re.I):
-        health.append(
-            "Custom HTML uses an inline script; keep it only when a native tag or template cannot do the same job."
+        findings.append(
+            "Custom HTML uses an inline script; keep it only when a native tag or template "
+            "cannot do the same job."
         )
     if GLOBAL_WRITE_RE.search(code):
-        health.append("Writes shared window-level state, so other page scripts may depend on it.")
+        findings.append("Writes shared window-level state, so other page scripts may depend on it.")
     if EVENT_LISTENER_RE.search(code):
-        health.append(
-            "Registers browser event listeners; QA should confirm listeners are not added repeatedly."
+        findings.append(
+            "Registers browser event listeners; exported guards and trigger scope should "
+            "prevent repeated registration."
         )
     if DOM_RE.search(code):
-        health.append(
-            "Reads or changes the page DOM; runtime QA should cover missing elements and page variants."
+        findings.append(
+            "Reads or changes the page DOM; the container cannot prove selector availability "
+            "across page variants."
         )
+    return findings
 
-    if UNSAFE_EVAL_RE.search(code):
-        security.append("Runs text as JavaScript, which is risky and hard to debug.")
-    if HTML_WRITE_RE.search(code):
-        security.append(
-            "Writes HTML into the page; confirm visitor-provided text cannot be inserted."
-        )
-    if MESSAGE_LISTENER_RE.search(code) and not ORIGIN_CHECK_RE.search(code):
-        security.append("Listens to messages from other windows without an exported origin check.")
-    if HTTP_URL_RE.search(code):
-        security.append("Loads or calls an unencrypted http:// URL; use https:// or remove it.")
-    if DYNAMIC_SCRIPT_RE.search(code) and ".src" in code:
-        security.append(
-            "Creates or changes script URLs in code; keep only trusted, stable sources."
-        )
-    if COOKIE_RE.search(code) or LOCAL_STORAGE_RE.search(code) or SESSION_STORAGE_RE.search(code):
-        security.append(
-            "Uses cookies or browser storage; confirm no sensitive visitor data is stored."
-        )
 
-    scripts = external_scripts(code)
-    if len(scripts) > 1:
-        optimization.append(
-            "Loads more than one script; consolidate duplicate loaders when they initialize the same vendor."
+def code_security_findings(code: str) -> list[str]:
+    findings: list[str] = []
+    checks = (
+        (
+            UNSAFE_EVAL_RE.search(code),
+            "Runs text as JavaScript, which is risky and hard to debug.",
+        ),
+        (
+            HTML_WRITE_RE.search(code),
+            "Writes HTML into the page; confirm visitor-provided text cannot be inserted.",
+        ),
+        (
+            MESSAGE_LISTENER_RE.search(code) and not ORIGIN_CHECK_RE.search(code),
+            "Listens to messages from other windows without an exported origin check.",
+        ),
+        (
+            HTTP_URL_RE.search(code),
+            "Loads or calls an unencrypted http:// URL; use https:// or remove it.",
+        ),
+        (
+            DYNAMIC_SCRIPT_RE.search(code) and ".src" in code,
+            "Creates or changes script URLs in code; keep only trusted, stable sources.",
+        ),
+        (
+            COOKIE_RE.search(code)
+            or LOCAL_STORAGE_RE.search(code)
+            or SESSION_STORAGE_RE.search(code),
+            "Uses cookies or browser storage; confirm no sensitive visitor data is stored.",
+        ),
+    )
+    findings.extend(message for matched, message in checks if matched)
+    return findings
+
+
+def code_optimization_findings(
+    layer: str, code: str, effects: list[str], formulas: dict[str, Any]
+) -> list[str]:
+    findings: list[str] = []
+    if len(external_scripts(code)) > 1:
+        findings.append(
+            "Loads more than one script; consolidate duplicate loaders when they initialize "
+            "the same vendor."
         )
     if FIXED_PRODUCT_INDEX_RE.search(code):
-        optimization.append(
-            "Uses fixed product positions from an old ecommerce data structure; replace with item-array handling."
+        findings.append(
+            "Uses fixed product positions from an old ecommerce data structure; replace with "
+            "item-array handling."
+        )
+    if formulas.get("fixed_slot_aggregation"):
+        groups = ", ".join(
+            f"{group['base']} slots {group['indexes']}"
+            for group in as_list(formulas.get("fixed_slot_groups"))
+        )
+        findings.append(
+            "Adds fixed numbered value slots instead of resolving a scalable business total"
+            + (f" ({groups})." if groups else ".")
         )
     if layer == "variable" and not effects and len(code) < 450 and refs(code):
-        optimization.append(
-            "Looks like a small helper variable; check whether a built-in variable, lookup table, or regex table can replace it."
+        findings.append(
+            "Looks like a small helper variable; check whether a built-in variable, lookup "
+            "table, or regex table can replace it."
         )
     if DATA_LAYER_PUSH_RE.search(code) and refs(code):
-        optimization.append(
-            "Bridges GTM variables into a dataLayer push; keep it small and document the expected output fields."
+        findings.append(
+            "Bridges GTM variables into a dataLayer push; keep it small and document the "
+            "expected output fields."
         )
+    return findings
 
+
+def code_health_status(
+    health: list[str], security: list[str], optimization: list[str]
+) -> tuple[str, str]:
     if security:
-        status = "technical_risk_review_required"
-    elif health or optimization:
-        status = "technical_cleanup_candidate"
-    else:
-        status = "no_static_technical_issue"
+        return (
+            "technical_risk_review_required",
+            "Harden before cleanup execution: remove risky browser APIs, keep only trusted "
+            "sources, and validate the resulting container configuration.",
+        )
+    if health or optimization:
+        return (
+            "technical_cleanup_candidate",
+            "Simplify where practical, then validate the edited object, references, and "
+            "consumers in a new container export.",
+        )
+    return (
+        "no_static_technical_issue",
+        "No technical cleanup signal from the static export; still review business purpose "
+        "separately.",
+    )
 
-    if status == "no_static_technical_issue":
-        recommendation = "No technical cleanup signal from the static export; still review business purpose separately."
-    elif security:
-        recommendation = "Harden before cleanup execution: remove risky browser APIs, keep only trusted sources, and retest live behavior."
-    else:
-        recommendation = "Simplify where practical, then retest the tag or variable in Preview mode before changing production behavior."
 
+def technical_code_review(
+    layer: str,
+    code: str,
+    effects: list[str],
+    formulas: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    formulas = formulas or expression_facts(code)
+    health = code_health_findings(layer, code)
+    security = code_security_findings(code)
+    optimization = code_optimization_findings(layer, code, effects, formulas)
+    status, recommendation = code_health_status(health, security, optimization)
     summary_parts = health + security + optimization
     return {
         "technical_code_health_status": status,
@@ -451,7 +591,7 @@ def technical_exact_action(
         )
     if row.get("dataLayer_pushes_or_writes"):
         actions.append(
-            "List the exact dataLayer event and fields written, keep one canonical writer, and remove any duplicate writer after Preview proves the same payload."
+            "List the exact dataLayer event and fields written, keep one canonical writer, and remove a duplicate writer only when exported logic proves equivalence."
         )
     if has_finding(review, "fixed product positions"):
         actions.append(
@@ -459,7 +599,7 @@ def technical_exact_action(
         )
     if has_finding(review, "small helper variable"):
         actions.append(
-            "Compare the returned value with a built-in variable, lookup table, regex table, or one canonical cJS variable; replace only after sample payloads match."
+            "Compare the terminal source, transformation, return type, and consumers with a built-in variable, lookup table, regex table, or one canonical CJS variable before replacement."
         )
     if has_finding(review, "more than one script"):
         actions.append(
@@ -499,8 +639,8 @@ def technical_preconditions(layer: str, row: dict[str, Any], action: str) -> str
         )
     if action == "consolidate_candidate":
         if layer == "variable":
-            return "Prepare representative input payloads and expected returned values before replacing the helper."
-        return "Identify the exact dataLayer event, vendor request, and trigger route that must remain equivalent."
+            return "Confirm the terminal source, transformation, return type, and all consumer expectations before replacing the helper."
+        return "Identify the exact configured event, destination, payload, consent setting, and trigger route that must remain equivalent."
     if action == "owner_decision_needed":
         return "Owner must confirm keep, rebuild, delete, or documented-exception route."
     return "No cleanup precondition from the technical scan."
@@ -508,25 +648,29 @@ def technical_preconditions(layer: str, row: dict[str, Any], action: str) -> str
 
 def technical_qa_steps(layer: str, row: dict[str, Any], action: str) -> str:
     if action == "keep":
-        return "No technical QA step is required unless semantic cleanup changes this object."
+        return (
+            "No technical container check is required unless approved cleanup changes this object."
+        )
     steps = [
-        "Test in GTM Preview on the affected route before publish",
-        "compare firing count and timing before/after",
+        "re-export the workspace and compare the changed code and configuration with the approved operation",
+        "rebuild the dependency graph and confirm every reference and consumer remains valid",
     ]
     if layer == "variable":
-        steps.append("compare returned values on representative payloads")
+        steps.append("recheck terminal sources, transformations, and declared return types")
     if row.get("dataLayer_pushes_or_writes"):
-        steps.append("compare the dataLayer event name and fields")
+        steps.append("compare the configured dataLayer event name and written fields")
     if row.get("external_scripts_loaded") or row.get("network_calls"):
-        steps.append("compare script/network requests and vendor response status")
+        steps.append("compare configured endpoints, loader count, and parameter mappings")
     if (
         row.get("cookies_read_written")
         or row.get("localStorage_use")
         or row.get("sessionStorage_use")
     ):
-        steps.append("test consent-denied and consent-granted states")
+        steps.append("recheck exported consent settings and storage-access guards")
     if row.get("dom_reads_writes") or row.get("event_listeners"):
-        steps.append("test pages where the expected selector or listener target is absent")
+        steps.append(
+            "recheck trigger scope and exported guards for missing selectors or repeated listeners"
+        )
     return "; ".join(steps) + "."
 
 
@@ -613,6 +757,7 @@ def extract_export(path: Path) -> dict[str, Any]:
         code = code_for(layer, obj)
         object_name = str(obj.get("name") or "")
         effects = side_effects(code)
+        evidence_limits = container_evidence_limits(code, effects)
         finding_id = f"TECH-{len(rows) + 1:05d}"
         row = {
             "technical_finding_id": finding_id,
@@ -641,10 +786,12 @@ def extract_export(path: Path) -> dict[str, Any]:
             "side_effects": effects,
             "consumers": variable_consumers.get(object_name, []) if layer == "variable" else [],
             "behavior_can_be_understood_from_export": "partial" if effects else "yes",
-            "runtime_qa_required": bool(effects),
+            "container_evidence_limits": evidence_limits,
         }
+        formulas = expression_facts(code)
+        row.update(formulas)
         row.update(javascript_ast_facts(layer, code))
-        review = technical_code_review(layer, code, effects)
+        review = technical_code_review(layer, code, effects, formulas)
         row.update(review)
         action = technical_action_candidate(review)
         row["technical_action_candidate"] = action

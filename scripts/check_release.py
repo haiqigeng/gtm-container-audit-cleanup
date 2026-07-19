@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run dependency-free release checks for the GTM Cleanup Intelligence skill."""
+"""Run dependency-free release checks for the GTM web-analyst skill."""
 
 from __future__ import annotations
 
@@ -190,12 +190,14 @@ def check_reference_branches(root: Path) -> list[str]:
 
 
 def git_ls_files(root: Path) -> set[str]:
+    if not (root / ".git").exists():
+        return set()
     try:
         output = subprocess.check_output(
             ["git", "ls-files"], cwd=root, text=True, stderr=subprocess.DEVNULL
         )
-    except Exception:
-        return set()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("Unable to verify tracked release resources with git ls-files") from exc
     return set(output.splitlines())
 
 
@@ -243,6 +245,8 @@ def check_generated_artifacts(root: Path) -> list[str]:
 def check_repository_layout(root: Path) -> list[str]:
     errors = []
     for path in root.iterdir():
+        if path.name in GENERATED_ARTIFACT_DIRS or path.name in GENERATED_ARTIFACT_FILES:
+            continue
         if path.is_dir() and path.name.endswith(".egg-info"):
             continue
         if path.name not in ALLOWED_ROOT_ENTRIES:
@@ -347,7 +351,11 @@ def main() -> int:
     errors.extend(check_repository_layout(root))
     errors.extend(check_orphan_resources(root, refs))
 
-    tracked = git_ls_files(root)
+    try:
+        tracked = git_ls_files(root)
+    except RuntimeError as exc:
+        tracked = set()
+        errors.append(str(exc))
     if tracked and not args.allow_untracked:
         untracked_refs = sorted(ref for ref in refs if ref not in tracked)
         if untracked_refs:

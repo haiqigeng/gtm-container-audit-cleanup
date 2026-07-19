@@ -1,229 +1,198 @@
-# Execution Contract
+# Authoritative Execution Contract
 
-Read this file for every full audit, cleanup plan, cleanup execution, importable
-JSON artifact, or change log. It is the canonical completion contract. Domain
-references may add checks, but they may not lower these requirements.
+This is the canonical full-audit contract. A different reference may add a
+domain rule but may not weaken this workflow.
+
+## Evidence Boundary
+
+Use a complete GTM JSON export or equivalent complete read-only configuration.
+The container proves configured logic, not live website behavior, network
+delivery, CMP state, vendor acceptance, or an unseen server container.
+
+Lock one source filename and SHA-256. Build a persistent context artifact and a
+canonical deterministic fact artifact. Every generated review must carry the
+source, context, and shared-fact hashes. A changed export or material context
+change starts a new review package.
+
+The package gate recomputes context content and reconstructs shared facts from
+the locked export. Matching hash strings with changed or fabricated content do
+not satisfy source integrity.
 
 ## Contents
 
-- Product decision and evidence hierarchy
-- Protected pipeline and full-audit coverage
-- Source-bound D1-D3 and three independent lenses
-- Official documentation and operation gates
-- Mutation, human output, and completion boundaries
-
-## Product Decision
-
-The skill answers whether a GTM container implements the intended measurement
-and activation logic accurately, coherently, and maintainably. Object deletion,
-deduplication, naming, and folder hygiene are supporting outcomes. They do not
-replace business-logic review.
-
-## Evidence Hierarchy
-
-Use the strongest evidence available and label its limits:
-
-1. exported/API configuration and complete exported custom code;
-2. official vendor and platform documentation;
-3. runtime dataLayer, browser, network, CMP, and server observations;
-4. verified business or implementation-owner statements;
-5. inference from names or common patterns.
-
-Names may guide scope but never prove behavior. Separate `Observed`, `Derived`,
-`Documented`, `Runtime verified`, and `Inferred` claims. Never promote an
-inference to a defect without contradictory source evidence or runtime proof.
+- Required pipeline and the three independent runs
+- Reconciliation and future-state validation
+- Plan, execution levels, and completion states
 
 ## Required Pipeline
 
-For export-based work, preserve these stages and artifacts:
-
 ```text
-container JSON
--> source_model.json
--> deterministic_findings.json
--> semantic_coverage_tasks.json
--> technical_code_findings.json
--> semantic_review.json
--> reconciled_operations.json
--> human_rows.json
--> cleanup_plan.xlsx
--> approved execution or validated import JSON
--> field_diff.json
--> change_log.xlsx
+raw container evidence
+  + provided/inferred audit context
+  -> source model and canonical deterministic facts
+  -> independent Run 1: operational sanitation
+  -> independent Run 2: configuration correctness
+  -> independent Run 3: business architecture
+  -> three-run completion gate
+  -> contradiction-aware operation reconciliation
+  -> future-state graph simulation
+  -> human cleanup plan
+  -> explicit approval and route/aggressiveness selection
+  -> optional execution or import JSON
+  -> separate post-execution change log
 ```
 
-The source model is a navigation map. Semantic coverage tasks are questions to
-answer. Technical code findings are facts and risks. None is a cleanup finding
-or operation until the source-bound semantic review makes and evidences the
-judgment.
+The shared fact layer normalizes identity, leaves, references, consumers,
+terminal sources, trigger logic, code/formula signals, consent routes, and
+behavior signatures. It may not contain correctness, necessity, duplication,
+consolidation, or cleanup judgments.
 
-## Full-Audit Coverage
+The three runs may execute in parallel after source lock. Each may read the raw
+export and shared deterministic facts, but must not read or copy another run's
+verdicts. Each completes its own artifact and passes its own validator. Sharing
+facts removes extraction drift; keeping judgments separate preserves genuine
+independent challenge.
 
-A full web-container audit covers every exported tag, trigger, user-defined
-variable, custom template, built-in dependency, setup/teardown reference,
-folder dependency, consent setting, and referenced configuration branch.
+Large runs may be processed in source-locked shards. Every shard remains part of
+one run and the merge must recover the exact source-generated obligation set.
+Chunking is an execution strategy, not a reduced-depth mode. Architecture uses
+a dedicated discovery shard for analyst-added `DISC-*` comparisons and its
+all-object attestation; the merged run cannot become complete while either is
+pending. Configuration obligation shards contain at most 30 obligations and
+must recover every generated branch, reference trace, contract, technical
+finding, D3 cross-check, and custom-code line exactly once and in source order.
 
-A full server-container audit additionally covers every client and
-transformation. A web export with browser-to-server routing supports only a web
-container audit plus routing observations. Do not claim the receiving server
-container was audited without its clients, transformations, tags, triggers,
-variables, and runtime or preview evidence.
+## Run 1: Operational Sanitation
 
-Object coverage uses stable layer plus object ID. Names are fallback identity
-only when the source has no ID. One matching name must not hide a missing object
-with another ID.
+Source: `operational_scan.json`, `shared_facts.json`, and raw export.
 
-## D1-D3 Contract
+Decision artifact: `operational_review.json`.
 
-Depth is cumulative and mandatory for every configurable object in a full
-audit:
+Purpose: guarantee basic cleanup coverage even when business analysis is hard.
+Every nonzero finding receives `cleanup_operation`, `documented_exception`,
+or `owner_decision_needed`. A `documented_exception` is valid only when the
+locked intake context identifies that finding, signature, or object and gives a
+specific owner reason that the review preserves. `container_evidence_limit` and
+`not_applicable` cannot erase a deterministic nonzero finding.
+Every zero module retains its source-counted proof row.
 
-- `D1`: identify layer, type, status, references, consumers, and firing scope.
-- `D2`: state the object's specific business or technical role in this
-  container and the contract expected by its consumers or vendor.
-- `D3`: inspect every exported configuration branch and complete custom-code
-  line; recursively trace references to terminal sources; state literal input,
-  condition or transformation, output or side effect, actual consumers,
-  sibling comparison, correctness judgment, and cleanup implication.
+Run rules: `operational-sanitation.md`.
 
-D3 must preserve object-specific functionality. `Returns a value`, `custom code
-inspected`, `payload helper`, a hash, a URL list, or a category is not D3 proof.
-For example, say that a variable reads the purchase event's `ecommerce.items`,
-maps every `item_id` to a string array, and feeds Meta Purchase `content_ids`.
+## Run 2: Configuration Correctness
 
-Every semantic row must be bound to:
+Source: raw object branches, `shared_facts.json`, consumer/dependency graph,
+technical code facts, vendor registry, and current official documentation.
 
-- `object_key` as `layer:id`;
-- exact source path and configuration hash;
-- every configuration-branch anchor;
-- every recursive reference trace;
-- every actual consumer or explicit no-consumer evidence;
-- every nonblank exported custom-code line hash for code objects.
+Decision artifact: `configuration_review.json`.
 
-The validator must reject generic prose, missing anchors, incomplete code-line
-coverage, unresolved references, or D3 marked complete without source proof.
-Only D4 runtime, vendor-platform, server-container, legal-owner, or
-business-owner proof may remain deferred after D1-D3 is complete.
+Purpose: prove literal behavior and correctness for every tag, trigger,
+variable, custom template, client, and transformation. Review every logic leaf,
+every recursive reference node and hop, every consumer, every applicable
+official contract topic, and all custom-code lines. A generic summary or copied
+parameter list fails.
 
-## Three Independent Lenses
+Every semantic field cites one or more generated source paths selected for that
+claim and names source-derived behavior facts. Citations alone do not validate a
+generic statement. Every object also completes the exact generated D3
+cross-check set for purpose/output, execution/scope, input/output/consumer, and
+consent/sequence, plus code and vendor-contract alignment when applicable. A
+failed cross-check links to a concrete defect.
 
-Run and reconcile all three lenses:
+Run rules: `configuration-correctness.md` and `domain-contracts.md`.
 
-1. `Deterministic hygiene`: exact/normalized duplicates, unused objects,
-   missing references, invalid groups, naming/folder issues, outdated types.
-2. `Semantic business logic`: event purpose, terminal values, timing, trigger
-   scope, consent, official contract, sibling consistency, and object synergy.
-3. `Technical code`: syntax/AST facts where available, complete line review,
-   side effects, APIs, storage, network calls, dataLayer writes, asynchronous
-   behavior, errors, security, and maintainability.
+## Run 3: Business Architecture
 
-Every deterministic finding ID must receive a semantic resolution. Technical
-facts must be linked where relevant. When technical and semantic results
-conflict, block the operation until the conflict is explicitly resolved.
+Source: raw export, `shared_facts.json`, source-derived family chains, and
+relationship candidates.
 
-## Mandatory Semantic Comparisons
+Decision artifact: `architecture_review.json`.
 
-Compare values and conditions by terminal behavior, not variable name. Always
-check:
+Purpose: decide whether individually plausible objects form a necessary,
+non-overlapping, maintainable measurement architecture. Review every tag family
+or server intake/transformation family, every object in each execution chain,
+and every generated cross-object candidate. Then run open discovery across all
+source objects and add source-bound comparisons the deterministic queue missed.
+The generated method coverage, candidate IDs, all-object review scope, and
+source-scope hashes are immutable. Each method review must account for that
+exact scope and cite source-derived objects or comparisons in its conclusion.
 
-- consent state pairs and sibling mappings, including analytics/ad storage;
-- transaction ID, currency, order value, item arrays, item price, quantity,
-  category, and product identifiers for ecommerce;
-- media event names, IDs, values, currency, item formats, deduplication IDs,
-  user data, and consent context against current official documentation;
-- fixed-index arithmetic or product access, stale UA paths, and unnecessary
-  GTM-side reconstruction of fields the dataLayer contract should supply;
-- duplicate loaders, duplicate event tags, equivalent trigger conditions,
-  equivalent variables, consolidation candidates, and newly obsolete objects;
-- browser-to-server routing, transport URL, consent parameters, event routing,
-  and browser/server duplicate risk;
-- one-member trigger groups and all tags that must be remapped before deletion.
+Run rules: `business-architecture.md`.
 
-For every multi-field object, compare sibling fields. For every shared helper,
-compare all consumers. Do not stop after each object is individually plausible;
-evaluate whether the object graph is coherent as a whole.
+## Reconciliation
 
-## Official Documentation
+Do not average or vote across runs.
 
-Use `vendor-registry.toml` and `source-map.md` first. Validate registry freshness.
-If a detected vendor/event family is absent or stale, search the current
-official vendor documentation. Use official event names, required and
-recommended fields, data types, payload structure, consent behavior, and
-deduplication guidance as the default contract. Treat Google analytics events
-as GA4/current Google tag unless the source proves a Universal Analytics case.
+- A configuration issue may produce a fix even when the object is structurally valid.
+- An exact operational duplicate may be deleted only when architecture confirms
+  consolidation rather than an intentional variant.
+- A correctly configured object may still be unnecessary at family level.
+- An architecture operation may redesign several individually correct objects.
+- An unresolved owner or container-evidence decision blocks conflicting mutation.
 
-Document unsupported or undocumented vendor logic as a blocker or inference;
-do not invent a platform contract.
+Operations with identical structured mutations may reconcile even when the
+three lenses use different human wording or operation keys. Preserve every lens
+rationale and source reference. Reusing one operation key for different
+structured mutations is an error. Broad issue categories never merge
+operations. The completion gate recompiles the three source reviews and
+requires the supplied operation packet to match exactly; hand edits require
+updating and revalidating the originating review.
 
-## Operation Gate
+Compilation creates a complete decision ledger. Every operational finding,
+configuration object, architecture family, and comparison must have one final
+disposition; every cleanup disposition must link to one compiled operation.
 
-Create an operation only when D1-D3 passes for the affected object graph and the
-issue is confirmed. Each operation must include current behavior, concrete
-problem, expected state, exact action, dependencies, preconditions, QA, rollback,
-priority, confidence, blocker, route, aggressiveness, risk class, and execution
-readiness.
+## Future-State Gate
 
-Use `Standard` mutation by default. `Conservative` changes only low-risk hygiene.
-`Deep` may consolidate or repair confirmed logic. `Transformational` may redesign
-measurement architecture and requires explicit approval plus stronger QA. Audit
-depth never becomes conservative.
+Apply structured operations to a copy of the export before delivery. Update
+complete object creations, missing-field/list additions, variable references,
+trigger IDs, trigger-group members, setup/teardown tag names, folders, field
+values, names, and deletions. Re-run sanitation.
 
-Apply behavioral and dependency decisions before final naming. Adapt to the
-dominant valid local convention, preserve understood acronyms, normalize
-semantically equivalent prefixes, distinguish single triggers from trigger
-groups, and keep every name unique within its object layer.
+Block when the simulated state:
 
-## Mutation Boundary
+- creates a missing reference or duplicate ID;
+- creates a new sanitation finding;
+- leaves an operational finding selected for cleanup unresolved;
+- remaps to an object that is also deleted;
+- applies conflicting values to one object field;
+- deletes an object while another operation changes it.
 
-Never mutate without explicit approval. Ask whether the user wants direct GTM
-API/MCP execution or importable container JSON.
+The gate also reports projected before/after/delta counts by GTM layer. An
+unexpected broad count change is a review blocker even when references remain
+technically valid.
 
-For direct execution, create a dedicated workspace first. Warn and stop when the
-workspace quota prevents safe isolation. Prefer in-place updates and real
-deletions so GTM View Changes remains useful. Never publish, submit, or create a
-version unless explicitly requested.
+## Plan And Execution Levels
 
-For JSON, generate a real GTM import artifact, not a Markdown plan. Choose the
-route before editing. Preserve built-ins, folders, templates, object IDs where
-the route supports them, setup/teardown links, and all references. Validate the
-artifact and label it non-importable if any gate fails.
+Audit depth is always full. Before approval, route and aggressiveness may remain
+`Pending user selection` and `Undecided`.
 
-## Human Output
+After plan approval, ask for:
 
-The cleanup plan and change log are separate deliverables produced at different
-stages. The cleanup plan is post-audit and pre-execution. The change log is
-post-execution or post-artifact generation; simulated changes must say
-`Planned` or `Simulated`.
+1. route: direct GTM/API/MCP or import JSON;
+2. aggressiveness: Conservative, Standard, Deep, or Transformational.
 
-Cleanup plan workbooks use at most eight tabs by default, two visible tabs, and
-no more than six useful columns per tab unless a concrete human task requires
-more. Visible rows explain the problem, affected objects, impact, action,
-priority, and QA in language usable by web analysts and marketing teams.
-Detailed proofs remain available in consolidated hidden tabs, without repeated
-columns, raw code, secrets, local paths, or machine-only scaffolding.
+Aggressiveness controls execution risk and owner approvals, not what the audit
+checks or reports. Each operation declares a minimum safe level. Operations
+above the selected level remain visible as deferred and are excluded from the
+simulated execution state.
 
-Use one detail row per distinct semantic problem. A summary row may introduce a
-family, with visually adjacent detail rows. Exact duplicates, unused objects,
-naming, and identical low-risk hygiene actions may be grouped when action, QA,
-and rollback are the same.
+## Completion States
 
-Change logs use field-level evidence and approved operation IDs. They must let a
-user understand what changed without opening GTM: object, field/dependency,
-before, after, reason, QA/status, and operation link. Do not include unchanged
-objects or templates.
+`Complete` requires:
 
-## Completion Gate
+- source-model coverage `pass` or `pass_with_integrity_findings`, with every
+  integrity finding retained in the operational review;
+- matching source, context, and shared-fact hashes across all three runs;
+- all three run statuses `complete`;
+- complete architecture open-discovery attestation and decision ledger;
+- no review validator error;
+- no reconciliation contradiction;
+- future-state gate `pass`;
+- cleanup workbook and privacy gate `pass`.
+- no formula cell or unscanned hidden proof tab in a delivered workbook;
+- a separate completed change log, when requested, links only exact
+  field-level mutations to approved operation IDs.
 
-Call a full audit or cleanup plan complete only when:
-
-- source-model reference and coverage gates pass;
-- every source object has a completed, source-bound D1-D3 row;
-- all exported code lines and configuration branches are covered;
-- every deterministic finding is reconciled;
-- every operation is backed by a confirmed semantic judgment;
-- official documentation gaps and D4-only blockers are explicit;
-- workbook source coverage, strict evidence, formatting, and privacy gates pass;
-- the final response states the concrete next action.
-
-Otherwise label the execution `Incomplete / blocked` and name the exact failed
-gate. Never replace missing work with confident wording.
+Otherwise report `Incomplete / blocked` with the exact missing artifact or
+source-bound reason. Do not claim completion because the container is large or
+the review is token-intensive. Chunk work while preserving all obligations.

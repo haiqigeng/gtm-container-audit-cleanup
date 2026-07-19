@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the protected GTM audit evidence package.
+"""Build the GTM audit evidence package.
 
 This command is the deterministic first half of a full skill execution. It
 creates the source model and the three independent cleanup lens artifacts that
@@ -13,11 +13,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from gtm_architecture_review import scaffold_review as scaffold_architecture_review
 from gtm_baseline_audit import audit_export
+from gtm_configuration_review import scaffold_review as scaffold_configuration_review
+from gtm_context_model import build_context_model
 from gtm_custom_code_extract import extract_export
 from gtm_lib import source_descriptor
-from gtm_semantic_review import scaffold_review
-from gtm_semantic_source_scan import scan_export
+from gtm_operational_review import scaffold_review as scaffold_operational_review
+from gtm_shared_facts import build_shared_facts
 from gtm_source_model import build_model
 
 
@@ -37,29 +40,52 @@ def nonzero_findings(payload: dict[str, Any]) -> int:
     )
 
 
-def build_package(export_path: Path, out_dir: Path, pretty: bool = False) -> dict[str, Any]:
+def build_package(
+    export_path: Path,
+    out_dir: Path,
+    pretty: bool = False,
+    context_path: Path | None = None,
+) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    context = build_context_model(export_path, context_path)
     source_model = build_model(export_path)
-    deterministic = audit_export(export_path)
+    operational_scan = audit_export(export_path)
     technical = extract_export(export_path)
-    semantic_tasks = scan_export(export_path)
-    semantic_review = scaffold_review(export_path)
+    shared_facts = build_shared_facts(
+        export_path,
+        context=context,
+        technical=technical,
+        navigation=source_model,
+    )
+    operational_review = scaffold_operational_review(export_path, shared_facts)
+    configuration_review = scaffold_configuration_review(export_path, technical, shared_facts)
+    architecture_review = scaffold_architecture_review(export_path, shared_facts)
 
     files = {
         "source_model": out_dir / "source_model.json",
-        "deterministic_findings": out_dir / "deterministic_findings.json",
+        "context": out_dir / "context.json",
+        "shared_facts": out_dir / "shared_facts.json",
+        "operational_scan": out_dir / "operational_scan.json",
+        "operational_review": out_dir / "operational_review.json",
         "technical_code_findings": out_dir / "technical_code_findings.json",
-        "semantic_coverage_tasks": out_dir / "semantic_coverage_tasks.json",
-        "semantic_review": out_dir / "semantic_review.json",
+        "configuration_review": out_dir / "configuration_review.json",
+        "architecture_review": out_dir / "architecture_review.json",
         "manifest": out_dir / "audit_package_manifest.json",
     }
 
     manifest = {
         **source_descriptor(export_path),
-        "kind": "gtm_protected_audit_package_manifest",
-        "status": "pass" if source_model.get("coverage_gate") == "pass" else "blocked",
+        "kind": "gtm_audit_package_manifest",
+        "status": (
+            "pass"
+            if str(shared_facts.get("coverage_gate") or "").startswith("pass")
+            else "blocked"
+        ),
         "source_model_coverage_gate": source_model.get("coverage_gate"),
+        "shared_facts_coverage_gate": shared_facts.get("coverage_gate"),
+        "shared_facts_sha256": shared_facts.get("shared_facts_sha256"),
+        "context_sha256": context.get("context_sha256"),
         "counts": {
             "source_model_objects": sum(
                 len(source_model.get("objects", {}).get(key, []))
@@ -72,33 +98,45 @@ def build_package(export_path: Path, out_dir: Path, pretty: bool = False) -> dic
                     "transformations",
                 )
             ),
+            "shared_fact_objects": shared_facts.get("counts", {}).get("objects", 0),
             "field_edges": source_model.get("counts", {}).get("field_edges", 0),
             "trigger_edges": source_model.get("counts", {}).get("trigger_edges", 0),
-            "deterministic_findings": nonzero_findings(deterministic),
-            "deterministic_zero_finding_rows": sum(
+            "operational_findings": nonzero_findings(operational_scan),
+            "operational_zero_finding_rows": sum(
                 1
-                for finding in deterministic.get("findings", [])
+                for finding in operational_scan.get("findings", [])
                 if finding.get("finding_type") == "zero_findings"
             ),
             "technical_code_rows": len(technical.get("rows", [])),
-            "semantic_coverage_tasks": len(semantic_tasks.get("rows", [])),
-            "semantic_review_rows": len(semantic_review.get("rows", [])),
+            "configuration_review_rows": len(configuration_review.get("rows", [])),
+            "architecture_families": len(architecture_review.get("families", [])),
+            "architecture_comparisons": len(architecture_review.get("comparisons", [])),
         },
-        "required_next_artifact": "completed semantic_review.json",
+        "required_next_artifacts": [
+            "completed operational_review.json",
+            "completed configuration_review.json",
+            "completed architecture_review.json",
+        ],
         "files": {key: path.name for key, path in files.items() if key != "manifest"},
         "notes": [
             "This package is evidence, not the user-facing cleanup plan.",
-            "semantic_coverage_tasks.json contains review tasks, not findings.",
-            "Complete and validate semantic_review.json before compiling operations.",
+            "The three review artifacts are independent and all are mandatory.",
+            "All verdict engines use the same immutable shared facts and source hash.",
+            "Unresolved references remain operational findings and do not stop other audit checks.",
+            "Technical code findings support configuration review and do not replace it.",
+            "Compile operations only after all three review validators pass.",
         ],
     }
     manifest["files"]["manifest"] = files["manifest"].name
 
+    write_json(files["context"], context, pretty)
     write_json(files["source_model"], source_model, pretty)
-    write_json(files["deterministic_findings"], deterministic, pretty)
+    write_json(files["shared_facts"], shared_facts, pretty)
+    write_json(files["operational_scan"], operational_scan, pretty)
+    write_json(files["operational_review"], operational_review, pretty)
     write_json(files["technical_code_findings"], technical, pretty)
-    write_json(files["semantic_coverage_tasks"], semantic_tasks, pretty)
-    write_json(files["semantic_review"], semantic_review, pretty)
+    write_json(files["configuration_review"], configuration_review, pretty)
+    write_json(files["architecture_review"], architecture_review, pretty)
     write_json(files["manifest"], manifest, pretty)
     return manifest
 
@@ -113,9 +151,14 @@ def main() -> int:
         help="Directory where source/lens artifacts should be written",
     )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON files")
+    parser.add_argument(
+        "--context",
+        type=Path,
+        help="Optional analyst-provided JSON context merged with deterministic inference",
+    )
     args = parser.parse_args()
 
-    result = build_package(args.export, args.out_dir, args.pretty)
+    result = build_package(args.export, args.out_dir, args.pretty, args.context)
     print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
     return 0 if result["status"] == "pass" else 2
 

@@ -1,206 +1,320 @@
 ---
 name: gtm-container-audit-cleanup
-description: Audit and clean Google Tag Manager as a web analyst from container JSON, GTM API/UI evidence, screenshots, Tag Assistant, browser/network observations, or server-container evidence. Use for deep GTM hygiene, recursive tag-trigger-variable logic, GA4/ecommerce and media payloads, consent and browser-to-server routing, custom HTML/JavaScript/templates, naming, consolidation, cleanup plans, change logs, validated import JSON, or approved GTM mutations. Supports web containers and server containers when client/transformation evidence is supplied. Compatible with Codex, Claude Code, Gemini, and Markdown-capable agents. Do not use as a legal/privacy decision engine, a replacement for website/dataLayer implementation, or authority to mutate or publish GTM without explicit approval.
+description: Audit and clean Google Tag Manager as a container-only web analyst from a complete JSON export or equivalent complete read-only GTM API/UI evidence. Use for mandatory operational sanitation, recursive configuration and custom-code correctness, business-family architecture, GA4/ecommerce/media/CMP/server-routing contracts, naming, consolidation, cleanup plans, approved direct mutations, import JSON, or post-execution change logs. Compatible with Codex, Claude Code, Gemini, and similar agents. Do not use for GTM Preview, Tag Assistant, live browser/network/dataLayer/CMP/vendor QA, legal decisions, website implementation, unseen server containers, unapproved mutation, or publication.
 ---
 
-# GTM Cleanup Intelligence
+# GTM Web Analyst Audit And Cleanup
 
-Act as a GTM-focused web analyst. Determine whether the container measures the
-right business actions with the right data, timing, consent, platform purpose,
-and maintainable object architecture. Treat duplicate and unused-object cleanup
-as one layer of the analysis, not the product objective.
+Act as an experienced web analyst, not a mechanical duplicate finder. Use only
+complete container configuration and exported code as audit evidence. Determine
+whether the container is operationally clean, logically correct, and organized
+around necessary business measurement.
 
-## Core Contract
+Read these before every full execution:
 
-For every full audit, cleanup plan, cleanup execution, JSON artifact, or change
-log, read `references/03-rules/execution-contract.md`. It is the canonical
-completion contract. Load other references only when their domain applies.
+1. `references/01-skill/purpose.md`
+2. `references/01-skill/inputs-outputs.md`
+3. `references/01-skill/acceptance-criteria.md`
+4. `references/03-rules/execution-contract.md`
 
-Use this protected pipeline:
+Load other rules only when their topic applies.
 
-```text
-raw export/API/config/code evidence
--> source model navigation map
--> deterministic findings
--> semantic coverage tasks
--> technical custom-code facts
--> completed source-bound semantic review
--> reconciled operation packets
--> human problem rows
--> cleanup plan
--> approved execution
--> separate field-level change log
+## Intake
+
+Collect or infer:
+
+- complete GTM export/API evidence and container type;
+- website/domain and business model;
+- ecommerce, lead, publisher, media, market, CMP, and server-routing context;
+- requested deliverable: audit, cleanup plan, execution, JSON, or change log.
+
+Ask concise questions before starting when material context is missing. Infer
+safe facts from the export and website context. Ask about unexplained prefixes,
+country/product variants, unclear event families, or legal/business ownership;
+do not ask for account/container names already present in the export.
+
+Persist provided and inferred answers in `context.json`, including unresolved
+questions and the evidence basis for inference. Context may guide grouping and
+contract selection, but it may not replace container evidence or silently turn
+an assumption into a finding.
+
+If evidence is limited to a compiled live script or partial UI screenshots, use
+`references/03-rules/limited-audit-protocol.md` and label the result limited.
+
+## Non-Negotiable Architecture
+
+A full audit consists of three independent runs against the same source and
+shared-fact hashes:
+
+1. **Operational sanitation**
+2. **Configuration correctness**
+3. **Business architecture**
+
+These are not headings inside one semantic pass. Build one canonical,
+deterministic fact layer for object identity, raw leaves, references, consumers,
+terminal sources, trigger logic, formula facts, consent routes, and behavior
+signatures. All runs may read these same source facts and the raw export. Facts
+must contain no cleanup, correctness, necessity, or duplication verdict.
+
+Each run has its own obligations, completed decisions, validator, and failure
+status. Runs must not read or copy another run's judgments. Technical custom
+code is a specialized part of configuration correctness, not a fourth verdict
+engine. Reconcile only after all three runs pass.
+
+Audit depth is always complete unless the user narrows scope. Mutation
+aggressiveness changes what may be executed, never which problems are checked.
+
+## Workflow
+
+### 1. Lock Evidence
+
+- Preserve the raw export and SHA-256.
+- Preserve the normalized audit context and its SHA-256.
+- Inventory tags, triggers, variables, built-ins, folders, custom templates,
+  clients, and transformations.
+- Build dependency, consumer, setup/teardown, trigger-group, template, folder,
+  destination, and active/paused maps.
+- Build `shared_facts.json` once and require every run to bind to its hash.
+- Recompute both context and shared-fact content at the package gate; matching a
+  copied hash without matching canonical content is a failure.
+- Treat GTM system references such as `{{_event}}` and high-range system trigger
+  IDs as system objects, not missing references.
+- Keep unresolved exported references auditable as integrity findings. They do
+  not justify skipping the remaining scannable container.
+
+```bash
+python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --pretty
 ```
 
-The source model and semantic coverage scan are navigation aids. They cannot
-create findings or count as D3 judgment. A full audit is complete only when
-`semantic_review.json` passes source-bound validation against the same export.
+When analyst-supplied context exists, pass it as a JSON object:
 
-## Operating Modes
+```bash
+python -B scripts/gtm_audit_package_build.py container.json --context audit-context.json --out-dir audit-package --pretty
+```
 
-- `Audit only`: inspect and report; default when writes are not approved.
-- `Cleanup plan`: audit first, then produce proposed operations and QA.
-- `Approved cleanup`: execute only approved operations in a dedicated workspace.
-- `Importable JSON`: generate and validate a GTM-compatible artifact for the
-  selected import route.
-- `Runtime QA`: test browser, network, server, CMP, and vendor behavior.
-- `Change log`: produce only after execution or generated-artifact creation;
-  label hypothetical output as planned or simulated.
+For a large container, split each generated review independently into bounded
+shards with `scripts/gtm_review_shards.py`, complete every shard, and merge it
+back before validation. Sharding changes context size, never scope or evidence
+requirements. Architecture splitting creates a dedicated open-discovery shard;
+complete its `DISC-*` rows and attestation before merge. Do not combine shards
+from different runs, shared-fact hashes, context hashes, or source hashes.
+Use `--max-obligations 30` or less for configuration reviews. The obligation
+manifest must recover every generated branch, trace, contract, technical
+finding, D3 cross-check, and custom-code line exactly once and in source order.
 
-Use `cleanup` as the single operational term. Audit depth and mutation
-aggressiveness are separate: audit deeply by default, use `Standard` mutation by
-default, and require explicit approval for `Deep` or `Transformational` changes.
+### 2. Run Operational Sanitation Independently
 
-## Required Workflow
+Complete every finding in `audit-package/operational_review.json` through five
+explicit inner passes: integrity; lifecycle/usage; exact/structural duplication;
+trigger structure/lint; and folders/naming/legacy inventory. Check broken
+references, unused and paused-only objects, exact duplicates, duplicate paths
+and code, trigger groups, trigger contradictions/regex/blockers, tags invoked
+only through sequencing, folders, built-ins, templates, legacy setup,
+destinations, naming, formulas, consent-control collisions, and object
+lifecycle. Every module records findings or a source-counted zero result.
 
-1. Confirm or infer business model, primary outcomes, container type, domain,
-   markets, CMP, ecommerce/server routing, evidence freshness, mode, and route.
-2. For export evidence, run:
+Never delete or consolidate from a signature alone. Select canonical objects,
+all consumer remaps, and non-canonical deletions explicitly.
 
-   ```bash
-   python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --pretty
-   ```
+A deterministic nonzero finding cannot be dismissed as `not_applicable` or a
+container-evidence limit. Resolve it with an operation, a visible owner
+decision, or a `documented_exception` already declared in the locked intake
+context for that finding/signature/object. The review rationale must preserve
+the owner's stated reason.
 
-3. Inspect source-model unresolved edges. Recognize GTM system references such
-   as `{{_event}}` and high-range system trigger IDs before declaring breakage.
-4. Complete `audit-package/semantic_review.json`. For every tag, trigger,
-   variable, custom template, server client, and transformation, inspect every
-   configuration branch and all exported code lines. State literal inputs,
-   logic, output/side effect, consumers, business role, expected contract,
-   sibling comparison, judgment, cleanup implication, evidence anchors, and QA.
-5. Recursively trace each referenced variable to a terminal dataLayer, URL,
-   cookie, DOM, constant, lookup, code, server, or D4-only runtime source. Do not
-   stop at the variable name.
-6. Validate the review:
+### 3. Run Configuration Correctness Independently
 
-   ```bash
-   python -B scripts/gtm_semantic_review.py validate container.json audit-package/semantic_review.json
-   ```
+Complete every object in `audit-package/configuration_review.json`.
 
-7. Identify each implemented vendor/event family. Use the versioned registry
-   and bundled source map first; search current official vendor documentation
-   when missing or stale. Treat ambiguous Google analytics as GA4/current Google
-   tag unless the source proves a Universal Analytics exception.
-8. Compare sibling fields and sibling objects by terminal source, condition,
-   output type, business meaning, and official contract. Explicitly check
-   consent states, value/quantity/item logic, media payloads, shared helpers,
-   duplicate loaders, server routing, and browser/server deduplication.
-9. Reconcile every deterministic finding into the semantic review using source
-   finding IDs. A coverage task is not a finding and must not create an operation
-   until D3 judgment confirms an issue, exception, or blocker.
-10. Compile operation packets only after the semantic review passes:
+- Explain literal purpose, execution, inputs, terminal sources, output/side
+  effect, consumers, consent, sequence, and correctness.
+- Cite the generated source paths allowed for each semantic statement. A valid
+  path citation does not rescue generic prose; the statement must also name the
+  source-derived event, path, trigger, variable, value, destination, or output.
+- Review every exported logic leaf exactly once by source path and value hash.
+- Recursively trace every referenced variable to its terminal data source,
+  including nested variables, dataLayer paths, built-ins, constants, lookup
+  tables, URL/cookie/DOM sources, custom code, missing references, and cycles.
+- Review every nonblank custom-code line in concrete behavior blocks. Resolve
+  every parser, security, side-effect, and maintainability signal.
+- For vendor objects, use the bundled official source first. When absent or
+  stale, search the internet for current official vendor documentation. An
+  unknown external host, script, or template creates a mandatory vendor-
+  identification and official-source research contract; never silently leave
+  it unclassified.
+- Treat current Google analytics events as GA4 unless the export proves a
+  Universal Analytics exception. Check official event names and official
+  ecommerce dataLayer/item contracts before proposing custom JavaScript.
+- Always check transaction ID, currency, revenue/value, total price, quantity,
+  item arrays, product IDs/categories/prices, lead values, consent states, and
+  all standard/frequently consumed business variables when present.
+- Resolve source-derived formula signals such as fixed numbered slots,
+  aggregation operators, fallbacks, and output shape. A formula such as
+  `price1 + price2 + price3` cannot be dismissed generically: prove the business
+  rule and cardinality or record a defect/owner decision.
+- Evaluate the complete effective consent route: native consent settings,
+  additional checks, firing and blocking triggers, consent variables,
+  sequencing, and browser-to-server routing visible in the export. Treat a
+  server-enforced transport contract as valid client-side architecture when
+  the export proves that the transport route forwards the required consent
+  state consistently. In that pattern, transporter tags may fire without
+  client blocking; do not flag the missing blocker itself. Verify the forwarded
+  variable/parameter chain, purpose coverage, timing, route coverage, and any
+  direct browser vendor paths. State that unseen server enforcement is outside
+  the web-container audit without turning that boundary into a defect.
 
-    ```bash
-    python -B scripts/gtm_operation_compile.py container.json audit-package/semantic_review.json reconciled_operations.json --baseline audit-package/deterministic_findings.json --technical audit-package/technical_code_findings.json --aggressiveness Standard --pretty
-    python -B scripts/gtm_findings_reconcile.py audit-package/deterministic_findings.json reconciled_operations.json --operation-packets --technical audit-package/technical_code_findings.json
-    ```
+For every object, complete all generated D3 cross-checks exactly once:
+purpose/output, execution/scope, input/output/consumer, and consent/sequence;
+also complete code-behavior and official-vendor-contract alignment whenever
+generated. Each conclusion must cite only its generated object-specific source
+anchors, and every failed check must link to a concrete defect.
 
-11. Each operation must state current behavior, concrete problem, expected clean
-    state, exact action, preconditions, QA, rollback, confidence, blocker,
-    priority, route, aggressiveness, risk class, and execution readiness.
-12. Translate operation packets into human rows and build the canonical workbook:
+Do not stop at a variable name or parameter list. Prove the configured value,
+type, timing, and consumer meaning. Do not write generic summaries such as
+`outputs a value`, `configuration reviewed`, or `custom code inspected`.
 
-    ```bash
-    python -B scripts/gtm_human_rows.py reconciled_operations.json human_rows.json --pretty
-    python -B scripts/gtm_workbook_build.py audit-package audit-package/semantic_review.json reconciled_operations.json human_rows.json cleanup_plan.xlsx
-    ```
+### 4. Run Business Architecture Independently
 
-13. Validate both source coverage and workbook gates before delivery:
+Complete every family and comparison in
+`audit-package/architecture_review.json`.
 
-    ```bash
-    python -B scripts/gtm_audit_gate_check.py --strict-evidence cleanup_plan.xlsx
-    python -B scripts/gtm_audit_package_check.py container.json cleanup_plan.xlsx
-    python -B scripts/gtm_privacy_scan.py cleanup_plan.xlsx
-    ```
+- Group tags first by configured event/business action, then route,
+  destination/vendor, and source-derived scope. Keep singleton families.
+- Traverse each family's firing/blocking triggers, groups, sequencing,
+  templates, and recursive variables.
+- Review every generated exact, near, shared-source, shared-route,
+  shared-destination, event-family, custom-code, condition-subset, and canonical
+  funnel-step candidate.
+- Assess each member's active/paused state, role, necessity, distinguishing
+  logic, payload, consent, consumers, and ownership.
+- Bind every member and family statement to generated object-specific evidence
+  terms. Family-level prose that could describe any container is incomplete.
+- Decide exact duplicate, functional overlap, consolidation candidate,
+  intentional variant, complementary, conflict, unrelated, owner decision, or
+  container-evidence limit.
+- Define the simplest target architecture that preserves required business,
+  market, product, consent, route, and vendor differences.
+- Perform an open relationship-discovery pass after reviewing generated
+  candidates. Search every source object through semantic name/business
+  variants, normalized route/condition overlap, terminal-source/formula
+  overlap, consumer/destination/event overlap, consent/sequence/server-route
+  conflicts, and funnel/question/market/product families. Add `DISC-*`
+  comparisons for new candidates and account for every source object in the
+  discovery attestation.
 
-14. Label failed D1-D3 or coverage gates `Incomplete / blocked`. Only D4 runtime,
-    server, vendor-platform, legal-owner, or business-owner proof may remain
-    deferred after export-level analysis is complete.
-15. When cleanup is approved, ask whether to execute directly through available
-    GTM tools/API/MCP or create import JSON. For direct execution, create a new
-    workspace and warn before proceeding when workspace quota blocks creation.
-16. Apply naming after behavior, consolidation, and dependency decisions. Follow
-    user convention first; otherwise normalize the dominant local convention
-    while preserving meaningful acronyms and unique names within each layer.
-17. After execution or artifact creation, generate a field-level diff and a
-    separate change-log workbook linked to approved operation IDs.
-18. End every stage with one concrete next action.
+The generated discovery-method coverage, candidate lists, all-object scope,
+and source-scope hashes are locked facts. Complete each method review against
+that exact scope; do not replace it with a subjective checklist or a generic
+`no overlap found` statement.
 
-## Analyst Rules
+Generated candidates are a minimum obligation set, not a closed world. Names
+and similarity scores create review obligations, never findings; consolidation
+requires configuration and business-equivalence proof.
 
-- Establish measurement intent before proposing cleanup for meaningful objects.
-- Judge configuration, not names alone. Names are scope clues, not proof.
-- Validate current-event availability and output type for every consumed value.
-- Always check standard ecommerce variables, including order value, total price,
-  total quantity, transaction ID, currency, item arrays, product identifiers,
-  categories, prices, and all consuming fields.
-- Do not invent GTM-side JavaScript when the official website/dataLayer contract
-  should provide the missing field.
-- Treat fixed product indexes and old UA ecommerce paths as migration risks unless
-  a verified current-payload mapper exists.
-- For custom code, combine optional AST facts with complete exported line review;
-  regex or AST output alone is not semantic proof.
-- Classify browser-to-server transport before changing Google IDs or consent
-  triggers. Full server audits must include clients and transformations.
-- Identify exact duplicates, similar logic, shared-source misuse, single-member
-  trigger groups, and objects made obsolete by consolidation.
-- Naming standardization is mandatory in cleanup unless excluded or blocked by
-  unknown business tokens.
+### 5. Validate, Reconcile, And Simulate
 
-## Mutation Safety
+```bash
+python -B scripts/gtm_operational_review.py validate container.json audit-package/operational_review.json
+python -B scripts/gtm_configuration_review.py validate container.json audit-package/configuration_review.json
+python -B scripts/gtm_architecture_review.py validate container.json audit-package/architecture_review.json
+python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json reconciled_operations.json --route "Pending user selection" --aggressiveness Undecided --pretty
+python -B scripts/gtm_future_state_check.py container.json reconciled_operations.json --output future_state_gate.json --pretty
+python -B scripts/gtm_three_run_gate.py container.json audit-package --operations reconciled_operations.json --pretty
+```
 
-- Never publish, submit, or create a GTM version unless explicitly requested.
-- Never mutate a live/default workspace without explicit acceptance and rollback.
-- Never delete based on age; require dependency and semantic proof.
-- Never change consent, payload shape, dataLayer meaning, or custom-code variable
-  references without business/privacy impact and QA.
-- Never replace a custom-code variable reference with an unrelated hardcoded value.
-- Prefer direct GTM/API/MCP for readable in-place changes and real deletions.
-- Treat same-container JSON as name-conflict sensitive. Preserve built-ins,
-  folders, templates, setup/teardown references, and route limitations.
-- Self-audit generated JSON and do not call it import-ready when validation fails.
+Block delivery when a run is incomplete, runs contradict, one operation key
+contains different mutations, a consolidation lacks architecture agreement, or
+the simulated future state creates a broken reference or new sanitation finding.
+Merge independently worded operations only when their structured mutations are
+identical; retain each lens's rationale and source reference in the packet.
 
-## Output Contract
+Structured operations can create complete objects, add missing fields or list
+members, change existing values, remap consumers, rename, and delete. Every
+operation declares the minimum safe aggressiveness. Selecting a lower level
+keeps it visible as deferred instead of silently dropping it.
 
-Cleanup plans and change logs are for web analysts and marketing stakeholders.
-Keep visible output concrete, concise, and actionable. Do not expose raw code,
-parameter dumps, hashes, dependency graphs, or validator traces in visible tabs.
+The compiled packet must contain one decision-ledger entry for every source
+finding, object review, family, and comparison. Every cleanup disposition must
+survive into one exact operation. Report projected before/after object counts by
+GTM layer so accidental broad deletion or recreation is visible before work.
 
-Use the canonical cleanup workbook:
+Use the shard manifest to resume large runs. A missing, duplicated, pending, or
+source-mismatched shard makes the corresponding run incomplete.
 
-- visible: `01 Summary`, `02 Cleanup Plan`;
-- hidden proof: `03 Workstream Reconciliation`, `04 Reconciled Operations`,
-  `05 Semantic Object Matrix`, `06 Deterministic Baseline`,
-  `07 Custom Code Review`, `08 Source Model & QA`.
+### 6. Build The Cleanup Plan
 
-Use six visible cleanup columns: ID, level, area/problem type, affected objects,
-problem/evidence, and action/priority/QA. Use separate change-log workbooks with
-one row per changed object field or dependency.
+```bash
+python -B scripts/gtm_human_rows.py reconciled_operations.json human_rows.json --pretty
+python -B scripts/gtm_workbook_build.py audit-package reconciled_operations.json human_rows.json cleanup_plan.xlsx
+python -B scripts/gtm_audit_gate_check.py cleanup_plan.xlsx --operations reconciled_operations.json --pretty
+python -B scripts/gtm_privacy_scan.py cleanup_plan.xlsx
+```
 
-## Resource Routing
+The workbook has eight or fewer tabs and six or fewer columns. Only Summary and
+Cleanup Plan are visible; hidden proof remains available by unhiding and is
+privacy-scanned by default. Formula-like cell content must remain literal text.
+Show proposed and aggressiveness-deferred operations plus owner decisions and
+container-evidence limits. Never claim `Ready` while one of those decisions is
+unresolved. Keep each distinct actionable issue separate. Homogeneous duplicate,
+unused, naming, or folder batches may use one row. Do not include a change log.
 
-| Need | Read/use |
+### 7. Offer The Next Action
+
+After audit/plan delivery, ask whether the user wants:
+
+- direct GTM/API/MCP cleanup; or
+- an importable GTM container JSON.
+
+Then ask for execution aggressiveness: Conservative, Standard, Deep, or
+Transformational. Direct cleanup must use a new workspace, modify existing
+objects when possible, preserve readable GTM View Changes, and warn before work
+if workspace quota prevents creation. JSON must be a valid GTM import artifact,
+not Markdown; import behavior may recreate objects and is less suitable for
+human per-element review.
+
+Naming standardization is mandatory during approved cleanup unless excluded.
+Apply it after behavior, canonical objects, remaps, and deletions are settled.
+Prefer an explicit user convention; otherwise normalize the dominant local
+convention without following inconsistent prefixes blindly. Preserve meaningful
+vendor acronyms, distinguish trigger groups with `TG`, avoid redundant `TR`,
+standardize case, and keep names unique within each GTM layer.
+
+### 8. Execute Safely And Log Separately
+
+- Never publish or create a GTM version unless explicitly requested.
+- Never mutate without approval, rollback source, and pre-write validation.
+- Preserve custom-code variable references and exact values; never replace them
+  with unrelated literals.
+- Validate/read back every batch and stop on drift, missing references, consent
+  uncertainty, or unexpected object recreation.
+- After execution or artifact generation, produce a separate field-level change
+  log linked to approved operation IDs. Link only an exact expected
+  layer/ID/path/before/after mutation; an unexpected field on an otherwise
+  approved object remains unlinked and blocked. A simulated log must say simulated.
+
+End every stage with one concrete next step.
+
+## Rule Routing
+
+| Need | Reference |
 | --- | --- |
-| Canonical full-audit and completion contract | `references/03-rules/execution-contract.md` |
-| Product users, inputs, outputs, acceptance, non-goals | `references/01-skill/` |
-| General audit scope, severity, and stable policies | `references/03-rules/audit-domain-checks.md`, `references/03-rules/audit-rubric.md`, `references/03-rules/severity-calibration.md`, `references/03-rules/policy-register.md` |
-| Pipeline assurance and completion troubleshooting | `references/03-rules/protected-audit-pipeline.md`, `references/03-rules/execution-assurance.md`, `references/03-rules/completion-gates.md` |
-| Limited/sample audit | `references/03-rules/limited-audit-protocol.md` |
-| JSON structure and source navigation | `references/03-rules/container-json-guide.md` |
-| Semantic business logic | `references/03-rules/semantic-model-protocol.md`, `references/03-rules/semantic-logic-checks.md`, `references/03-rules/semantic-object-matrix.md`, `references/03-rules/summary-quality.md` |
-| GA4 and ecommerce | `references/03-rules/audit-ga4-ecommerce.md` |
-| Consent and browser/server routing | `references/03-rules/audit-consent-server.md` |
-| Media/vendor payloads | `references/03-rules/audit-media-vendors.md`, `references/03-rules/vendor-playbooks.md` |
-| Official documentation | `references/03-rules/vendor-registry.toml`, `references/03-rules/source-map.md` |
-| Naming and consolidation | `references/03-rules/naming-standardization.md`, `references/03-rules/optimization-patterns.md` |
-| Operations, aggressiveness, mutation, JSON | `references/03-rules/operation-schema.md`, `references/03-rules/mutation-playbook.md`, `references/03-rules/import-json-policy.md` |
-| Human output and change logs | `references/03-rules/human-problem-taxonomy.md`, `references/03-rules/workbook-architecture.md`, `references/03-rules/report-templates.md`, `references/03-rules/change-log-template.md` |
-| Validation and runtime QA commands | `references/02-commands/` |
+| Three-run workflow and gates | `references/03-rules/execution-contract.md` |
+| Operational modules | `references/03-rules/operational-sanitation.md` |
+| Object, variable, code, and vendor review | `references/03-rules/configuration-correctness.md` |
+| Families, overlaps, and target architecture | `references/03-rules/business-architecture.md` |
+| GA4, ecommerce, media, consent, server contracts | `references/03-rules/domain-contracts.md` |
+| Naming | `references/03-rules/naming-standardization.md` |
+| Operations and mutation | `references/03-rules/operation-schema.md`, `references/03-rules/mutation-playbook.md` |
+| Workbook and change log | `references/03-rules/workbook-architecture.md`, `references/03-rules/change-log-template.md` |
+| Commands | `references/02-commands/validation-commands.md` |
 
 ## Portability
 
-Use the Markdown workflow manually on any capable agent. Python 3.11+ provides
-the deterministic path; `openpyxl` creates workbooks and optional `esprima`
-enriches JavaScript facts. If Python or an optional dependency is unavailable,
-reproduce the same artifacts and gates manually and state which deterministic
-checks could not run. Never lower the analytical scope silently.
+The reasoning contract works with Codex, Claude Code, Gemini, and comparable
+agents. Python 3.11+ supplies deterministic scaffolds and gates; `openpyxl`
+builds XLSX and optional `esprima` enriches JavaScript facts. If tooling is
+unavailable, a full audit is blocked because its source locks, obligation
+coverage, reconciliation, and delivery gates cannot be reproduced reliably.
+An agent may provide a clearly labelled limited advisory only when the user
+explicitly accepts that reduced deliverable. Never label it a complete audit or
+silently reduce scope.

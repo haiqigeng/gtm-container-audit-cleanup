@@ -41,6 +41,49 @@ def duplicate_ids(cv: dict[str, Any]) -> dict[str, list[str]]:
     return result
 
 
+def tag_reference_sets(
+    tags: list[dict[str, Any]], triggers: list[dict[str, Any]]
+) -> tuple[set[Any], set[str], set[str]]:
+    trigger_ids: set[Any] = set()
+    setup_refs: set[str] = set()
+    teardown_refs: set[str] = set()
+    for tag in tags:
+        trigger_ids.update(tag.get("firingTriggerId", []) or [])
+        trigger_ids.update(tag.get("blockingTriggerId", []) or [])
+        setup_refs.update(
+            str(ref["tagName"])
+            for ref in tag.get("setupTag", []) or []
+            if ref.get("tagName")
+        )
+        teardown_refs.update(
+            str(ref["tagName"])
+            for ref in tag.get("teardownTag", []) or []
+            if ref.get("tagName")
+        )
+    for trigger in triggers:
+        trigger_ids.update(trigger_group_members(trigger))
+    return trigger_ids, setup_refs, teardown_refs
+
+
+def folder_reference_set(cv: dict[str, Any]) -> set[str]:
+    return {
+        str(obj["parentFolderId"])
+        for layer in ("tag", "trigger", "variable", "client", "transformation")
+        for obj in cv.get(layer, []) or []
+        if obj.get("parentFolderId")
+    }
+
+
+def template_reference_set(cv: dict[str, Any]) -> set[str]:
+    return {
+        template_id
+        for layer in ("tag", "variable", "client", "transformation")
+        for obj in cv.get(layer, []) or []
+        for template_id in [custom_template_id(obj)]
+        if template_id
+    }
+
+
 def missing_references(cv: dict[str, Any]) -> dict[str, Any]:
     tags = cv.get("tag", []) or []
     triggers = cv.get("trigger", []) or []
@@ -59,35 +102,9 @@ def missing_references(cv: dict[str, Any]) -> dict[str, Any]:
     folder_ids = {folder.get("folderId") for folder in folders}
     template_ids = {template.get("templateId") for template in templates}
 
-    used_trigger_ids = set()
-    setup_tag_refs = set()
-    teardown_tag_refs = set()
-    folder_refs = set()
-    template_refs = set()
-
-    for tag in tags:
-        used_trigger_ids.update(tag.get("firingTriggerId", []) or [])
-        used_trigger_ids.update(tag.get("blockingTriggerId", []) or [])
-        for ref in tag.get("setupTag", []) or []:
-            if ref.get("tagName"):
-                setup_tag_refs.add(ref["tagName"])
-        for ref in tag.get("teardownTag", []) or []:
-            if ref.get("tagName"):
-                teardown_tag_refs.add(ref["tagName"])
-
-    for trigger in triggers:
-        used_trigger_ids.update(trigger_group_members(trigger))
-
-    for layer in ("tag", "trigger", "variable", "client", "transformation"):
-        for obj in cv.get(layer, []) or []:
-            if obj.get("parentFolderId"):
-                folder_refs.add(obj["parentFolderId"])
-
-    for layer in ("tag", "variable", "client", "transformation"):
-        for obj in cv.get(layer, []) or []:
-            template_id = custom_template_id(obj)
-            if template_id:
-                template_refs.add(template_id)
+    used_trigger_ids, setup_tag_refs, teardown_tag_refs = tag_reference_sets(tags, triggers)
+    folder_refs = folder_reference_set(cv)
+    template_refs = template_reference_set(cv)
 
     return {
         "undefinedVariableReferences": sorted(
