@@ -3,6 +3,13 @@
 This is the canonical full-audit contract. A different reference may add a
 domain rule but may not weaken this workflow.
 
+## Contents
+
+- Evidence boundary and source-integrity gate
+- Required pipeline and the three independent runs
+- Reconciliation and future-state validation
+- Plan, execution levels, and completion states
+
 ## Evidence Boundary
 
 Use a complete GTM JSON export or equivalent complete read-only configuration.
@@ -14,15 +21,14 @@ canonical deterministic fact artifact. Every generated review must carry the
 source, context, and shared-fact hashes. A changed export or material context
 change starts a new review package.
 
+Validate ContainerVersion identity before semantic work. The wrapped/direct
+root, known entity-layer registry, layer arrays, required IDs, and unique IDs
+must be unambiguous. Unknown entity-like layers and invalid identity block all
+three reviews; there is no partial or reduced-depth fallback.
+
 The package gate recomputes context content and reconstructs shared facts from
 the locked export. Matching hash strings with changed or fabricated content do
 not satisfy source integrity.
-
-## Contents
-
-- Required pipeline and the three independent runs
-- Reconciliation and future-state validation
-- Plan, execution levels, and completion states
 
 ## Required Pipeline
 
@@ -75,6 +81,10 @@ locked intake context identifies that finding, signature, or object and gives a
 specific owner reason that the review preserves. `container_evidence_limit` and
 `not_applicable` cannot erase a deterministic nonzero finding.
 Every zero module retains its source-counted proof row.
+The mandatory registry is fixed independently of the scan output. Reachability
+starts at active direct tags and configured Zone/client/Google-tag/
+transformation roots, traverses recursive dependencies including enabled
+built-ins, and does not treat isolated cycles as usage.
 
 Run rules: `operational-sanitation.md`.
 
@@ -86,10 +96,26 @@ technical code facts, vendor registry, and current official documentation.
 Decision artifact: `configuration_review.json`.
 
 Purpose: prove literal behavior and correctness for every tag, trigger,
-variable, custom template, client, and transformation. Review every logic leaf,
-every recursive reference node and hop, every consumer, every applicable
-official contract topic, and all custom-code lines. A generic summary or copied
-parameter list fails.
+variable, Zone, custom template, client, Google tag configuration, and
+transformation. Review every logic leaf, every recursive reference node and
+hop, every consumer, every applicable official contract topic, and all custom-
+code lines. Duplicate name resolution retains all custom/built-in candidates as
+ambiguous. A generic summary or copied parameter list fails.
+
+Review rows and all nested identity sets (branches, D3 checks, contracts,
+technical findings, traces, and parser segments) are unique and exact-once.
+Malformed or duplicate rows fail before dictionary indexing. Deterministic
+source obligations propagate through branch, D3, defect, overall verdict, and
+the corresponding official contract; same-destination peer server/type/consent
+facts create an explicit inheritance review rather than an inferred route.
+
+An unavailable or failed optional JavaScript parser creates a mandatory parser-
+coverage limit. It may be explicitly bounded by complete line-by-line review,
+with source-specific behavior for every individual segment, but empty AST facts
+cannot be interpreted as a successful AST scan. Mixed
+Custom HTML retains every detected vendor plus separate unknown-host research
+obligations. Unknown official sources are registry-bound, validated, and
+rescaffolded before they can certify a topic.
 
 Every semantic field cites one or more generated source paths selected for that
 claim and names source-derived behavior facts. Citations alone do not validate a
@@ -109,18 +135,29 @@ Decision artifact: `architecture_review.json`.
 
 Purpose: decide whether individually plausible objects form a necessary,
 non-overlapping, maintainable measurement architecture. Review every tag family
-or server intake/transformation family, every object in each execution chain,
-and every generated cross-object candidate. Then run open discovery across all
-source objects and add source-bound comparisons the deterministic queue missed.
+or Zone/Google-tag/server intake/transformation family, every object in each
+execution chain, and every generated cross-object candidate. Same-child Zones
+and same-destination tags/Google tag configurations are mandatory comparisons.
+Then run open discovery across all source objects and add source-bound
+comparisons the deterministic queue missed.
 The generated method coverage, candidate IDs, all-object review scope, and
 source-scope hashes are immutable. Each method review must account for that
 exact scope and cite source-derived objects or comparisons in its conclusion.
+Each `DISC-*` row is attributed to its declared methods and inherits unsafe
+policies for deterministic relationships among its members. Actionable verdicts
+must affect candidate behavior, and unsafe runtime/owner questions preserve
+negative evidence polarity and relationship-specific terms.
 
 Run rules: `business-architecture.md`.
 
 ## Reconciliation
 
 Do not average or vote across runs.
+
+Behavior-changing edits, additions, remaps, deletions, and creations cannot
+proceed through a family or comparison that Run 3 preserves or leaves
+unresolved. Metadata-only names, notes, export fields, and folder placement do
+not trigger that behavior rule, but still require exact approved mutations.
 
 - A configuration issue may produce a fix even when the object is structurally valid.
 - An exact operational duplicate may be deleted only when architecture confirms

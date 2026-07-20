@@ -15,22 +15,40 @@ ID_KEYS = {
     "trigger": "triggerId",
     "variable": "variableId",
     "folder": "folderId",
-    "customTemplate": "templateId",
     "builtInVariable": "name",
+    "zone": "zoneId",
+    "customTemplate": "templateId",
     "client": "clientId",
+    "gtagConfig": "gtagConfigId",
     "transformation": "transformationId",
 }
+
+OBJECT_LAYERS = tuple(ID_KEYS)
 
 SEMANTIC_LAYERS = (
     "tag",
     "trigger",
     "variable",
+    "zone",
     "customTemplate",
     "client",
+    "gtagConfig",
     "transformation",
 )
 
 IGNORED_FIELDS = {"path", "fingerprint"}
+BEHAVIOR_NEUTRAL_FIELDS = frozenset(
+    {
+        "accountId",
+        "containerId",
+        "workspaceId",
+        "fingerprint",
+        "path",
+        "tagManagerUrl",
+        "notes",
+        "parentFolderId",
+    }
+)
 REF_RE = re.compile(r"\{\{([^{}]+)\}\}")
 CUSTOM_TEMPLATE_RE = re.compile(r"^cvt_\d+_(\d+)$")
 SYSTEM_TRIGGER_RE = re.compile(r"^2147479\d{3}$")
@@ -46,7 +64,160 @@ KNOWN_SYSTEM_TRIGGER_REFERENCES = {
 
 
 def container_version(data: dict[str, Any]) -> dict[str, Any]:
-    return data.get("containerVersion", data)
+    if not isinstance(data, dict):
+        raise ValueError("GTM source must be a JSON object")
+    value = data.get("containerVersion", data)
+    if not isinstance(value, dict):
+        raise ValueError("containerVersion must be a JSON object")
+    return value
+
+
+def container_root_path(data: dict[str, Any]) -> str:
+    return "$.containerVersion" if "containerVersion" in data else "$"
+
+
+def behavior_projection(value: Any) -> Any:
+    """Remove export/UI metadata before behavior, vendor, or host inference."""
+    if isinstance(value, dict):
+        return {
+            key: behavior_projection(item)
+            for key, item in value.items()
+            if key not in BEHAVIOR_NEUTRAL_FIELDS
+        }
+    if isinstance(value, list):
+        return [behavior_projection(item) for item in value]
+    return value
+
+
+def source_integrity_findings(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return deterministic identity/shape findings before semantic analysis."""
+    if not isinstance(data, dict):
+        return [
+            {
+                "finding_type": "invalid_source_root",
+                "source_path": "$",
+                "details": "GTM source must be a JSON object.",
+                "blocking": True,
+            }
+        ]
+
+    findings: list[dict[str, Any]] = []
+    root_path = container_root_path(data)
+    raw_cv = data.get("containerVersion", data)
+    if not isinstance(raw_cv, dict):
+        return [
+            {
+                "finding_type": "invalid_container_version_shape",
+                "source_path": root_path,
+                "details": "containerVersion must be a JSON object.",
+                "blocking": True,
+            }
+        ]
+    cv = raw_cv
+    nested_container = cv.get("container")
+    has_nested_container_identity = isinstance(nested_container, dict) and any(
+        str(nested_container.get(key) or "").strip()
+        for key in ("containerId", "publicId", "path", "accountId")
+    )
+    has_version_identity = bool(str(cv.get("containerVersionId") or "").strip())
+    has_entity_layer = any(layer in cv for layer in OBJECT_LAYERS)
+    if not (has_version_identity or has_nested_container_identity or has_entity_layer):
+        findings.append(
+            {
+                "finding_type": "invalid_container_version_shape",
+                "source_path": root_path,
+                "details": (
+                    "The source has no ContainerVersion identity, identified nested container, "
+                    "or recognized GTM entity layer."
+                ),
+                "blocking": True,
+            }
+        )
+
+    for key, value in sorted(cv.items()):
+        if key in ID_KEYS:
+            continue
+        if isinstance(value, list):
+            findings.append(
+                {
+                    "finding_type": "unmodelled_entity_layer",
+                    "source_path": f"{root_path}.{key}",
+                    "layer": key,
+                    "details": (
+                        f"Top-level entity-like layer {key!r} is not in the locked GTM "
+                        "entity registry and cannot be silently skipped."
+                    ),
+                    "blocking": True,
+                }
+            )
+
+    for layer, id_key in ID_KEYS.items():
+        if layer not in cv:
+            continue
+        items = cv.get(layer)
+        if not isinstance(items, list):
+            findings.append(
+                {
+                    "finding_type": "invalid_entity_layer_shape",
+                    "source_path": f"{root_path}.{layer}",
+                    "layer": layer,
+                    "details": f"GTM layer {layer!r} must be a JSON array.",
+                    "blocking": True,
+                }
+            )
+            continue
+
+        indexes_by_id: dict[str, list[int]] = {}
+        for index, item in enumerate(items):
+            item_path = f"{root_path}.{layer}[{index}]"
+            if not isinstance(item, dict):
+                findings.append(
+                    {
+                        "finding_type": "invalid_entity_shape",
+                        "source_path": item_path,
+                        "layer": layer,
+                        "object_index": index,
+                        "details": f"Every {layer} entry must be a JSON object.",
+                        "blocking": True,
+                    }
+                )
+                continue
+            raw_id = item.get(id_key)
+            entity_id = "" if raw_id is None else str(raw_id).strip()
+            if not entity_id:
+                findings.append(
+                    {
+                        "finding_type": "missing_entity_id",
+                        "source_path": item_path,
+                        "layer": layer,
+                        "object_index": index,
+                        "id_field": id_key,
+                        "details": f"{layer} entry is missing required identity field {id_key}.",
+                        "blocking": True,
+                    }
+                )
+                continue
+            indexes_by_id.setdefault(entity_id, []).append(index)
+
+        for entity_id, indexes in sorted(indexes_by_id.items()):
+            if len(indexes) < 2:
+                continue
+            findings.append(
+                {
+                    "finding_type": "duplicate_entity_id",
+                    "source_path": f"{root_path}.{layer}",
+                    "layer": layer,
+                    "object_id": entity_id,
+                    "object_indexes": indexes,
+                    "id_field": id_key,
+                    "details": (
+                        f"{layer} ID {entity_id!r} occurs at indexes {indexes}; object "
+                        "identity and mutation targeting are ambiguous."
+                    ),
+                    "blocking": True,
+                }
+            )
+    return findings
 
 
 def load_json(path: Path) -> Any:
@@ -126,6 +297,16 @@ def walk_json_fields(value: Any, path: str = "$") -> list[dict[str, Any]]:
         for key in sorted(value):
             child_path = f"{path}.{key}"
             rows.extend(walk_json_fields(value[key], child_path))
+        if not value:
+            rows.append(
+                {
+                    "json_path": path,
+                    "value_type": "dict",
+                    "value_preview": "{}",
+                    "value_hash": stable_hash(value),
+                    "referenced_variables": [],
+                }
+            )
         return rows
     if isinstance(value, list):
         for index, item in enumerate(value):
@@ -188,11 +369,20 @@ def custom_template_id(obj: dict[str, Any]) -> str | None:
 
 def trigger_group_members(trigger: dict[str, Any]) -> list[str]:
     members = []
-    for parameter in trigger.get("parameter", []) or []:
-        if parameter.get("key") == "triggerIds":
-            members.extend(
-                item.get("value") for item in parameter.get("list", []) or [] if item.get("value")
-            )
+    parameters = trigger.get("parameter")
+    if not isinstance(parameters, list):
+        return members
+    for parameter in parameters:
+        if not isinstance(parameter, dict) or parameter.get("key") != "triggerIds":
+            continue
+        items = parameter.get("list")
+        if not isinstance(items, list):
+            continue
+        members.extend(
+            str(item.get("value"))
+            for item in items
+            if isinstance(item, dict) and str(item.get("value") or "").strip()
+        )
     return members
 
 

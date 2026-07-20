@@ -50,6 +50,13 @@ def mutation_export() -> dict:
                 {"folderId": "30", "name": "Source Folder"},
                 {"folderId": "31", "name": "Target Folder"},
             ],
+            "zone": [
+                {
+                    "zoneId": "40",
+                    "name": "Zone Consumer",
+                    "boundary": {"customEvaluationTriggerId": ["10"]},
+                }
+            ],
         }
     }
 
@@ -74,7 +81,7 @@ class MutationSafetyTests(unittest.TestCase):
                 {
                     "from_object_key": "trigger:10",
                     "to_object_key": "trigger:11",
-                    "consumer_object_keys": ["tag:3"],
+                    "consumer_object_keys": ["tag:3", "zone:40"],
                 },
                 {
                     "from_object_key": "variable:20",
@@ -117,6 +124,7 @@ class MutationSafetyTests(unittest.TestCase):
         consumer = next(row for row in cv["tag"] if row["tagId"] == "3")
         self.assertEqual(["11"], consumer["firingTriggerId"])
         self.assertEqual(["11"], consumer["blockingTriggerId"])
+        self.assertEqual(["11"], cv["zone"][0]["boundary"]["customEvaluationTriggerId"])
         self.assertEqual("31", consumer["parentFolderId"])
         self.assertEqual("{{DLV - Canonical Value}}", consumer["parameter"][0]["value"])
         self.assertEqual("Vendor - Canonical Event", consumer["setupTag"][0]["tagName"])

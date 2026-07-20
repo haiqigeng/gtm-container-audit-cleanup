@@ -23,6 +23,12 @@ and records a context hash.
 Live browser requests, Tag Assistant, CMP interaction, website dataLayer
 inspection, and vendor-platform results are not evidence for this skill.
 
+Before interpretation, the evidence gate validates the ContainerVersion root,
+the complete current entity-layer registry, layer array shapes, required object
+IDs, and per-layer ID uniqueness. Unknown entity-like layers or ambiguous IDs
+block the audit; missing references inside an otherwise valid export remain
+visible findings and do not reduce the remaining scan scope.
+
 ## Deliverables
 
 Depending on the request:
@@ -63,5 +69,8 @@ The post-execution change log must be understandable without GTM View Changes.
 Use one row per changed object field, dependency, route, source, folder, code
 block, rename, deletion, or creation. Include linked operation ID, before,
 after, reason, impact, QA status, rollback, and blocker where applicable.
+This applies to every supported layer, including Zones and Google tag
+configurations. A before/after source with ambiguous IDs or an unmodelled entity
+layer is rejected instead of being partially diffed.
 Link an approved operation only when its simulated field mutation exactly
 matches the observed layer, object ID, path, before value, and after value.

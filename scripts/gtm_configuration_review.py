@@ -26,8 +26,20 @@ from gtm_configuration_facts import (
     specific_tokens,
     validate_reference_traces,
 )
+from gtm_consent_model import server_route_hosts
 from gtm_custom_code_extract import extract_export
-from gtm_lib import ID_KEYS, container_version, refs, source_descriptor, walk_json_fields
+from gtm_lib import (
+    ID_KEYS,
+    behavior_projection,
+    container_root_path,
+    container_version,
+    refs,
+    source_descriptor,
+    source_integrity_findings,
+    stable_hash,
+    walk_json_fields,
+)
+from gtm_relationships import trigger_conditions
 from gtm_review_common import (
     VALID_CONFIDENCE,
     VALID_PRIORITIES,
@@ -35,13 +47,15 @@ from gtm_review_common import (
     canonical_review_facts,
     object_consumer_map,
     object_keys,
+    object_source_path_map,
+    precise_question,
     specific_text,
     validate_challenge,
     validate_structured_actions,
 )
 from gtm_shared_facts import build_shared_facts
 from gtm_taxonomy import taxonomy_errors
-from gtm_vendor_registry import vendor_record
+from gtm_vendor_registry import vendor_record, vendor_records
 
 VALID_VERDICTS = {
     "Correct",
@@ -94,6 +108,16 @@ CONTRACT_RULE_TERMS = {
         "currency",
         "quantity",
     ],
+    "purchase_transaction_id_uniqueness": [
+        "purchase",
+        "transaction_id",
+        "unique",
+    ],
+    "refund_transaction_id_linkage": [
+        "refund",
+        "transaction_id",
+        "purchase",
+    ],
     "consumer_value_shape_and_type": ["consumer", "value", "shape", "type"],
     "availability_at_consumer_event": ["availability", "consumer", "event"],
     "consent_state_semantics": ["consent", "state", "semantics"],
@@ -129,7 +153,15 @@ GENERATED_FIELDS = {
     "field_evidence_requirements",
     "field_evidence_paths",
     "effective_consent_route_facts",
+    "execution_dependency_traces",
+    "execution_dependency_facts",
+    "consumer_dependency_facts",
+    "consumer_dependency_contexts",
+    "destination_peer_contexts",
+    "destination_peer_facts",
+    "source_absence_facts",
     "required_logic_cross_checks",
+    "required_configuration_obligations",
 }
 SEMANTIC_TEXT_FIELDS = (
     "purpose",
@@ -145,9 +177,44 @@ PURPOSE_VERBS = {
     "tag": ("send", "load", "set", "route", "record", "fire", "inject", "configure"),
     "trigger": ("match", "listen", "block", "allow", "fire", "activate"),
     "variable": ("read", "return", "calculate", "map", "format", "extract", "look up"),
+    "zone": ("restrict", "scope", "allow", "evaluate", "govern"),
     "customTemplate": ("define", "execute", "load", "send", "expose", "permit"),
     "client": ("claim", "parse", "route", "receive"),
+    "gtagConfig": ("configure", "route", "set", "govern", "define"),
     "transformation": ("transform", "allow", "redact", "exclude", "rewrite"),
+}
+
+GTM_PLATFORM_CONTRACTS = {
+    "zone": {
+        "vendor": "Google Tag Manager",
+        "category": "platform_configuration",
+        "official_docs": [
+            "https://developers.google.com/tag-platform/tag-manager/api/reference/rest/v2/"
+            "accounts.containers.workspaces.zones"
+        ],
+        "topics": [
+            "child_container_scope",
+            "boundary_conditions_and_evaluation_triggers",
+            "type_restrictions",
+        ],
+    },
+    "gtagConfig": {
+        "vendor": "GA4 / Google tag",
+        "category": "analytics",
+        "official_docs": [
+            "https://developers.google.com/tag-platform/tag-manager/api/reference/rest/v2/"
+            "accounts.containers.workspaces.gtag_config",
+            "https://developers.google.com/tag-platform/gtagjs/reference",
+            "https://developers.google.com/tag-platform/gtagjs/configure",
+            "https://developers.google.com/tag-platform/security/guides/consent",
+        ],
+        "topics": [
+            "google_tag_configuration_type",
+            "destination_or_server_routing",
+            "configuration_parameter_names_and_types",
+            "consent_and_timing",
+        ],
+    },
 }
 BRANCH_EFFECT_TERMS = {
     "Input": ("read", "pass", "use", "source", "input"),
@@ -157,6 +224,19 @@ BRANCH_EFFECT_TERMS = {
     "Routing": ("fire", "block", "route", "trigger"),
     "Consent": ("consent", "grant", "deny", "storage", "permission"),
     "Execution control": ("before", "after", "once", "setup", "teardown", "execute"),
+}
+VENDOR_CODE_EVENT_PATTERNS = {
+    "Meta": re.compile(
+        r"\bfbq\s*\(\s*['\"](?:track|trackCustom)['\"]\s*,\s*['\"]([^'\"]+)",
+        re.I,
+    ),
+    "TikTok": re.compile(r"\bttq\s*\.\s*track\s*\(\s*['\"]([^'\"]+)", re.I),
+    "Snapchat": re.compile(
+        r"\bsnaptr\s*\(\s*['\"]track['\"]\s*,\s*['\"]([^'\"]+)", re.I
+    ),
+    "Pinterest": re.compile(
+        r"\bpintrk\s*\(\s*['\"]track['\"]\s*,\s*['\"]([^'\"]+)", re.I
+    ),
 }
 
 
@@ -174,6 +254,38 @@ def compact_evidence_terms(values: list[Any], limit: int = 10) -> list[str]:
     return terms[:limit]
 
 
+def execution_dependency_terms(traces: list[dict[str, Any]]) -> list[str]:
+    values: list[Any] = []
+
+    def visit(trace: dict[str, Any]) -> None:
+        values.extend(
+            [
+                trace.get("relation"),
+                trace.get("reference"),
+                trace.get("resolution_state"),
+            ]
+        )
+        for target in as_list(trace.get("targets")):
+            values.extend(
+                [
+                    target.get("object_key"),
+                    target.get("object_name"),
+                    target.get("object_type"),
+                    "paused" if target.get("paused") else "",
+                    *as_list(target.get("conditions")),
+                ]
+            )
+            for child_field in ("member_traces", "sequence_traces"):
+                for child in as_list(target.get(child_field)):
+                    if isinstance(child, dict):
+                        visit(child)
+
+    for trace in traces:
+        if isinstance(trace, dict):
+            visit(trace)
+    return compact_evidence_terms(values, 40)
+
+
 def field_evidence_requirements(shared: dict[str, Any]) -> dict[str, list[str]]:
     contract = shared.get("vendor_event_contract") or {}
     traces = as_list(shared.get("reference_trace_requirements"))
@@ -187,8 +299,37 @@ def field_evidence_requirements(shared: dict[str, Any]) -> dict[str, list[str]]:
         row.get("expression") for row in as_list(code.get("return_expressions"))
     ]
     consumers = as_list(shared.get("consumers"))
+    consumer_contexts = as_list(shared.get("consumer_dependency_contexts"))
+    destination_peers = as_list(shared.get("destination_peer_contexts"))
     consent = as_list(shared.get("consent_facts"))
     consent_route = shared.get("effective_consent_route") or {}
+    dependency_terms = execution_dependency_terms(
+        as_list(shared.get("execution_dependency_traces"))
+    )
+    decisive_paths = (
+        "schedulestartms",
+        "scheduleendms",
+        "tagfiringoption",
+        "setuptag",
+        "teardowntag",
+        "boundary",
+        "childcontainer",
+        "typerestriction",
+        "consentsettings",
+    )
+    decisive_values = [
+        fact.get("value_preview")
+        for fact in [
+            *as_list(shared.get("source_leaf_facts")),
+            *as_list(shared.get("source_absence_facts")),
+            *as_list(shared.get("execution_dependency_facts")),
+        ]
+        if any(token in str(fact.get("json_path") or "").lower() for token in decisive_paths)
+    ]
+    dependency_values = [
+        fact.get("value_preview")
+        for fact in as_list(shared.get("execution_dependency_facts"))
+    ]
     audit_context = shared.get("audit_context") or {}
     requirements = {
         "purpose": compact_evidence_terms(
@@ -202,6 +343,9 @@ def field_evidence_requirements(shared: dict[str, Any]) -> dict[str, list[str]]:
             [
                 *as_list(shared.get("firing_trigger_ids")),
                 *as_list(shared.get("blocking_trigger_ids")),
+                *dependency_terms,
+                *decisive_values,
+                *dependency_values,
                 *[
                     part
                     for condition in as_list(shared.get("trigger_conditions"))
@@ -228,6 +372,26 @@ def field_evidence_requirements(shared: dict[str, Any]) -> dict[str, list[str]]:
                 for consumer in consumers
                 for value in (consumer.get("consumer_key"), consumer.get("consumer_name"))
             ]
+            + [
+                value
+                for context in consumer_contexts
+                for value in (
+                    context.get("consumer_key"),
+                    context.get("consumer_name"),
+                    *as_list(context.get("events")),
+                    *as_list(context.get("destinations")),
+                )
+            ]
+            + [
+                value
+                for peer in destination_peers
+                for value in (
+                    peer.get("object_key"),
+                    peer.get("object_name"),
+                    *as_list(peer.get("shared_destinations")),
+                    *as_list(peer.get("events")),
+                )
+            ]
         ),
         "consent_and_sequence": compact_evidence_terms(
             [
@@ -237,8 +401,10 @@ def field_evidence_requirements(shared: dict[str, Any]) -> dict[str, list[str]]:
                 consent_route.get("effective_control_status"),
                 *as_list(consent_route.get("consent_variable_references")),
                 *as_list(consent_route.get("server_consent_forwarding_variables")),
+                *as_list(consent_route.get("detected_consent_payload_purposes")),
                 *as_list(consent_route.get("forwarded_consent_purposes")),
                 *as_list(consent_route.get("server_routing_hosts")),
+                *dependency_terms,
             ]
         ),
     }
@@ -374,7 +540,14 @@ def logic_cross_check_requirements(
 
 
 def field_evidence_paths(shared: dict[str, Any]) -> dict[str, list[str]]:
-    facts = as_list(shared.get("source_leaf_facts"))
+    own_facts = [
+        *as_list(shared.get("source_leaf_facts")),
+        *as_list(shared.get("source_absence_facts")),
+    ]
+    execution_facts = as_list(shared.get("execution_dependency_facts"))
+    consumer_facts = as_list(shared.get("consumer_dependency_facts"))
+    destination_facts = as_list(shared.get("destination_peer_facts"))
+    facts = [*own_facts, *execution_facts, *consumer_facts, *destination_facts]
     all_paths = [str(fact.get("json_path") or "") for fact in facts]
 
     def matching(*tokens: str, references: bool = False) -> list[str]:
@@ -396,13 +569,19 @@ def field_evidence_paths(shared: dict[str, Any]) -> dict[str, list[str]]:
             (
                 ".accountid",
                 ".containerid",
+                ".workspaceid",
                 ".fingerprint",
                 ".path",
+                ".tagmanagerurl",
+                ".notes",
+                ".parentfolderid",
                 ".tagid",
                 ".triggerid",
                 ".variableid",
                 ".templateid",
                 ".clientid",
+                ".zoneid",
+                ".gtagconfigid",
                 ".transformationid",
                 ".name",
             )
@@ -442,7 +621,14 @@ def field_evidence_paths(shared: dict[str, Any]) -> dict[str, list[str]]:
             "currency",
             "value",
         ),
-        "consumer_contract": matching(".name", ".type", "parameter", references=True),
+        "consumer_contract": list(
+            dict.fromkeys(
+                [
+                    str(fact.get("json_path") or "")
+                    for fact in [*own_facts, *consumer_facts, *destination_facts]
+                ]
+            )
+        ),
         "consent_and_sequence": matching(
             "consent",
             "storage",
@@ -467,31 +653,50 @@ def vendor_contexts_for_objects(
         key: {
             str(item.get("consumer_key") or "")
             for item in object_consumers(key.split(":", 1)[0], obj, consumers)
+            if item.get("relation") in {"variable_reference", "custom_template"}
         }
         for key, obj in objects.items()
     }
-    own_vendors = {}
+    own_vendors: dict[str, list[dict[str, Any]]] = {}
     for key, obj in objects.items():
-        serialized = json.dumps(obj, ensure_ascii=False)
-        vendor = vendor_record(serialized)
-        if vendor.get("name") == "Unclassified":
-            hosts = sorted(
+        serialized = json.dumps(behavior_projection(obj), ensure_ascii=False)
+        vendors = vendor_records(serialized)
+        layer = key.split(":", 1)[0]
+        transport_hosts = (
+            set(server_route_hosts(obj)) if vendors or layer == "gtagConfig" else set()
+        )
+        hosts = sorted(
+            {
+                urlparse(match).netloc.lower()
+                for match in re.findall(r"https?://[^\s\"'<>\\)]+", serialized, re.I)
+                if urlparse(match).netloc
+            }
+        )
+        unmatched_hosts = [
+            host
+            for host in hosts
+            if host not in transport_hosts and not vendor_records(host)
+        ]
+        vendors.extend(
+            {
+                "name": f"Unclassified external integration ({host})",
+                "category": "unknown_vendor",
+                "official_docs": [],
+                "detection_evidence": [host],
+            }
+            for host in unmatched_hosts
+        )
+        if not vendors and layer == "customTemplate":
+            cue = str(obj.get("name") or obj.get("type") or key)
+            vendors.append(
                 {
-                    urlparse(match).netloc.lower()
-                    for match in re.findall(r"https?://[^\s\"'<>\\)]+", serialized, re.I)
-                    if urlparse(match).netloc
-                }
-            )
-            layer = key.split(":", 1)[0]
-            if hosts or layer == "customTemplate":
-                cue = hosts[0] if hosts else str(obj.get("name") or obj.get("type") or key)
-                vendor = {
                     "name": f"Unclassified external integration ({cue})",
                     "category": "unknown_vendor",
                     "official_docs": [],
-                    "detection_evidence": hosts or [cue],
+                    "detection_evidence": [cue],
                 }
-        own_vendors[key] = vendor
+            )
+        own_vendors[key] = vendors
     result: dict[str, list[dict[str, Any]]] = {}
     for source_key in objects:
         queue = [source_key]
@@ -502,19 +707,25 @@ def vendor_contexts_for_objects(
             if current in seen:
                 continue
             seen.add(current)
-            vendor = own_vendors.get(current, {})
-            name = str(vendor.get("name") or "Unclassified")
-            if name != "Unclassified":
+            for vendor in own_vendors.get(current, []):
+                name = str(vendor.get("name") or "Unclassified")
                 contexts[name] = {
                     "vendor": name,
                     "category": str(vendor.get("category") or "unclassified"),
                     "official_docs": list(vendor.get("official_docs") or []),
                     "research_required": not bool(vendor.get("official_docs")),
                     "detection_evidence": list(vendor.get("detection_evidence") or []),
+                    "unsupported_standard_events": list(
+                        vendor.get("unsupported_standard_events") or []
+                    ),
+                    "event_replacements": list(vendor.get("event_replacements") or []),
                     "context_object_keys": sorted(
                         key
                         for key in seen
-                        if str(own_vendors.get(key, {}).get("name") or "") == name
+                        if any(
+                            str(item.get("name") or "") == name
+                            for item in own_vendors.get(key, [])
+                        )
                     ),
                 }
             queue.extend(sorted(direct_consumers.get(current, set()) - seen))
@@ -522,13 +733,70 @@ def vendor_contexts_for_objects(
     return result
 
 
+def configured_parameter_terms(obj: dict[str, Any]) -> set[str]:
+    terms: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            key = str(value.get("key") or "").strip().lower()
+            if key and any(field in value for field in ("value", "list", "map")):
+                terms.add(key)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(obj.get("parameter", []))
+    return terms
+
+
+def vendor_event_values(
+    cv: dict[str, Any], obj: dict[str, Any], vendor: str
+) -> list[str]:
+    pattern = VENDOR_CODE_EVENT_PATTERNS.get(vendor)
+    if pattern:
+        code = " ".join(
+            str(value)
+            for key in ("html", "javascript")
+            for value in [
+                next(
+                    (
+                        parameter.get("value")
+                        for parameter in as_list(obj.get("parameter"))
+                        if parameter.get("key") == key
+                    ),
+                    "",
+                )
+            ]
+            if value
+        )
+        return sorted({match.group(1) for match in pattern.finditer(code)})
+    return sorted(
+        {
+            value
+            for value in parameter_static_values(cv, obj, "eventName")
+            if value.strip()
+        }
+    )
+
+
 def required_contract_topics(
     cv: dict[str, Any],
     layer: str,
     obj: dict[str, Any],
     contexts: list[dict[str, Any]],
+    effective_consent_route: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    if layer not in {"tag", "variable", "customTemplate", "client", "transformation"}:
+    if layer not in {
+        "tag",
+        "variable",
+        "zone",
+        "customTemplate",
+        "client",
+        "gtagConfig",
+        "transformation",
+    }:
         return []
     event_names = {
         value.strip().lower()
@@ -536,11 +804,27 @@ def required_contract_topics(
         if value.strip()
     }
     obligations: list[dict[str, Any]] = []
+    configured_terms = configured_parameter_terms(obj)
+    effective_consent_route = effective_consent_route or {}
+    platform_contract = GTM_PLATFORM_CONTRACTS.get(layer)
+    if platform_contract:
+        contexts = [
+            {
+                "vendor": platform_contract["vendor"],
+                "category": platform_contract["category"],
+                "official_docs": platform_contract["official_docs"],
+                "research_required": False,
+                "detection_evidence": [f"official GTM {layer} entity layer"],
+                "platform_topics": platform_contract["topics"],
+            }
+        ]
     for context in contexts:
         vendor = str(context.get("vendor") or "")
         category = str(context.get("category") or "unclassified")
         topics: list[str]
-        if layer == "customTemplate":
+        if context.get("platform_topics"):
+            topics = list(context["platform_topics"])
+        elif layer == "customTemplate":
             topics = ["template_behavior_and_permissions", "vendor_contract_surface"]
         elif layer == "client":
             topics = ["request_claiming_and_routing", "payload_and_consent_handling"]
@@ -575,6 +859,10 @@ def required_contract_topics(
                         "transaction_value_currency_and_quantity",
                     ]
                 )
+            if "purchase" in event_names:
+                topics.append("purchase_transaction_id_uniqueness")
+            if "refund" in event_names:
+                topics.append("refund_transaction_id_linkage")
         elif category in {"media", "affiliate"}:
             topics = [
                 "event_name",
@@ -591,6 +879,65 @@ def required_contract_topics(
                 "consent_and_timing",
             ]
         for topic in topics:
+            required_configuration_terms = {
+                "purchase_transaction_id_uniqueness": ["transaction_id"],
+                "refund_transaction_id_linkage": ["transaction_id"],
+            }.get(topic, [])
+            configured_events = vendor_event_values(cv, obj, vendor)
+            unsupported = {
+                value.lower(): value
+                for value in as_list(context.get("unsupported_standard_events"))
+            }
+            unsupported_events = [
+                value for value in configured_events if value.lower() in unsupported
+            ]
+            presence_state = (
+                "present"
+                if required_configuration_terms
+                and all(term.lower() in configured_terms for term in required_configuration_terms)
+                else "missing"
+                if required_configuration_terms
+                else "not_applicable"
+            )
+            runtime_topics = {
+                "event_parameter_names_and_types",
+                "payload_names_shapes_and_types",
+                "ecommerce_event_contract",
+                "item_scope_names_and_types",
+                "transaction_value_currency_and_quantity",
+                "consumer_value_shape_and_type",
+                "availability_at_consumer_event",
+                "deduplication_or_event_id",
+            }
+            route_status = str(
+                effective_consent_route.get("effective_control_status") or ""
+            )
+            if presence_state == "missing" or (
+                unsupported_events and topic in {"event_name", "action_or_event_name"}
+            ):
+                deterministic_state = "known_noncompliant"
+            elif (
+                topic in runtime_topics
+                and (
+                    refs(obj)
+                    or layer == "variable"
+                    and str(obj.get("type") or "").lower() not in {"c"}
+                )
+                or topic == "consent_and_timing"
+                and route_status
+                in {
+                    "unproven_export_control",
+                    "server_contract_unproven",
+                    "blocker_control_candidate",
+                    "consent_signal_review",
+                    "unrecognized_consent_status",
+                }
+                or topic == "destination_or_server_routing"
+                and route_status == "server_contract_unproven"
+            ):
+                deterministic_state = "unproven_from_container"
+            else:
+                deterministic_state = "source_check_required"
             obligations.append(
                 {
                     "topic_key": f"{vendor}:{topic}",
@@ -604,10 +951,561 @@ def required_contract_topics(
                     "official_doc_candidates": list(context.get("official_docs") or []),
                     "research_required": bool(context.get("research_required")),
                     "detection_evidence": list(context.get("detection_evidence") or []),
+                    "required_configuration_terms": required_configuration_terms,
+                    "configuration_presence_state": presence_state,
+                    "applicability_state": "applicable",
+                    "configured_event_values": configured_events,
+                    "unsupported_event_values": unsupported_events,
+                    "event_replacements": list(context.get("event_replacements") or []),
+                    "deterministic_contract_state": deterministic_state,
                 }
             )
     unique = {item["topic_key"]: item for item in obligations}
     return [unique[key] for key in sorted(unique)]
+
+
+def required_configuration_obligations(
+    layer: str,
+    obj: dict[str, Any],
+    shared: dict[str, Any],
+    technical: dict[str, Any],
+    source_facts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    obligations: dict[str, dict[str, Any]] = {}
+    available = {str(fact.get("json_path") or "") for fact in source_facts}
+    own_prefix = str(shared.get("source_json_path") or "")
+    facts_by_path = {
+        str(fact.get("json_path") or ""): fact for fact in source_facts
+    }
+
+    def anchors_for(*tokens: str) -> list[str]:
+        metadata_suffixes = tuple(
+            f".{field}"
+            for field in (
+                "accountId",
+                "containerId",
+                "workspaceId",
+                "fingerprint",
+                "path",
+                "tagManagerUrl",
+                "notes",
+                "parentFolderId",
+                "tagId",
+                "triggerId",
+                "variableId",
+                "templateId",
+                "clientId",
+                "zoneId",
+                "gtagConfigId",
+                "transformationId",
+                "name",
+            )
+        )
+        return [
+            path
+            for path in sorted(available)
+            if path.startswith(own_prefix)
+            and not path.endswith(metadata_suffixes)
+            and any(
+                token.lower()
+                in f"{path} {facts_by_path[path].get('value_preview') or ''}".lower()
+                for token in tokens
+            )
+        ]
+
+    def add(
+        key: str,
+        outcome: str,
+        statement: str,
+        anchors: list[str],
+        checks: tuple[str, ...],
+        contract_topics: tuple[str, ...] = (),
+    ) -> None:
+        usable = sorted(set(anchors) & available)
+        if not usable:
+            return
+        conclusion_terms = [
+            token.lower()
+            for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_.:-]{2,}", f"{key} {statement}")
+            if token.lower()
+            not in {
+                "the",
+                "and",
+                "with",
+                "from",
+                "that",
+                "this",
+                "exported",
+                "object",
+                "configuration",
+                "required",
+                "field",
+                "contains",
+            }
+        ]
+        obligations[key] = {
+            "obligation_key": key,
+            "required_outcome": outcome,
+            "statement": statement,
+            "evidence_anchors": usable,
+            "affected_logic_checks": list(checks),
+            "affected_contract_topics": list(contract_topics),
+            "required_conclusion_terms": list(dict.fromkeys(conclusion_terms))[:12],
+        }
+
+    for fact in as_list(shared.get("source_absence_facts")):
+        path = str(fact.get("json_path") or "")
+        field = path.rsplit(".", 1)[-1]
+        add(
+            f"missing_required_field:{field}",
+            "Issue",
+            f"Required {layer} field {field!r} is absent from the exported object.",
+            [path],
+            ("purpose_output_alignment", "vendor_contract_alignment"),
+            (
+                ("google_tag_configuration_type",)
+                if layer == "gtagConfig" and field == "type"
+                else ()
+            ),
+        )
+
+    def inspect_trace(trace: dict[str, Any], inherited_paths: list[str]) -> None:
+        relation = str(trace.get("relation") or "dependency")
+        reference = str(trace.get("reference") or "")
+        state = str(trace.get("resolution_state") or "")
+        paths = [str(value) for value in as_list(trace.get("source_reference_paths"))]
+        paths = paths or inherited_paths
+        outcome_by_state = {
+            "missing": "Issue",
+            "malformed": "Issue",
+            "cycle": "Issue",
+            "ambiguous": "Unclear",
+        }
+        if state in outcome_by_state:
+            trace_identity = stable_hash(
+                {
+                    "relation": relation,
+                    "reference": reference,
+                    "state": state,
+                    "paths": sorted(paths),
+                }
+            )
+            add(
+                f"dependency:{relation}:{reference or '<blank>'}:{state}:{trace_identity}",
+                outcome_by_state[state],
+                f"Execution dependency {relation}={reference!r} resolves as {state}.",
+                paths,
+                ("execution_scope_alignment", "consent_sequence_alignment"),
+            )
+        for target in as_list(trace.get("targets")):
+            if target.get("paused") and relation in {"setupTag", "teardownTag"}:
+                paused_identity = stable_hash(
+                    {
+                        "relation": relation,
+                        "target": target.get("object_key"),
+                        "paths": sorted(paths),
+                    }
+                )
+                add(
+                    f"paused_sequence_target:{relation}:{target.get('object_key')}:{paused_identity}",
+                    "Issue",
+                    f"{relation} targets paused object {target.get('object_key')!r}.",
+                    paths,
+                    ("execution_scope_alignment", "consent_sequence_alignment"),
+                )
+            for child_field in ("member_traces", "sequence_traces"):
+                for child in as_list(target.get(child_field)):
+                    if isinstance(child, dict):
+                        inspect_trace(child, paths)
+
+    for trace in as_list(shared.get("execution_dependency_traces")):
+        if isinstance(trace, dict):
+            inspect_trace(trace, [])
+
+    if layer == "trigger":
+        parameters = obj.get("parameter")
+        for parameter_index, parameter in enumerate(as_list(parameters)):
+            if not isinstance(parameter, dict) or parameter.get("key") != "triggerIds":
+                continue
+            members = parameter.get("list")
+            list_path = f"{own_prefix}.parameter[{parameter_index}].list"
+            if not isinstance(members, list):
+                add(
+                    f"invalid_trigger_group_list:{parameter_index}",
+                    "Issue",
+                    "Trigger-group triggerIds does not export an array of member references.",
+                    anchors_for(f"parameter[{parameter_index}]", "triggerIds"),
+                    ("purpose_output_alignment", "execution_scope_alignment"),
+                )
+                continue
+            for member_index, member in enumerate(members):
+                member_path = f"{list_path}[{member_index}]"
+                member_value = (
+                    str(member.get("value") or "").strip()
+                    if isinstance(member, dict)
+                    else ""
+                )
+                if not isinstance(member, dict) or not member_value:
+                    add(
+                        f"invalid_trigger_group_member:{parameter_index}:{member_index}",
+                        "Issue",
+                        f"Trigger-group member at list index {member_index} is malformed or blank.",
+                        [
+                            path
+                            for path in available
+                            if path == member_path or path.startswith(member_path + ".")
+                        ],
+                        ("purpose_output_alignment", "execution_scope_alignment"),
+                    )
+
+    condition_source: Any = None
+    condition_subject = ""
+    condition_contract_topics: tuple[str, ...] = ()
+    if layer == "trigger":
+        condition_source = obj
+        condition_subject = "Trigger"
+    elif layer == "zone" and isinstance(obj.get("boundary"), dict):
+        condition_source = obj["boundary"]
+        condition_subject = "Zone boundary"
+        condition_contract_topics = ("boundary_conditions_and_evaluation_triggers",)
+    if condition_source is not None:
+        constraints: dict[str, list[tuple[str, str]]] = {}
+        for condition in trigger_conditions(condition_source):
+            operator, left, right, _modifiers = condition.split("|", 3)
+            if left and right:
+                constraints.setdefault(left, []).append((operator, right))
+        for left, values in sorted(constraints.items()):
+            value_set = set(values)
+            equals_values = sorted(
+                {right for operator, right in values if operator == "EQUALS"}
+            )
+            contradictions: list[tuple[str, list[str]]] = []
+            if len(equals_values) > 1:
+                contradictions.append(
+                    (
+                        f"requires {left!r} to equal mutually exclusive values {equals_values!r}",
+                        equals_values,
+                    )
+                )
+            for positive, negative in (
+                ("EQUALS", "NOT_EQUALS"),
+                ("CONTAINS", "DOES_NOT_CONTAIN"),
+                ("MATCH_REGEX", "DOES_NOT_MATCH_REGEX"),
+            ):
+                opposed = sorted(
+                    right
+                    for operator, right in value_set
+                    if operator == positive and (negative, right) in value_set
+                )
+                if opposed:
+                    contradictions.append(
+                        (f"uses both {positive} and {negative} for {opposed!r}", opposed)
+                    )
+            for equals_value in equals_values:
+                if "{{" in equals_value:
+                    continue
+                for operator, right in values:
+                    if not right or "{{" in right:
+                        continue
+                    impossible = (
+                        operator == "CONTAINS" and right not in equals_value
+                        or operator == "DOES_NOT_CONTAIN" and right in equals_value
+                        or operator == "STARTS_WITH" and not equals_value.startswith(right)
+                        or operator == "ENDS_WITH" and not equals_value.endswith(right)
+                    )
+                    if impossible:
+                        contradictions.append(
+                            (
+                                f"requires {left!r} to equal {equals_value!r} and also "
+                                f"{operator} {right!r}",
+                                [equals_value, right],
+                            )
+                        )
+            greater_values = []
+            lesser_values = []
+            for operator, right in values:
+                if operator not in {"GREATER_THAN", "LESS_THAN"}:
+                    continue
+                try:
+                    numeric = float(right)
+                except ValueError:
+                    continue
+                (greater_values if operator == "GREATER_THAN" else lesser_values).append(
+                    numeric
+                )
+            if (
+                greater_values
+                and lesser_values
+                and max(greater_values) >= min(lesser_values)
+            ):
+                contradictions.append(
+                    (
+                        f"requires {left!r} greater than {max(greater_values)} and less "
+                        f"than {min(lesser_values)}",
+                        [str(max(greater_values)), str(min(lesser_values))],
+                    )
+                )
+            for detail, right_values in contradictions:
+                key_prefix = (
+                    "contradictory_equals"
+                    if "mutually exclusive values" in detail
+                    else "contradictory_condition"
+                )
+                add(
+                    f"{key_prefix}:{stable_hash({'subject': condition_subject, 'detail': detail})}",
+                    "Issue",
+                    f"{condition_subject} {detail}.",
+                    anchors_for(left, *right_values),
+                    ("purpose_output_alignment", "execution_scope_alignment"),
+                    condition_contract_topics,
+                )
+
+    if layer == "tag":
+        start_raw = obj.get("scheduleStartMs")
+        end_raw = obj.get("scheduleEndMs")
+
+        def integer_or_none(value: Any) -> int | None:
+            try:
+                return int(str(value)) if value not in {None, ""} else None
+            except (TypeError, ValueError):
+                return None
+
+        start = integer_or_none(start_raw)
+        end = integer_or_none(end_raw)
+        if (start_raw not in {None, ""} and start is None) or (
+            end_raw not in {None, ""} and end is None
+        ):
+            add(
+                "invalid_schedule_timestamp",
+                "Issue",
+                "Tag schedule contains a non-integer exported boundary.",
+                anchors_for("scheduleStartMs", "scheduleEndMs"),
+                ("execution_scope_alignment",),
+            )
+        if start is not None and end is not None and start >= end:
+            add(
+                "invalid_schedule_order",
+                "Issue",
+                f"Tag schedule starts at {start} and ends at {end}.",
+                anchors_for("scheduleStartMs", "scheduleEndMs"),
+                ("execution_scope_alignment",),
+            )
+        firing_option = str(obj.get("tagFiringOption") or "")
+        normalized_option = re.sub(r"[^A-Z]", "", firing_option.upper())
+        if firing_option and normalized_option not in {
+            "UNLIMITED",
+            "ONCEPEREVENT",
+            "ONCEPERLOAD",
+        }:
+            add(
+                "invalid_tag_firing_option",
+                "Issue",
+                f"Tag exports unrecognized tagFiringOption {firing_option!r}.",
+                anchors_for("tagFiringOption"),
+                ("execution_scope_alignment",),
+            )
+
+    if layer == "zone":
+        children = obj.get("childContainer")
+        child_rows = as_list(children)
+        if children is not None and not isinstance(children, list):
+            add(
+                "invalid_zone_child_shape",
+                "Issue",
+                "Zone childContainer is not an array.",
+                anchors_for("childContainer"),
+                ("purpose_output_alignment", "execution_scope_alignment"),
+                ("child_container_scope",),
+            )
+        child_ids = [
+            str(child.get("publicId") or "")
+            for child in child_rows
+            if isinstance(child, dict)
+        ]
+        invalid_children = [
+            index
+            for index, child in enumerate(child_rows)
+            if not isinstance(child, dict) or not str(child.get("publicId") or "").strip()
+        ]
+        if not child_rows or invalid_children:
+            invalid_child_anchors = [
+                path
+                for index in invalid_children
+                for path in anchors_for(f"childContainer[{index}]")
+            ] or anchors_for("childContainer")
+            add(
+                "invalid_zone_child_identity",
+                "Issue",
+                f"Zone child entries {invalid_children!r} do not identify a child container.",
+                invalid_child_anchors,
+                ("purpose_output_alignment", "execution_scope_alignment"),
+                ("child_container_scope",),
+            )
+        duplicate_child_ids = {
+            value for value in child_ids if value and child_ids.count(value) > 1
+        }
+        if duplicate_child_ids:
+            duplicate_anchors = [
+                path
+                for path, fact in facts_by_path.items()
+                if path.startswith(own_prefix)
+                and str(fact.get("value_preview") or "") in duplicate_child_ids
+            ]
+            add(
+                "duplicate_zone_child_identity",
+                "Issue",
+                "Zone repeats an exported child-container public ID.",
+                duplicate_anchors,
+                ("purpose_output_alignment", "execution_scope_alignment"),
+                ("child_container_scope",),
+            )
+        boundary = obj.get("boundary")
+        if boundary is not None and not isinstance(boundary, dict):
+            add(
+                "invalid_zone_boundary_shape",
+                "Issue",
+                "Zone boundary is not an object.",
+                anchors_for("boundary"),
+                ("execution_scope_alignment",),
+                ("boundary_conditions_and_evaluation_triggers",),
+            )
+        if isinstance(boundary, dict):
+            for field in ("condition", "customEvaluationTriggerId"):
+                if field in boundary and not isinstance(boundary.get(field), list):
+                    add(
+                        f"invalid_zone_boundary_field:{field}",
+                        "Issue",
+                        f"Zone boundary field {field!r} is not an array.",
+                        anchors_for(f"boundary.{field}"),
+                        ("execution_scope_alignment",),
+                        ("boundary_conditions_and_evaluation_triggers",),
+                    )
+        restrictions = obj.get("typeRestriction")
+        if restrictions is not None and not isinstance(restrictions, dict):
+            add(
+                "invalid_zone_type_restriction_shape",
+                "Issue",
+                "Zone typeRestriction is not an object.",
+                anchors_for("typeRestriction"),
+                ("execution_scope_alignment",),
+                ("type_restrictions",),
+            )
+        if isinstance(restrictions, dict):
+            allowlist = restrictions.get("whitelistedTypeId")
+            if allowlist is not None and not isinstance(allowlist, list):
+                add(
+                    "invalid_zone_type_allowlist_shape",
+                    "Issue",
+                    "Zone whitelistedTypeId is not an array.",
+                    anchors_for("whitelistedTypeId"),
+                    ("execution_scope_alignment",),
+                    ("type_restrictions",),
+                )
+            if restrictions.get("enable") and not as_list(allowlist):
+                add(
+                    "empty_enabled_zone_type_allowlist",
+                    "Unclear",
+                    "Zone enables type restriction with an empty exported allowlist; an "
+                    "intentional deny-all policy is not provable from the container.",
+                    anchors_for("typeRestriction"),
+                    ("execution_scope_alignment",),
+                    ("type_restrictions",),
+                )
+
+    route = shared.get("effective_consent_route") or {}
+    route_status = str(route.get("effective_control_status") or "")
+    if route_status == "server_contract_unproven":
+        add(
+            "server_consent_contract_unproven",
+            "Unclear",
+            "A server route is exported without a complete visible consent-forwarding contract.",
+            anchors_for(
+                "server_container_url",
+                "transport_url",
+                "endpoint",
+                *as_list(route.get("server_routing_hosts")),
+            ),
+            ("consent_sequence_alignment", "vendor_contract_alignment"),
+            ("destination_or_server_routing", "consent_and_timing"),
+        )
+    if route.get("requires_media_consent_review") and route_status in {
+        "unproven_export_control",
+        "blocker_control_candidate",
+        "consent_signal_review",
+    }:
+        add(
+            "media_consent_control_unproven",
+            "Unclear",
+            f"Media delivery has effective consent-control status {route_status!r}.",
+            anchors_for(
+                "consent",
+                "blockingTriggerId",
+                "html",
+                "javascript",
+                "fbq",
+                "ttq",
+                "snaptr",
+                "pintrk",
+            ),
+            ("consent_sequence_alignment", "vendor_contract_alignment"),
+            ("consent_and_timing",),
+        )
+
+    for peer in as_list(shared.get("destination_peer_contexts")):
+        if not isinstance(peer, dict):
+            continue
+        peer_key = str(peer.get("object_key") or "")
+        peer_hosts = [str(value) for value in as_list(peer.get("server_routing_hosts"))]
+        missing_type = not bool(peer.get("type_present", True))
+        if not peer_hosts and not missing_type:
+            continue
+        peer_prefix = str(peer.get("source_json_path") or "")
+        peer_anchors = [
+            str(fact.get("json_path") or "")
+            for fact in as_list(shared.get("destination_peer_facts"))
+            if str(fact.get("json_path") or "").startswith(peer_prefix)
+            and (
+                any(
+                    token in str(fact.get("json_path") or "").lower()
+                    for token in (
+                        "server_container_url",
+                        "transport_url",
+                        "endpoint",
+                        "consent",
+                        ".type",
+                    )
+                )
+                or any(
+                    host in str(fact.get("value_preview") or "").lower()
+                    for host in peer_hosts
+                )
+            )
+        ]
+        details = []
+        if peer_hosts:
+            details.append("server route " + ", ".join(peer_hosts))
+        if missing_type:
+            details.append("missing Google tag configuration type")
+        add(
+            f"peer_destination_contract_unproven:{stable_hash({'peer': peer_key, 'details': details})}",
+            "Unclear",
+            f"Destination peer {peer_key!r} exposes {' and '.join(details)}, so inheritance "
+            "by this object is not proven from the shared destination alone.",
+            peer_anchors,
+            ("consent_sequence_alignment", "vendor_contract_alignment"),
+            ("destination_or_server_routing", "consent_and_timing"),
+        )
+
+    if technical.get("behavior_can_be_understood_from_export") == "opaque":
+        add(
+            "opaque_custom_template_behavior",
+            "Unclear",
+            "The custom-template export does not expose reviewable executable behavior.",
+            anchors_for("templateData"),
+            ("purpose_output_alignment", "custom_code_behavior_alignment"),
+            ("template_behavior_and_permissions",),
+        )
+    return [obligations[key] for key in sorted(obligations)]
 
 
 def scaffold_review(
@@ -616,8 +1514,21 @@ def scaffold_review(
     shared_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     data = json.loads(export_path.read_text(encoding="utf-8"))
+    blocking_integrity = [
+        row for row in source_integrity_findings(data) if row.get("blocking")
+    ]
+    if blocking_integrity:
+        finding_types = sorted(
+            str(row.get("finding_type") or "source_integrity_error")
+            for row in blocking_integrity
+        )
+        raise ValueError(
+            "source integrity gate blocked configuration review: "
+            + ", ".join(finding_types)
+        )
     cv = container_version(data)
-    consumers = build_consumers(cv)
+    root_path = container_root_path(data)
+    consumers = build_consumers(cv, root_path)
     downstream_vendor_contexts = vendor_contexts_for_objects(cv, consumers)
     technical_by_key = {
         f"{row.get('layer')}:{row.get('object_id')}": row
@@ -633,21 +1544,48 @@ def scaffold_review(
     }
     rows: list[dict[str, Any]] = []
     for number, (layer, index, obj) in enumerate(layer_objects(cv), start=1):
-        base_path = f"$.containerVersion.{layer}[{index}]"
+        base_path = f"{root_path}.{layer}[{index}]"
         current_key = object_key(layer, obj)
         shared = shared_by_key.get(current_key, {})
-        facts = as_list(shared.get("source_leaf_facts")) or walk_json_fields(obj, base_path)
+        own_facts = [
+            *(as_list(shared.get("source_leaf_facts")) or walk_json_fields(obj, base_path)),
+            *as_list(shared.get("source_absence_facts")),
+        ]
+        facts = list(
+            {
+                (str(fact.get("json_path") or ""), str(fact.get("value_hash") or "")): fact
+                for fact in [
+                    *own_facts,
+                    *as_list(shared.get("execution_dependency_facts")),
+                    *as_list(shared.get("consumer_dependency_facts")),
+                    *as_list(shared.get("destination_peer_facts")),
+                ]
+            }.values()
+        )
+        facts.sort(key=lambda fact: (fact["json_path"], fact["value_hash"]))
         required_paths = logic_anchors(facts)
         required_path_set = set(required_paths)
         lines = code_line_facts(layer, obj)
-        vendor = vendor_record(json.dumps(obj, ensure_ascii=False))
+        vendor = vendor_record(json.dumps(behavior_projection(obj), ensure_ascii=False))
         contexts = downstream_vendor_contexts.get(current_key, [])
-        topics = required_contract_topics(cv, layer, obj, contexts)
+        topics = required_contract_topics(
+            cv,
+            layer,
+            obj,
+            contexts,
+            shared.get("effective_consent_route", {}),
+        )
         official_docs = sorted(
             {
                 str(url)
                 for context in contexts
                 for url in as_list(context.get("official_docs"))
+                if str(url)
+            }
+            | {
+                str(url)
+                for topic in topics
+                for url in as_list(topic.get("official_doc_candidates"))
                 if str(url)
             }
         )
@@ -668,6 +1606,62 @@ def scaffold_review(
                         "statement": str(statement),
                     }
                 )
+        parser_status = str(technical.get("javascript_parser") or "")
+        parser_errors = [
+            str(value) for value in as_list(technical.get("ast_parse_errors")) if str(value)
+        ]
+        if parser_status == "not_installed_static_review_still_required":
+            required_technical_findings.append(
+                {
+                    "finding_key": "parser:coverage",
+                    "category": "parser",
+                    "statement": (
+                        "JavaScript AST parser was unavailable; line-by-line behavior review "
+                        "must carry the code assessment without claiming AST coverage."
+                    ),
+                }
+            )
+        elif parser_status == "esprima_parse_failed" or parser_errors:
+            required_technical_findings.append(
+                {
+                    "finding_key": "parser:coverage",
+                    "category": "parser",
+                    "statement": (
+                        f"JavaScript parser status is {parser_status or 'unknown'}"
+                        + (f" with errors: {'; '.join(parser_errors[:3])}" if parser_errors else "")
+                        + "; parser-level coverage is incomplete until this is resolved or "
+                        "explicitly bounded."
+                    ),
+                }
+            )
+        configuration_obligations = required_configuration_obligations(
+            layer,
+            obj,
+            shared,
+            technical,
+            facts,
+        )
+        logic_requirements = logic_cross_check_requirements(
+            shared,
+            evidence_requirements,
+            evidence_paths,
+            bool(lines),
+            bool(topics),
+        )
+        logic_by_key = {item["check_key"]: item for item in logic_requirements}
+        for obligation in configuration_obligations:
+            for check_key in obligation["affected_logic_checks"]:
+                check = logic_by_key.get(check_key)
+                if not check:
+                    continue
+                check["allowed_evidence_anchors"] = list(
+                    dict.fromkeys(
+                        [
+                            *check["allowed_evidence_anchors"],
+                            *obligation["evidence_anchors"],
+                        ]
+                    )
+                )[:160]
         rows.append(
             {
                 "review_id": f"CFG-{number:05d}",
@@ -692,7 +1686,7 @@ def scaffold_review(
                 "reference_trace_requirements": as_list(
                     shared.get("reference_trace_requirements")
                 )
-                or reference_trace_requirements(cv, obj),
+                or reference_trace_requirements(cv, obj, root_path),
                 "export_consumers": as_list(shared.get("consumers"))
                 or object_consumers(layer, obj, consumers),
                 "specificity_tokens": as_list(shared.get("specificity_tokens"))
@@ -708,13 +1702,27 @@ def scaffold_review(
                 "field_evidence_requirements": evidence_requirements,
                 "field_evidence_paths": evidence_paths,
                 "effective_consent_route_facts": shared.get("effective_consent_route", {}),
-                "required_logic_cross_checks": logic_cross_check_requirements(
-                    shared,
-                    evidence_requirements,
-                    evidence_paths,
-                    bool(lines),
-                    bool(topics),
+                "execution_dependency_traces": as_list(
+                    shared.get("execution_dependency_traces")
                 ),
+                "execution_dependency_facts": as_list(
+                    shared.get("execution_dependency_facts")
+                ),
+                "consumer_dependency_facts": as_list(
+                    shared.get("consumer_dependency_facts")
+                ),
+                "consumer_dependency_contexts": as_list(
+                    shared.get("consumer_dependency_contexts")
+                ),
+                "destination_peer_contexts": as_list(
+                    shared.get("destination_peer_contexts")
+                ),
+                "destination_peer_facts": as_list(
+                    shared.get("destination_peer_facts")
+                ),
+                "source_absence_facts": as_list(shared.get("source_absence_facts")),
+                "required_logic_cross_checks": logic_requirements,
+                "required_configuration_obligations": configuration_obligations,
                 "review_status": "pending",
                 "purpose": "",
                 "execution_logic": "",
@@ -827,8 +1835,19 @@ def branch_required_role(path: str) -> str | None:
         return "Condition"
     if any(token in lowered for token in ("firingtriggerid", "blockingtriggerid", "triggerids")):
         return "Routing"
-    if any(token in lowered for token in ("setuptag", "teardowntag", "tagfiringoption")):
+    if any(
+        token in lowered
+        for token in (
+            "setuptag",
+            "teardowntag",
+            "tagfiringoption",
+            "schedulestartms",
+            "scheduleendms",
+        )
+    ):
         return "Execution control"
+    if any(token in lowered for token in ("childcontainer", "typerestriction")):
+        return "Condition"
     return None
 
 
@@ -861,12 +1880,18 @@ def contract_topic_maps(
         str(item.get("topic_key") or ""): item
         for item in as_list(row.get("required_contract_topics"))
     }
+    supplied_rows = [item for item in checks if isinstance(item, dict)]
     supplied = {
         str(item.get("contract_topic") or ""): item
-        for item in checks
-        if isinstance(item, dict)
+        for item in supplied_rows
     }
     errors = []
+    if len(supplied_rows) != len(checks):
+        errors.append(f"{label}: official contract checks contain malformed rows")
+    if len(supplied) != len(supplied_rows) or "" in supplied:
+        errors.append(
+            f"{label}: official contract checks must use unique nonblank topic keys"
+        )
     if set(supplied) != set(required):
         errors.append(
             f"{label}: official contract checks must cover every generated topic exactly once"
@@ -878,10 +1903,12 @@ def validate_contract_text(
     check: dict[str, Any], topic: dict[str, Any], prefix: str
 ) -> list[str]:
     errors: list[str] = []
-    for field in ("contract_field", "configured_value", "expected_rule", "source"):
+    for field in ("contract_field", "configured_value", "expected_rule"):
         minimum = 1 if field == "configured_value" else 2
         if not specific_text(check.get(field), minimum):
             errors.append(f"{prefix} has incomplete {field}")
+    if check.get("verdict") != "Unproven" and not specific_text(check.get("source"), 2):
+        errors.append(f"{prefix} has incomplete source")
     if topic.get("research_required"):
         if not specific_text(check.get("identified_vendor"), 2):
             errors.append(f"{prefix} must identify the external vendor or integration")
@@ -898,6 +1925,42 @@ def validate_contract_text(
         errors.append(f"{prefix} expected_rule does not state the topic-specific contract")
     if check.get("verdict") not in VALID_CONTRACT_VERDICTS:
         errors.append(f"{prefix} has invalid verdict")
+    if (
+        topic.get("applicability_state") == "applicable"
+        and check.get("verdict") == "Not applicable"
+    ):
+        errors.append(f"{prefix} is a generated applicable contract and cannot be skipped")
+    presence_state = str(topic.get("configuration_presence_state") or "")
+    required_configuration_terms = as_list(topic.get("required_configuration_terms"))
+    if (
+        required_configuration_terms
+        and presence_state == "missing"
+        and check.get("verdict") != "Non-compliant"
+    ):
+        errors.append(
+            f"{prefix} must be Non-compliant because required exported configuration "
+            f"terms {required_configuration_terms!r} are absent"
+        )
+    deterministic_state = str(topic.get("deterministic_contract_state") or "")
+    if deterministic_state == "known_noncompliant" and check.get("verdict") != "Non-compliant":
+        errors.append(
+            f"{prefix} must be Non-compliant because the exported contract has a "
+            "deterministic missing or unsupported value"
+        )
+    if deterministic_state == "unproven_from_container" and check.get("verdict") not in {
+        "Unproven",
+        "Non-compliant",
+    }:
+        errors.append(
+            f"{prefix} cannot be certified from container-only dynamic, consent, or "
+            "server evidence"
+        )
+    configured_events = [
+        str(value).lower() for value in as_list(topic.get("configured_event_values"))
+    ]
+    configured_value = str(check.get("configured_value") or "").lower()
+    if configured_events and not all(value in configured_value for value in configured_events):
+        errors.append(f"{prefix} does not name every vendor-specific configured event value")
     return errors
 
 
@@ -911,21 +1974,49 @@ def validate_contract_source(
         if str(url).startswith("https://")
     }
     errors: list[str] = []
+    if topic.get("research_required"):
+        hostname = (urlparse(source_url).hostname or "").lower()
+        reserved_bases = {
+            "example.com",
+            "example.org",
+            "example.net",
+        }
+        if (
+            hostname in reserved_bases
+            or any(hostname.endswith("." + base) for base in reserved_bases)
+            or hostname.endswith((".example", ".invalid", ".localhost", ".test"))
+        ):
+            errors.append(
+                f"{prefix} uses a placeholder or reserved or non-production "
+                "documentation hostname"
+            )
+        if source_url:
+            errors.append(
+                f"{prefix} cannot certify an unregistered vendor source; add the verified "
+                "official domain to the versioned registry and rebuild the review"
+            )
+        if check.get("verdict") != "Unproven":
+            errors.append(
+                f"{prefix} must remain Unproven while the vendor and official domain are unregistered"
+            )
+        if not specific_text(check.get("research_status"), 8):
+            errors.append(
+                f"{prefix} must document the unsuccessful official-source identification"
+            )
+        return errors
     if not source_url.startswith("https://"):
         errors.append(f"{prefix} source must be an official HTTPS documentation URL")
     elif official_domains and urlparse(source_url).netloc.lower() not in official_domains:
         errors.append(f"{prefix} source domain is not registered for the detected vendor")
-    if topic.get("research_required") and urlparse(source_url).hostname in {
-        "example.com",
-        "example.invalid",
-        "vendor.example.com",
-    }:
-        errors.append(f"{prefix} uses a placeholder instead of vendor documentation")
     return errors
 
 
 def validate_contract_evidence(
-    row: dict[str, Any], check: dict[str, Any], available: set[str], prefix: str
+    row: dict[str, Any],
+    check: dict[str, Any],
+    topic: dict[str, Any],
+    available: set[str],
+    prefix: str,
 ) -> tuple[set[str], list[str]]:
     anchors = {str(value) for value in as_list(check.get("evidence_anchors"))}
     errors: list[str] = []
@@ -935,6 +2026,13 @@ def validate_contract_evidence(
         f"{prefix} references unknown evidence anchor {anchor!r}"
         for anchor in sorted(anchors - available)
     )
+    logic_anchors = {
+        str(value) for value in as_list(row.get("required_logic_anchors"))
+    }
+    for anchor in sorted(anchors - logic_anchors):
+        errors.append(
+            f"{prefix} cites metadata rather than configuration logic branch {anchor!r}"
+        )
     configured_tokens = {
         token
         for fact in as_list(row.get("source_facts"))
@@ -944,11 +2042,28 @@ def validate_contract_evidence(
     configured_text = str(check.get("configured_value") or "").lower()
     if configured_tokens and not any(token in configured_text for token in configured_tokens):
         errors.append(f"{prefix} does not state the actual exported configuration value")
+    configured_events = [
+        str(value).lower() for value in as_list(topic.get("configured_event_values"))
+    ]
+    for event in configured_events:
+        event_paths = {
+            str(fact.get("json_path") or "")
+            for fact in as_list(row.get("source_facts"))
+            if event in str(fact.get("value_preview") or "").lower()
+            and str(fact.get("json_path") or "") in logic_anchors
+        }
+        if event_paths and not (anchors & event_paths):
+            errors.append(
+                f"{prefix} does not cite the exported branch containing event {event!r}"
+            )
     return anchors, errors
 
 
 def validate_contract_outcomes(
-    row: dict[str, Any], noncompliant_anchors: set[str], unproven: bool, label: str
+    row: dict[str, Any],
+    noncompliant_anchors: set[str],
+    unproven_anchors: set[str],
+    label: str,
 ) -> list[str]:
     errors: list[str] = []
     if noncompliant_anchors and row.get("correctness_verdict") != "Issue":
@@ -960,12 +2075,37 @@ def validate_contract_outcomes(
     }
     if noncompliant_anchors - defect_anchors:
         errors.append(f"{label}: vendor contract failures must be linked to concrete defects")
-    if unproven and row.get("correctness_verdict") not in {
+    if unproven_anchors and row.get("correctness_verdict") not in {
         "Owner decision needed",
         "Container evidence limit",
         "Issue",
     }:
         errors.append(f"{label}: unproven vendor contract cannot be marked Correct")
+    branches = {
+        str(item.get("json_path") or ""): str(item.get("correctness") or "")
+        for item in as_list(row.get("configuration_branch_reviews"))
+        if isinstance(item, dict)
+    }
+    for anchor in sorted(noncompliant_anchors):
+        if branches.get(anchor) != "Issue":
+            errors.append(
+                f"{label}: non-compliant contract requires Issue branch verdict at {anchor}"
+            )
+    for anchor in sorted(unproven_anchors - noncompliant_anchors):
+        if branches.get(anchor) not in {"Unclear", "Issue"}:
+            errors.append(
+                f"{label}: unproven contract requires Unclear or Issue branch verdict at {anchor}"
+            )
+    logic = {
+        str(item.get("check_key") or ""): str(item.get("verdict") or "")
+        for item in as_list(row.get("logic_cross_checks"))
+        if isinstance(item, dict)
+    }
+    vendor_verdict = logic.get("vendor_contract_alignment")
+    if noncompliant_anchors and vendor_verdict != "Issue":
+        errors.append(f"{label}: non-compliant contract contradicts vendor D3 alignment")
+    elif unproven_anchors and vendor_verdict not in {"Unclear", "Issue"}:
+        errors.append(f"{label}: unproven contract contradicts vendor D3 alignment")
     return errors
 
 
@@ -974,7 +2114,7 @@ def validate_contract_checks(row: dict[str, Any], label: str) -> list[str]:
     required_topics, _supplied_topics, errors = contract_topic_maps(row, checks, label)
     available = set(as_list(row.get("available_evidence_anchors")))
     noncompliant_anchors: set[str] = set()
-    unproven = False
+    unproven_anchors: set[str] = set()
     for index, check in enumerate(checks, start=1):
         prefix = f"{label}: contract check {index}"
         topic_key = str(check.get("contract_topic") or "")
@@ -984,13 +2124,19 @@ def validate_contract_checks(row: dict[str, Any], label: str) -> list[str]:
             topic = {}
         errors.extend(validate_contract_text(check, topic, prefix))
         errors.extend(validate_contract_source(check, topic, prefix))
-        anchors, evidence_errors = validate_contract_evidence(row, check, available, prefix)
+        anchors, evidence_errors = validate_contract_evidence(
+            row, check, topic, available, prefix
+        )
         errors.extend(evidence_errors)
         if check.get("verdict") == "Non-compliant":
             noncompliant_anchors.update(anchors)
         if check.get("verdict") == "Unproven":
-            unproven = True
-    errors.extend(validate_contract_outcomes(row, noncompliant_anchors, unproven, label))
+            unproven_anchors.update(anchors)
+    errors.extend(
+        validate_contract_outcomes(
+            row, noncompliant_anchors, unproven_anchors, label
+        )
+    )
     return errors
 
 
@@ -1027,6 +2173,77 @@ def code_block_source_tokens(
     }
 
 
+def validate_segment_behavior_text(
+    text: str, fact: dict[str, Any], prefix: str
+) -> list[str]:
+    lowered = text.lower()
+    errors: list[str] = []
+    required_signals = [
+        signal
+        for signal in as_list(fact.get("required_behavior_signals"))
+        if isinstance(signal, dict)
+    ]
+    if required_signals and re.search(
+        r"\b(?:dead(?:\s+code)?(?:\s+path|\s+branch)?|unreachable|dormant|inert|"
+        r"non[- ]executing)\b|"
+        r"\b(?:zero|no)\s+(?:delivery|execution|effect|output|send|request|call|"
+        r"mutation)s?\b|"
+        r"\b(?:never|not|cannot|does(?:\s+not|n't))\s+"
+        r"(?:execute|run|fire|invoke|deliver)\w*\b|"
+        r"\b(?:illustrative|example|demonstration|placeholder)\s+only\b",
+        lowered,
+    ):
+        errors.append(f"{prefix} denies the executable effect of source-proven behavior")
+    if required_signals and re.search(
+        r"\b(?:no|without)\s+(?:configured\s+|source(?:-visible)?\s+|observable\s+)?"
+        r"(?:behavior|effect|output|action|request|send|call|mutation)s?\b|"
+        r"\b(?:does|do)\s+nothing\b",
+        lowered,
+    ):
+        errors.append(f"{prefix} denies all source-proven segment behavior")
+    for signal in required_signals:
+        signal_name = str(signal.get("signal") or "source behavior")
+        term_groups = [
+            [str(term).lower() for term in as_list(group) if str(term)]
+            for group in as_list(signal.get("required_term_groups"))
+        ]
+        if any(group and not any(term in lowered for term in group) for group in term_groups):
+            errors.append(
+                f"{prefix} does not state required segment behavior {signal_name}"
+            )
+            continue
+        signal_terms = {
+            *signal_name.replace("_", " ").split(),
+            *(term for group in term_groups for term in group),
+        }
+        raw_term_pattern = "|".join(
+            re.escape(term) for term in sorted(signal_terms, key=len, reverse=True) if term
+        )
+        term_pattern = rf"(?:{raw_term_pattern})(?:s|es|ing|ed)?" if raw_term_pattern else ""
+        if term_pattern and (
+            re.search(
+                rf"\b(?:no|not|never|without|cannot|does(?:\s+not|n't)|fails?\s+to|"
+                rf"neither|inert|rather\s+than|prevent\w*|suppress\w*|omit\w*|"
+                rf"skip\w*|disabl\w*|avoid\w*)\b"
+                rf"(?:\W+\w+){{0,6}}\W+(?:{term_pattern})\b",
+                lowered,
+            )
+            or re.search(
+                rf"\b(?:{term_pattern})\b(?:\W+\w+){{0,4}}\W+\b(?:not|never|absent|"
+                rf"none|inert|prevented|suppressed|omitted|skipped|disabled)\b",
+                lowered,
+            )
+            or re.search(
+                rf"\b(?:{term_pattern})\b(?:\W+\w+){{0,8}}\W+\brather\s+than\b",
+                lowered,
+            )
+        ):
+            errors.append(
+                f"{prefix} reverses source-proven segment behavior {signal_name}"
+            )
+    return errors
+
+
 def validate_code_block(
     block: dict[str, Any],
     index: int,
@@ -1056,6 +2273,20 @@ def validate_code_block(
     source_tokens = code_block_source_tokens(hashes, required_facts)
     if source_tokens and not any(token in block_text for token in source_tokens):
         errors.append(f"{prefix} does not name any identifier or endpoint from its code lines")
+    for line_hash in hashes:
+        segment_tokens = code_block_source_tokens([line_hash], required_facts)
+        if segment_tokens and not any(token in block_text for token in segment_tokens):
+            errors.append(
+                f"{prefix} does not describe source-specific behavior for segment {line_hash}"
+            )
+        if line_hash in required_facts:
+            errors.extend(
+                validate_segment_behavior_text(
+                    block_text,
+                    required_facts[line_hash],
+                    f"{prefix} segment {line_hash}",
+                )
+            )
     line_numbers = [
         required_facts[value]["line_number"] for value in hashes if value in required_facts
     ]
@@ -1100,12 +2331,21 @@ def validate_logic_cross_checks(row: dict[str, Any], label: str) -> list[str]:
         str(item.get("check_key") or ""): item
         for item in as_list(row.get("required_logic_cross_checks"))
     }
+    raw_supplied = as_list(row.get("logic_cross_checks"))
+    supplied_rows = [
+        item
+        for item in raw_supplied
+        if isinstance(item, dict)
+    ]
     supplied = {
         str(item.get("check_key") or ""): item
-        for item in as_list(row.get("logic_cross_checks"))
-        if isinstance(item, dict)
+        for item in supplied_rows
     }
     errors: list[str] = []
+    if len(supplied_rows) != len(raw_supplied):
+        errors.append(f"{label}: D3 logic checks contain malformed rows")
+    if len(supplied) != len(supplied_rows) or "" in supplied:
+        errors.append(f"{label}: D3 logic check keys must be unique and nonblank")
     if set(supplied) != set(required):
         errors.append(f"{label}: D3 logic checks must cover every required cross-check exactly once")
     issue_anchors: set[str] = set()
@@ -1159,17 +2399,143 @@ def validate_logic_cross_checks(row: dict[str, Any], label: str) -> list[str]:
     return errors
 
 
+def validate_required_configuration_obligations(
+    row: dict[str, Any], label: str
+) -> list[str]:
+    branch_reviews = {
+        str(item.get("json_path") or ""): str(item.get("correctness") or "")
+        for item in as_list(row.get("configuration_branch_reviews"))
+        if isinstance(item, dict)
+    }
+    logic_review_rows = {
+        str(item.get("check_key") or ""): item
+        for item in as_list(row.get("logic_cross_checks"))
+        if isinstance(item, dict)
+    }
+    logic_reviews = {
+        key: str(item.get("verdict") or "")
+        for key, item in logic_review_rows.items()
+    }
+    required_topics = {
+        str(item.get("topic_key") or ""): item
+        for item in as_list(row.get("required_contract_topics"))
+        if isinstance(item, dict)
+    }
+    supplied_contracts = {
+        str(item.get("contract_topic") or ""): item
+        for item in as_list(row.get("contract_checks"))
+        if isinstance(item, dict)
+    }
+    contract_verdicts_by_topic: dict[str, list[str]] = {}
+    for topic_key, topic in required_topics.items():
+        contract_verdicts_by_topic.setdefault(str(topic.get("topic") or ""), []).append(
+            str((supplied_contracts.get(topic_key) or {}).get("verdict") or "")
+        )
+    defect_anchors = {
+        str(anchor)
+        for defect in as_list(row.get("defects"))
+        for anchor in as_list(defect.get("evidence_anchors"))
+    }
+    errors: list[str] = []
+    for obligation in as_list(row.get("required_configuration_obligations")):
+        key = str(obligation.get("obligation_key") or "<missing>")
+        outcome = str(obligation.get("required_outcome") or "")
+        anchors = {
+            str(value) for value in as_list(obligation.get("evidence_anchors"))
+        }
+        if outcome == "Issue":
+            if row.get("correctness_verdict") != "Issue":
+                errors.append(
+                    f"{label}: deterministic obligation {key} requires overall Issue verdict"
+                )
+            for anchor in sorted(anchors):
+                if branch_reviews.get(anchor) != "Issue":
+                    errors.append(
+                        f"{label}: deterministic obligation {key} requires Issue at {anchor}"
+                    )
+            if anchors and not (anchors & defect_anchors):
+                errors.append(
+                    f"{label}: deterministic obligation {key} must be linked to a concrete defect"
+                )
+            allowed_logic = {"Issue"}
+        elif outcome == "Unclear":
+            if row.get("correctness_verdict") not in {
+                "Owner decision needed",
+                "Container evidence limit",
+                "Issue",
+            }:
+                errors.append(
+                    f"{label}: deterministic obligation {key} requires an unresolved overall verdict"
+                )
+            for anchor in sorted(anchors):
+                if branch_reviews.get(anchor) not in {"Unclear", "Issue"}:
+                    errors.append(
+                        f"{label}: deterministic obligation {key} requires Unclear or Issue "
+                        f"at {anchor}"
+                    )
+            allowed_logic = {"Unclear", "Issue"}
+        else:
+            errors.append(f"{label}: deterministic obligation {key} has invalid outcome")
+            continue
+        for check_key in as_list(obligation.get("affected_logic_checks")):
+            if check_key in logic_reviews and logic_reviews[check_key] not in allowed_logic:
+                errors.append(
+                    f"{label}: deterministic obligation {key} contradicts D3 check {check_key}"
+                )
+            if check_key in logic_reviews:
+                conclusion = str(
+                    logic_review_rows[check_key].get("conclusion") or ""
+                ).lower()
+                terms = [
+                    str(value).lower()
+                    for value in as_list(obligation.get("required_conclusion_terms"))
+                    if str(value)
+                ]
+                if key.lower() not in conclusion or (
+                    terms
+                    and sum(term in conclusion for term in terms) < min(2, len(terms))
+                ):
+                    errors.append(
+                        f"{label}: D3 check {check_key} does not name deterministic "
+                        f"obligation {key}"
+                    )
+        for topic in as_list(obligation.get("affected_contract_topics")):
+            verdicts = contract_verdicts_by_topic.get(str(topic), [])
+            if not verdicts:
+                continue
+            allowed_contracts = (
+                {"Non-compliant"}
+                if outcome == "Issue"
+                else {"Unproven", "Non-compliant"}
+            )
+            if any(verdict not in allowed_contracts for verdict in verdicts):
+                errors.append(
+                    f"{label}: deterministic obligation {key} contradicts official "
+                    f"contract topic {topic}"
+                )
+    return errors
+
+
 def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
     required = {
         str(item.get("finding_key") or ""): item
         for item in as_list(row.get("required_technical_findings"))
     }
+    raw_supplied = as_list(row.get("technical_finding_reviews"))
+    supplied_rows = [
+        item
+        for item in raw_supplied
+        if isinstance(item, dict)
+    ]
     supplied = {
         str(item.get("finding_key") or ""): item
-        for item in as_list(row.get("technical_finding_reviews"))
-        if isinstance(item, dict)
+        for item in supplied_rows
     }
     errors: list[str] = []
+    if len(supplied_rows) != len(raw_supplied):
+        errors.append(f"{label}: static technical findings contain malformed rows")
+    if len(supplied) != len(supplied_rows) or "" in supplied:
+        errors.append(f"{label}: static technical finding keys must be unique and nonblank")
     if set(supplied) != set(required):
         errors.append(f"{label}: static technical findings must be resolved exactly once")
     if row.get("required_code_line_hashes") and not specific_text(
@@ -1193,7 +2559,201 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
             errors.append(f"{label}: technical finding {key} has invalid verdict")
         if not specific_text(review.get("rationale"), 5):
             errors.append(f"{label}: technical finding {key} lacks concrete rationale")
+        rationale = str(review.get("rationale") or "").lower()
+        statement_terms = {
+            term
+            for term in re.findall(r"[a-z][a-z0-9_-]{3,}", str(source.get("statement") or "").lower())
+            if term
+            not in {
+                "that",
+                "this",
+                "with",
+                "from",
+                "when",
+                "only",
+                "must",
+                "keep",
+                "check",
+                "review",
+                "source",
+            }
+        }
+        if statement_terms and sum(term in rationale for term in statement_terms) < min(
+            2, len(statement_terms)
+        ):
+            errors.append(
+                f"{label}: technical finding {key} rationale is not tied to its exact "
+                "source-proven signal"
+            )
+        source_proven_risk = source.get("category") in {"health", "security"}
+        if source_proven_risk and review.get("verdict") == "False positive":
+            errors.append(
+                f"{label}: source-proven {source.get('category')} signal {key} cannot be "
+                "dismissed as a false positive; document an evidence-bound exception, "
+                "confirm the issue, or request an owner decision"
+            )
+        if source_proven_risk and review.get("verdict") == "Cleanup opportunity":
+            action = str(review.get("proposed_action") or "").lower()
+            if not specific_text(action, 6) or not any(
+                term in action
+                for term in (
+                    "replace",
+                    "remove",
+                    "scope",
+                    "migrate",
+                    "restrict",
+                    "harden",
+                    "refactor",
+                    "correct",
+                    "validate",
+                )
+            ):
+                errors.append(
+                    f"{label}: source-proven risk {key} marked Cleanup opportunity "
+                    "requires one concrete proposed_action"
+                )
+        if source_proven_risk and review.get("verdict") == "Documented exception":
+            exception_basis = str(review.get("exception_basis") or "").lower()
+            if (
+                not specific_text(exception_basis, 8)
+                or sum(term in exception_basis for term in statement_terms)
+                < min(2, len(statement_terms))
+                or not any(
+                    term in exception_basis
+                    for term in (
+                        "accepted",
+                        "constraint",
+                        "required",
+                        "trusted",
+                        "controlled",
+                        "mitigation",
+                        "risk owner",
+                    )
+                )
+            ):
+                errors.append(
+                    f"{label}: source-proven risk {key} marked Documented exception "
+                    "requires an evidence-bound exception_basis"
+                )
+        if source_proven_risk and review.get("verdict") == "Owner decision needed":
+            owner_question = str(
+                review.get("owner_question") or row.get("owner_question") or ""
+            ).lower()
+            if (
+                not precise_question(owner_question, 8)
+                or sum(term in owner_question for term in statement_terms) < 1
+            ):
+                errors.append(
+                    f"{label}: source-proven risk {key} marked Owner decision needed "
+                    "requires a source-specific owner_question"
+                )
         fixed_formula = "fixed numbered value slots" in str(source.get("statement") or "").lower()
+        parser_limit = source.get("category") == "parser"
+        if parser_limit and review.get("verdict") not in {
+            "Confirmed issue",
+            "Documented exception",
+            "Owner decision needed",
+        }:
+            errors.append(
+                f"{label}: parser coverage limit cannot be dismissed as a false positive "
+                "or cleanup opportunity"
+            )
+        if parser_limit and review.get("verdict") == "Documented exception":
+            rationale = str(review.get("rationale") or "").lower()
+            if "line-by-line" not in rationale or "parser" not in rationale:
+                errors.append(
+                    f"{label}: parser exception must explain the substitute code review or "
+                    "parser compatibility boundary"
+                )
+            fallback_hashes = {
+                str(value) for value in as_list(review.get("fallback_line_hashes"))
+            }
+            required_hashes = {
+                str(value) for value in as_list(row.get("required_code_line_hashes"))
+            }
+            if fallback_hashes != required_hashes:
+                errors.append(
+                    f"{label}: parser exception must attest every exported code segment hash"
+                )
+            raw_segment_reviews = as_list(review.get("fallback_segment_reviews"))
+            segment_review_rows = [
+                item
+                for item in raw_segment_reviews
+                if isinstance(item, dict)
+            ]
+            segment_reviews = {
+                str(item.get("line_hash") or ""): item for item in segment_review_rows
+            }
+            if (
+                len(segment_review_rows) != len(raw_segment_reviews)
+                or
+                len(segment_reviews) != len(segment_review_rows)
+                or "" in segment_reviews
+                or set(segment_reviews) != required_hashes
+            ):
+                errors.append(
+                    f"{label}: parser exception must review every exported code segment exactly once"
+                )
+            code_facts = {
+                str(item.get("line_hash") or ""): item
+                for item in as_list(row.get("code_line_facts"))
+            }
+            for line_hash in sorted(required_hashes & set(segment_reviews)):
+                behavior = str(segment_reviews[line_hash].get("behavior") or "")
+                tokens = code_block_source_tokens([line_hash], code_facts)
+                if not specific_text(behavior, 6) or (
+                    tokens
+                    and sum(token in behavior.lower() for token in tokens)
+                    < min(2, len(tokens))
+                ):
+                    errors.append(
+                        f"{label}: parser fallback segment {line_hash} lacks source-specific behavior"
+                    )
+                errors.extend(
+                    validate_segment_behavior_text(
+                        behavior,
+                        code_facts[line_hash],
+                        f"{label}: parser fallback segment {line_hash}",
+                    )
+                )
+            parser_status = str(
+                (row.get("technical_code_facts") or {}).get("javascript_parser") or ""
+            ).lower()
+            boundary = str(review.get("parser_boundary") or "").lower()
+            if not specific_text(boundary, 6) or (
+                parser_status and parser_status not in boundary
+            ):
+                errors.append(
+                    f"{label}: parser exception must state the exact parser status and syntax boundary"
+                )
+            method = str(review.get("manual_review_method") or "").lower()
+            source_tokens = code_block_source_tokens(
+                list(required_hashes),
+                {
+                    str(item.get("line_hash") or ""): item
+                    for item in as_list(row.get("code_line_facts"))
+                },
+            )
+            if (
+                not specific_text(method, 8)
+                or "line-by-line" not in method
+                or sum(token in method for token in source_tokens) < min(2, len(source_tokens))
+            ):
+                errors.append(
+                    f"{label}: parser fallback method must be line-by-line and name "
+                    "source-specific code behavior"
+                )
+        opaque_behavior = "no reviewable executable behavior" in str(
+            source.get("statement") or ""
+        ).lower()
+        if opaque_behavior and review.get("verdict") not in {
+            "Confirmed issue",
+            "Documented exception",
+            "Owner decision needed",
+        }:
+            errors.append(
+                f"{label}: opaque custom-template behavior cannot be dismissed as a false positive"
+            )
         if fixed_formula and review.get("verdict") not in {
             "Confirmed issue",
             "Documented exception",
@@ -1216,6 +2776,17 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
             confirmed.append(key)
     if confirmed and row.get("correctness_verdict") != "Issue":
         errors.append(f"{label}: confirmed technical issues require overall Issue verdict")
+    for finding_key in confirmed:
+        linked_defects = [
+            defect
+            for defect in as_list(row.get("defects"))
+            if finding_key in as_list(defect.get("technical_finding_keys"))
+        ]
+        if len(linked_defects) != 1:
+            errors.append(
+                f"{label}: confirmed technical issue {finding_key} must link to exactly "
+                "one source-bound defect"
+            )
     return errors
 
 
@@ -1229,6 +2800,11 @@ def validate_defects(row: dict[str, Any], label: str) -> list[str]:
     errors: list[str] = []
     available = set(as_list(row.get("available_evidence_anchors")))
     line_hashes = set(as_list(row.get("required_code_line_hashes")))
+    technical_finding_keys = {
+        str(item.get("finding_key") or "")
+        for item in as_list(row.get("required_technical_findings"))
+        if isinstance(item, dict) and item.get("finding_key")
+    }
     seen: set[str] = set()
     for index, defect in enumerate(defects, start=1):
         defect_id = str(defect.get("defect_id") or "")
@@ -1241,6 +2817,17 @@ def validate_defects(row: dict[str, Any], label: str) -> list[str]:
                 errors.append(f"{prefix} has incomplete {field}")
         anchors = {str(value) for value in as_list(defect.get("evidence_anchors"))}
         code_evidence = {str(value) for value in as_list(defect.get("code_line_hashes"))}
+        linked_technical_findings = [
+            str(value) for value in as_list(defect.get("technical_finding_keys"))
+        ]
+        if len(linked_technical_findings) != len(set(linked_technical_findings)):
+            errors.append(f"{prefix} contains duplicate technical_finding_keys")
+        for finding_key in sorted(
+            set(linked_technical_findings) - technical_finding_keys
+        ):
+            errors.append(
+                f"{prefix} references unknown technical finding {finding_key!r}"
+            )
         if not anchors and not code_evidence:
             errors.append(f"{prefix} has no source evidence")
         for anchor in sorted(anchors - available):
@@ -1326,12 +2913,21 @@ def validate_configuration_branches(
     required = {
         item["json_path"]: item for item in as_list(expected.get("required_branch_reviews"))
     }
+    raw_supplied = as_list(row.get("configuration_branch_reviews"))
+    supplied_rows = [
+        item
+        for item in raw_supplied
+        if isinstance(item, dict)
+    ]
     supplied = {
         str(item.get("json_path") or ""): item
-        for item in as_list(row.get("configuration_branch_reviews"))
-        if isinstance(item, dict)
+        for item in supplied_rows
     }
     errors: list[str] = []
+    if len(supplied_rows) != len(raw_supplied):
+        errors.append(f"{label}: branch reviews contain malformed rows")
+    if len(supplied) != len(supplied_rows) or "" in supplied:
+        errors.append(f"{label}: branch review paths must be unique and nonblank")
     if set(supplied) != set(required):
         errors.append(f"{label}: branch reviews must cover every logic leaf exactly once")
     issue_paths: set[str] = set()
@@ -1355,6 +2951,7 @@ def validate_operation(
     valid_keys: set[str],
     label: str,
     expected_consumers: dict[str, set[str]],
+    source_paths_by_key: dict[str, str],
 ) -> list[str]:
     operation = row.get("operation")
     if row.get("disposition") != "cleanup_operation":
@@ -1396,6 +2993,7 @@ def validate_operation(
             valid_keys,
             label,
             expected_consumers,
+            source_paths_by_key,
         )
     )
     errors.extend(validate_challenge(flattened, label))
@@ -1460,10 +3058,17 @@ def configuration_row_sets(
     supplied: dict[str, Any], expected: dict[str, Any]
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], list[str]]:
     expected_by_key = {row["object_key"]: row for row in expected["rows"]}
+    raw_supplied_rows = as_list(supplied.get("rows"))
+    supplied_rows = [row for row in raw_supplied_rows if isinstance(row, dict)]
     supplied_by_key = {
         str(row.get("object_key") or ""): row for row in as_list(supplied.get("rows"))
+        if isinstance(row, dict)
     }
     errors: list[str] = []
+    if len(supplied_rows) != len(raw_supplied_rows):
+        errors.append("configuration review contains malformed object rows")
+    if len(supplied_by_key) != len(supplied_rows) or "" in supplied_by_key:
+        errors.append("configuration rows must use unique nonblank object keys")
     missing = sorted(set(expected_by_key) - set(supplied_by_key))
     unknown = sorted(set(supplied_by_key) - set(expected_by_key))
     if missing:
@@ -1514,7 +3119,7 @@ def validate_row_identity_and_evidence(
 
 def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
     errors: list[str] = []
-    if row.get("disposition") == "owner_decision_needed" and not specific_text(
+    if row.get("disposition") == "owner_decision_needed" and not precise_question(
         row.get("owner_question"), 5
     ):
         errors.append(f"{label}: owner decision requires one precise question")
@@ -1524,6 +3129,28 @@ def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
         "container_evidence_limit",
     }:
         errors.append(f"{label}: Issue verdict has incompatible disposition")
+    expected_dispositions = {
+        "Correct": {"keep"},
+        "Owner decision needed": {"owner_decision_needed"},
+        "Container evidence limit": {"container_evidence_limit"},
+        "Not applicable": {"not_applicable"},
+    }
+    allowed = expected_dispositions.get(str(row.get("correctness_verdict") or ""))
+    if allowed and row.get("disposition") not in allowed:
+        errors.append(
+            f"{label}: {row.get('correctness_verdict')} verdict has incompatible disposition"
+        )
+    if row.get("correctness_verdict") == "Container evidence limit":
+        boundary = " ".join(
+            str(row.get(field) or "")
+            for field in ("correctness_basis", "owner_question")
+        ).lower()
+        if not precise_question(row.get("owner_question"), 5) or not any(
+            term in boundary for term in ("not visible", "unseen", "external", "runtime")
+        ):
+            errors.append(
+                f"{label}: container evidence limit must name the precise unseen evidence"
+            )
     return errors
 
 
@@ -1532,6 +3159,7 @@ def validate_configuration_row(
     expected_row: dict[str, Any],
     valid_keys: set[str],
     source_consumer_map: dict[str, set[str]],
+    source_paths_by_key: dict[str, str],
 ) -> list[str]:
     label = f"configuration {expected_row['object_key']}"
     errors = validate_row_identity_and_evidence(row, expected_row, label)
@@ -1542,8 +3170,15 @@ def validate_configuration_row(
         lambda: validate_code_blocks(row, label),
         lambda: validate_technical_findings(row, label),
         lambda: validate_logic_cross_checks(row, label),
+        lambda: validate_required_configuration_obligations(row, label),
         lambda: validate_defects(row, label),
-        lambda: validate_operation(row, valid_keys, label, source_consumer_map),
+        lambda: validate_operation(
+            row,
+            valid_keys,
+            label,
+            source_consumer_map,
+            source_paths_by_key,
+        ),
         lambda: validate_row_outcome(row, label),
     )
     for validator in validators:
@@ -1560,6 +3195,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
     descriptor = source_descriptor(export_path)
     valid_keys = object_keys(export_path)
     source_consumer_map = object_consumer_map(export_path)
+    source_paths_by_key = object_source_path_map(export_path)
     errors.extend(
         validate_review_identity(
             supplied, expected, expected_context, descriptor["source_sha256"]
@@ -1575,7 +3211,11 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             continue
         errors.extend(
             validate_configuration_row(
-                row, expected_row, valid_keys, source_consumer_map
+                row,
+                expected_row,
+                valid_keys,
+                source_consumer_map,
+                source_paths_by_key,
             )
         )
     return errors, warnings

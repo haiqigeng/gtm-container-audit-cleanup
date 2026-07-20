@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from gtm_lib import container_version, refs, source_descriptor
+from gtm_lib import container_version, refs, source_descriptor, source_integrity_findings
 from gtm_privacy import sanitize_url
 
 URL_RE = re.compile(r"https?://[^\s\"'<>\\)]+", re.I)
@@ -24,6 +24,14 @@ SESSION_STORAGE_RE = re.compile(r"\bsessionStorage\b", re.I)
 DOM_RE = re.compile(
     r"\bdocument\s*\.\s*(querySelector|getElementById|getElementsBy|createElement|body|head)"
     r"|\bclassList\b|\binnerHTML\b|\bappendChild\b|\binsertBefore\b|\bstyle\s*\.",
+    re.I,
+)
+DOM_SELECTOR_RE = re.compile(
+    r"\bdocument\s*\.\s*(?:querySelector|getElementById|getElementsBy)", re.I
+)
+DOM_MUTATION_RE = re.compile(
+    r"\bdocument\s*\.\s*(?:createElement|write)\b|\bclassList\b|\binnerHTML\b|"
+    r"\bappendChild\b|\binsertBefore\b|\bstyle\s*\.",
     re.I,
 )
 NETWORK_RE = re.compile(r"\bfetch\s*\(|\bXMLHttpRequest\b|\bsendBeacon\s*\(", re.I)
@@ -132,6 +140,13 @@ def external_scripts(code: str) -> list[str]:
     return sorted(set(found))
 
 
+def script_loader_count(code: str) -> int:
+    """Count configured script elements without double-counting their URL assignments."""
+    dynamic = len(re.findall(r"createElement\s*\(\s*['\"]script['\"]", code, re.I))
+    static = len(re.findall(r"<script\b[^>]*\bsrc\s*=", code, re.I))
+    return dynamic + static
+
+
 def storage_details(code: str, storage_name: str) -> list[str]:
     pattern = re.compile(
         rf"{storage_name}\s*\.\s*(getItem|setItem|removeItem)\s*\(\s*['\"]?([^'\"\),]+)?", re.I
@@ -150,6 +165,8 @@ def returned_value_type(code: str) -> str:
     return_text = " ".join(re.findall(r"\breturn\s+([^;\n]+)", code))
     if not return_text:
         return "side_effect_only_or_unknown"
+    if re.fullmatch(r"\s*\{\{[^{}]+\}\}\s*", return_text):
+        return "gtm_variable_reference_type_unresolved"
     if re.search(r"\b(true|false)\b|!!", return_text):
         return "boolean_or_boolean_expression"
     if re.search(r"['\"`]", return_text):
@@ -231,9 +248,14 @@ def javascript_source(layer: str, code: str) -> str:
 def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
     """Add optional AST facts; line review and static signals remain separate obligations."""
     source = javascript_source(layer, code)
+    substitutions = sorted(refs(source))
+    parser_source = re.sub(r"\{\{[^{}]+\}\}", "__gtm_variable_reference__", source)
+    normalized = parser_source != source
     if not source.strip():
         return {
             "javascript_parser": "not_applicable",
+            "parser_input_normalized": False,
+            "parser_gtm_substitutions": [],
             "ast_node_counts": {},
             "ast_calls": [],
             "ast_branch_count": 0,
@@ -245,6 +267,8 @@ def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
     except ImportError:
         return {
             "javascript_parser": "not_installed_static_review_still_required",
+            "parser_input_normalized": normalized,
+            "parser_gtm_substitutions": substitutions,
             "ast_node_counts": {},
             "ast_calls": [],
             "ast_branch_count": 0,
@@ -253,10 +277,12 @@ def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
         }
 
     try:
-        parsed = esprima.parseScript(source, {"tolerant": True}).toDict()
+        parsed = esprima.parseScript(parser_source, {"tolerant": True}).toDict()
     except Exception as exc:  # noqa: BLE001 - parser failures become evidence, not crashes.
         return {
             "javascript_parser": "esprima_parse_failed",
+            "parser_input_normalized": normalized,
+            "parser_gtm_substitutions": substitutions,
             "ast_node_counts": {},
             "ast_calls": [],
             "ast_branch_count": 0,
@@ -292,6 +318,8 @@ def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
     branch_types = ("IfStatement", "ConditionalExpression", "SwitchCase", "LogicalExpression")
     return {
         "javascript_parser": "esprima",
+        "parser_input_normalized": normalized,
+        "parser_gtm_substitutions": substitutions,
         "ast_node_counts": dict(sorted(counts.items())),
         "ast_calls": sorted(call for call in calls if call)[:80],
         "ast_branch_count": sum(counts[name] for name in branch_types),
@@ -308,22 +336,49 @@ def side_effects(code: str) -> list[str]:
         effects.append("storage write")
     if re.search(r"\bdocument\s*\.\s*cookie\s*=", code, re.I):
         effects.append("cookie write")
-    if DOM_RE.search(code):
-        effects.append("DOM read/write")
+    if DOM_SELECTOR_RE.search(code):
+        effects.append("DOM read")
+    if DOM_MUTATION_RE.search(code):
+        effects.append("DOM write")
     if EVENT_LISTENER_RE.search(code):
         effects.append("event listener")
     if external_scripts(code):
         effects.append("external script load")
     if NETWORK_RE.search(code):
         effects.append("network call")
+    if GLOBAL_WRITE_RE.search(code):
+        effects.append("window/global write")
     return effects
+
+
+def custom_template_visibility(layer: str, code: str) -> str:
+    if layer != "customTemplate":
+        return "not_applicable"
+    if not code.strip():
+        return "opaque"
+    try:
+        payload = json.loads(code)
+    except (json.JSONDecodeError, TypeError):
+        return "partial"
+    if not isinstance(payload, dict):
+        return "partial"
+    behavior_keys = {
+        key
+        for key in payload
+        if re.search(r"sandbox|code|script|execute|templateSource", str(key), re.I)
+    }
+    return "partial" if behavior_keys else "opaque"
 
 
 def container_evidence_limits(code: str, effects: list[str]) -> list[str]:
     limits: list[str] = []
-    if DOM_RE.search(code):
+    if DOM_SELECTOR_RE.search(code):
         limits.append(
             "The container cannot prove that referenced DOM selectors exist on every configured route."
+        )
+    elif DOM_MUTATION_RE.search(code):
+        limits.append(
+            "The container cannot prove the external page effect of the configured DOM mutation."
         )
     if EVENT_LISTENER_RE.search(code):
         limits.append(
@@ -350,6 +405,11 @@ def code_health_findings(layer: str, code: str) -> list[str]:
     findings: list[str] = []
     if not code.strip():
         findings.append("No code body was exported for this object.")
+    if custom_template_visibility(layer, code) == "opaque":
+        findings.append(
+            "Custom-template export exposes metadata or permissions but no reviewable "
+            "executable behavior; correctness remains unproven from this source."
+        )
     if len(code) > 8000:
         findings.append(
             "Very large custom code block; split or replace with a maintained template when possible."
@@ -368,10 +428,14 @@ def code_health_findings(layer: str, code: str) -> list[str]:
             "Registers browser event listeners; exported guards and trigger scope should "
             "prevent repeated registration."
         )
-    if DOM_RE.search(code):
+    if DOM_SELECTOR_RE.search(code):
         findings.append(
-            "Reads or changes the page DOM; the container cannot prove selector availability "
+            "Reads the page DOM; the container cannot prove selector availability "
             "across page variants."
+        )
+    if DOM_MUTATION_RE.search(code):
+        findings.append(
+            "Changes the page DOM; confirm the mutation is required and scoped to the intended route."
         )
     return findings
 
@@ -414,7 +478,7 @@ def code_optimization_findings(
     layer: str, code: str, effects: list[str], formulas: dict[str, Any]
 ) -> list[str]:
     findings: list[str] = []
-    if len(external_scripts(code)) > 1:
+    if script_loader_count(code) > 1:
         findings.append(
             "Loads more than one script; consolidate duplicate loaders when they initialize "
             "the same vendor."
@@ -492,7 +556,9 @@ def technical_code_review(
     }
 
 
-def technical_action_candidate(review: dict[str, Any]) -> str:
+def technical_action_candidate(
+    review: dict[str, Any], parser_status: str = "", parser_errors: list[str] | None = None
+) -> str:
     status = review.get("technical_code_health_status")
     security = review.get("technical_code_security_findings") or []
     optimization = review.get("technical_code_optimization_findings") or []
@@ -503,6 +569,11 @@ def technical_action_candidate(review: dict[str, Any]) -> str:
         return "owner_decision_needed"
     if optimization or health:
         return "consolidate_candidate"
+    if parser_status in {
+        "not_installed_static_review_still_required",
+        "esprima_parse_failed",
+    } or parser_errors:
+        return "owner_decision_needed"
     if status == "no_static_technical_issue":
         return "keep"
     return "owner_decision_needed"
@@ -581,9 +652,13 @@ def technical_exact_action(
         actions.append(
             "Confirm consent runs before cookie/storage access, remove sensitive visitor values, and document the allowed key names."
         )
-    if row.get("dom_reads_writes"):
+    if row.get("dom_selector_reads"):
         actions.append(
             "Guard missing page selectors and replace DOM scraping with a dataLayer or GTM variable source when one exists."
+        )
+    if row.get("dom_mutations"):
+        actions.append(
+            "Limit the DOM mutation to the intended element and route, and remove it when no approved page behavior depends on it."
         )
     if row.get("event_listeners"):
         actions.append(
@@ -734,6 +809,19 @@ def build_variable_consumers(cv: dict[str, Any]) -> dict[str, list[str]]:
 
 def extract_export(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
+    blocking_integrity = [
+        row for row in source_integrity_findings(data) if row.get("blocking")
+    ]
+    if blocking_integrity:
+        raise ValueError(
+            "source integrity gate blocked custom-code extraction: "
+            + ", ".join(
+                sorted(
+                    str(row.get("finding_type") or "source_integrity_error")
+                    for row in blocking_integrity
+                )
+            )
+        )
     cv = container_version(data)
     variable_consumers = build_variable_consumers(cv)
     rows = []
@@ -758,6 +846,13 @@ def extract_export(path: Path) -> dict[str, Any]:
         object_name = str(obj.get("name") or "")
         effects = side_effects(code)
         evidence_limits = container_evidence_limits(code, effects)
+        template_visibility = custom_template_visibility(layer, code)
+        if template_visibility == "opaque":
+            evidence_limits = [
+                "The exported custom-template metadata does not expose executable behavior, "
+                "so implementation correctness cannot be certified from this source."
+            ]
+        external_script_urls = external_scripts(code)
         finding_id = f"TECH-{len(rows) + 1:05d}"
         row = {
             "technical_finding_id": finding_id,
@@ -777,15 +872,27 @@ def extract_export(path: Path) -> dict[str, Any]:
             "localStorage_use": storage_details(code, "localStorage"),
             "sessionStorage_use": storage_details(code, "sessionStorage"),
             "dom_reads_writes": bool(DOM_RE.search(code)),
+            "dom_selector_reads": bool(DOM_SELECTOR_RE.search(code)),
+            "dom_mutations": bool(DOM_MUTATION_RE.search(code)),
             "event_listeners": sorted(set(EVENT_LISTENER_RE.findall(code))),
-            "external_scripts_loaded": external_scripts(code),
-            "network_calls": bool(NETWORK_RE.search(code)),
-            "returned_value_type": returned_value_type(code)
-            if layer == "variable"
-            else "side_effect_tag_or_template",
+            "external_scripts_loaded": external_script_urls,
+            "network_calls": bool(NETWORK_RE.search(code) or external_script_urls),
+            "returned_value_type": (
+                "unknown_opaque"
+                if template_visibility == "opaque"
+                else returned_value_type(code)
+                if layer == "variable"
+                else "side_effect_tag_or_template"
+            ),
             "side_effects": effects,
             "consumers": variable_consumers.get(object_name, []) if layer == "variable" else [],
-            "behavior_can_be_understood_from_export": "partial" if effects else "yes",
+            "behavior_can_be_understood_from_export": (
+                "opaque"
+                if template_visibility == "opaque"
+                else "partial"
+                if effects or layer == "customTemplate"
+                else "yes"
+            ),
             "container_evidence_limits": evidence_limits,
         }
         formulas = expression_facts(code)
@@ -793,7 +900,11 @@ def extract_export(path: Path) -> dict[str, Any]:
         row.update(javascript_ast_facts(layer, code))
         review = technical_code_review(layer, code, effects, formulas)
         row.update(review)
-        action = technical_action_candidate(review)
+        action = technical_action_candidate(
+            review,
+            str(row.get("javascript_parser") or ""),
+            as_list(row.get("ast_parse_errors")),
+        )
         row["technical_action_candidate"] = action
         row["technical_current_behavior"] = technical_current_behavior(
             layer, object_name, code, effects, row

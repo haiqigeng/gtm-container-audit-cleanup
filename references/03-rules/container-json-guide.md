@@ -24,10 +24,18 @@ Common layers:
 | trigger | `triggerId` |
 | variable | `variableId` |
 | folder | `folderId` |
+| Zone | `zoneId` |
 | custom template | `templateId` |
 | built-in variable | `name` |
 | server client | `clientId` |
+| Google tag configuration | `gtagConfigId` |
 | transformation | `transformationId` |
+
+Before building semantic facts, fail closed when the source is not a
+ContainerVersion, a known entity layer is not an array, an entry is not an
+object, a required ID is blank/duplicated, or an unknown top-level list could
+represent an unmodelled entity layer. Do not silently treat a Container
+resource as a ContainerVersion or skip an empty future layer.
 
 Read account/container IDs, public ID, usage context, export/version metadata,
 and custom-template references from the export instead of asking the user when
@@ -54,6 +62,7 @@ maps. Build edges for:
 - firing and blocking triggers;
 - trigger-group members;
 - setup and teardown tag names;
+- Zone boundary evaluation trigger IDs;
 - parent folders;
 - custom-template type IDs;
 - clients and transformations where exported.
@@ -106,8 +115,10 @@ dataLayer version. For lookup/regex tables retain every row, default, matching
 mode, and input variable. For URL/cookie/DOM/auto-event variables record the
 exact source and output expectation. For custom JavaScript inspect all code.
 
-Recursion ends at a concrete configured terminal or explicit missing/cycle
-state, never at another variable's name.
+Recursion ends at a concrete configured terminal or explicit missing/cycle/
+ambiguous state, never at another variable's name. When duplicate custom names
+or custom/built-in collisions exist, retain every possible object edge rather
+than selecting one by dictionary order.
 
 For every recursive node retain its configuration hash, source branches,
 downstream hop, literal configured function, output type/shape, fallback and
@@ -120,6 +131,8 @@ Custom HTML code usually lives in parameter `html`; Custom JavaScript in
 lines and hashes. Extract URLs, scripts, GTM references, dataLayer use, browser
 storage, cookies, DOM operations, listeners, network calls, globals, return
 shape, and parser facts without treating static signals as final judgments.
+An absent or failed parser is itself an explicit coverage fact; it never turns
+empty AST output into evidence that no parser-level issue exists.
 
 ## Web And Server Containers
 
@@ -135,4 +148,6 @@ A cleanup plan operates on a full source graph. Same-container import patches
 have special identity/template/built-in behavior and may recreate objects.
 Validate the effective merged container, not the patch fragment alone. Never
 call a JSON import-ready until IDs, references, templates, built-ins, groups,
-folders, and route-specific churn pass validation.
+folders, Zones, Google tag configurations, and route-specific churn pass
+validation. Apply the same identity gate to before/after change-log sources so
+duplicate IDs cannot disappear through dictionary-based diffing.

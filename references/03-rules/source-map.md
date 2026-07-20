@@ -7,23 +7,25 @@
 | Completion/failure | `references/01-skill/acceptance-criteria.md` |
 | Full pipeline | `execution-contract.md` |
 | Persistent context | `scripts/gtm_context_model.py` |
+| Source identity and modeled layers | `scripts/gtm_source_model.py` and `scripts/gtm_lib.py` |
 | Canonical deterministic facts | `scripts/gtm_shared_facts.py` |
 | Effective consent routes | `scripts/gtm_consent_model.py` |
+| Vendor detection and official sources | `scripts/gtm_vendor_registry.py` and `vendor-registry.toml` |
+| Custom-code parser coverage boundary | `scripts/gtm_configuration_review.py` |
 | Basic cleanup | `operational-sanitation.md` |
 | Object and custom-code correctness | `configuration-correctness.md` |
 | Families and overlap | `business-architecture.md` |
 | GA4/media/consent/server contracts | `domain-contracts.md` |
-| Vendor official URLs | `vendor-registry.toml` |
 | JSON structure | `container-json-guide.md` |
 | Naming | `naming-standardization.md` |
 | Operations | `operation-schema.md` |
 | Direct/API/JSON execution | `mutation-playbook.md` |
 | Cleanup workbook | `workbook-architecture.md` |
 | Change log | `change-log-template.md` |
-| Limited evidence | `limited-audit-protocol.md` |
 | Severity | `severity-calibration.md` |
 | Commands | `../02-commands/validation-commands.md` |
 
 For vendor judgments, use the registry first. When the required event/feature
 documentation is absent or stale, browse the current official vendor source and
-record that URL in the configuration contract check.
+bind that source/domain to the vendor in the versioned registry, validate it,
+and rebuild before recording the URL in a certified configuration contract.

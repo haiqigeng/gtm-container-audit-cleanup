@@ -40,6 +40,12 @@ This creates:
 - `architecture_review.json`
 - `audit_package_manifest.json`
 
+The builder validates source identity before semantic work. An incomplete or
+ambiguous artifact produces only `source_model.json` and a blocked manifest;
+the absence of review scaffolds is intentional. Supply a complete, unedited
+ContainerVersion export rather than treating the blocked result as a reduced
+audit mode.
+
 Complete the three review JSON files. Do not alter generated source fields.
 
 ## Shard Large Reviews
@@ -129,7 +135,10 @@ Use `planned` execution mode for a planned preview. Never label it executed.
 
 ```powershell
 python -m ruff check --no-cache scripts tests
+python -m vulture scripts tests --min-confidence 80
 python -B -m unittest discover -s tests -v
+python -B -m coverage run -m unittest discover -s tests
+python -B -m coverage report --fail-under=72
 python -B scripts/gtm_self_test.py --pretty
 python -B scripts/gtm_vendor_registry.py --max-age-days 365
 python -B scripts/check_release.py

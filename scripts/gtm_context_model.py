@@ -10,8 +10,17 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from gtm_baseline_audit import build_execution_reachability
 from gtm_consent_model import server_route_hosts
-from gtm_lib import container_version, source_descriptor, stable_hash
+from gtm_lib import (
+    ID_KEYS,
+    SEMANTIC_LAYERS,
+    behavior_projection,
+    container_version,
+    source_descriptor,
+    source_integrity_findings,
+    stable_hash,
+)
 
 CMP_PATTERNS = {
     "Didomi": re.compile(r"\bdidomi\b", re.I),
@@ -120,37 +129,62 @@ def build_context_model(
     provided_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     data = json.loads(export_path.read_text(encoding="utf-8"))
+    blocking_integrity = [
+        row for row in source_integrity_findings(data) if row.get("blocking")
+    ]
+    if blocking_integrity:
+        raise ValueError(
+            "source integrity gate blocked context inference: "
+            + ", ".join(
+                sorted(
+                    str(row.get("finding_type") or "source_integrity_error")
+                    for row in blocking_integrity
+                )
+            )
+        )
     cv = container_version(data)
     provided = dict(provided_context or load_provided(provided_path))
-    text = serialized_container(cv)
+    behavior_cv = behavior_projection(cv)
+    reachability = build_execution_reachability(cv)
+    active_keys = set(reachability.get("active_object_keys") or [])
+    active_objects = {
+        layer: [
+            obj
+            for obj in as_list(cv.get(layer))
+            if f"{layer}:{obj.get(ID_KEYS[layer]) or obj.get('name') or ''}" in active_keys
+        ]
+        for layer in SEMANTIC_LAYERS
+    }
+    text = serialized_container(behavior_cv)
+    active_text = serialized_container(behavior_projection(active_objects))
     names = [
         str(item.get("name") or "")
-        for layer in ("tag", "trigger", "variable", "folder", "client", "transformation")
+        for layer in (*SEMANTIC_LAYERS, "folder")
         for item in as_list(cv.get(layer))
     ]
     route_hosts = sorted(
         {
             host
-            for tag in as_list(cv.get("tag"))
-            for host in server_route_hosts(tag)
+            for layer in ("tag", "gtagConfig")
+            for obj in active_objects.get(layer, [])
+            for host in server_route_hosts(obj)
         }
     )
     explicit_gateway = bool(
         re.search(r"google tag gateway|tag_gateway|first.party.mode", text, re.I)
     )
-    google_tag_present = bool(re.search(r"\b(?:G-|AW-)[A-Z0-9-]+|\bgaawe\b|\bgoogtag\b", text))
     gateway_status = (
         "export_signal_detected"
         if explicit_gateway
-        else "first_party_route_candidate"
-        if google_tag_present and route_hosts
         else "not_visible_in_container_export"
     )
     inferred = {
         "website_url": "",
-        "business_model": inferred_business_model(text),
+        "business_model": inferred_business_model(active_text),
         "container_type": container_type(cv),
-        "cmp": sorted(name for name, pattern in CMP_PATTERNS.items() if pattern.search(text)),
+        "cmp": sorted(
+            name for name, pattern in CMP_PATTERNS.items() if pattern.search(active_text)
+        ),
         "server_routing_hosts": route_hosts,
         "external_hosts": hostnames(text),
         "google_tag_gateway": {
@@ -185,7 +219,7 @@ def build_context_model(
                     ("publisher_or_ads", PUBLISHER_RE),
                     ("funnel_or_form", FUNNEL_RE),
                 )
-                if pattern.search(text)
+                if pattern.search(active_text)
             }
         ),
     }

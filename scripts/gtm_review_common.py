@@ -14,7 +14,7 @@ from typing import Any
 
 from gtm_configuration_facts import build_consumers, object_consumers
 from gtm_context_model import build_context_model
-from gtm_lib import ID_KEYS, container_version
+from gtm_lib import ID_KEYS, container_root_path, container_version
 from gtm_shared_facts import build_shared_facts
 
 VALID_PRIORITIES = {"Critical", "High", "Medium", "Low"}
@@ -35,6 +35,7 @@ MUTATION_FIELDS = (
     "renames",
     "deletions",
 )
+SUPPORTED_REMAP_LAYERS = {"trigger", "variable", "tag", "folder"}
 
 GENERIC_PHRASES = {
     "review configuration",
@@ -85,6 +86,21 @@ def specific_text(value: Any, minimum: int = 5) -> bool:
     return words(text) >= minimum and not any(phrase in text for phrase in GENERIC_PHRASES)
 
 
+def precise_question(value: Any, minimum: int = 5) -> bool:
+    text = " ".join(str(value or "").split()).strip()
+    return bool(
+        specific_text(text, minimum)
+        and text.endswith("?")
+        and text.count("?") == 1
+        and re.search(
+            r"\b(?:what|which|who|whose|how|why|where|when|should|does|do|"
+            r"is|are|can|will|would)\b",
+            text,
+            re.I,
+        )
+    )
+
+
 def created_object_keys(row: dict[str, Any]) -> set[str]:
     keys: set[str] = set()
     for creation in as_list(row.get("creations")):
@@ -126,7 +142,10 @@ def _validate_creations(
 
 
 def _validate_additions(
-    row: dict[str, Any], allowed_keys: set[str], label: str
+    row: dict[str, Any],
+    allowed_keys: set[str],
+    label: str,
+    source_paths_by_key: dict[str, str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     for index, addition in enumerate(as_list(row.get("additions")), start=1):
@@ -136,6 +155,14 @@ def _validate_additions(
             errors.append(f"{prefix} references unknown object {key!r}")
         if not str(addition.get("json_path") or "").startswith("$"):
             errors.append(f"{prefix} requires an exact parent json_path")
+        expected_path = (source_paths_by_key or {}).get(key)
+        path = str(addition.get("json_path") or "")
+        if expected_path and not (
+            path == expected_path
+            or path.startswith(expected_path + ".")
+            or path.startswith(expected_path + "[")
+        ):
+            errors.append(f"{prefix} object_key is paired with another object's json_path")
         if "value" not in addition:
             errors.append(f"{prefix} requires a value")
         if addition.get("mode") not in {"set", "append", "insert"}:
@@ -148,7 +175,10 @@ def _validate_additions(
 
 
 def _validate_changes(
-    row: dict[str, Any], allowed_keys: set[str], label: str
+    row: dict[str, Any],
+    allowed_keys: set[str],
+    label: str,
+    source_paths_by_key: dict[str, str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     for change in as_list(row.get("changes")):
@@ -157,8 +187,20 @@ def _validate_changes(
             errors.append(f"{label}: change references unknown object {key!r}")
         if not str(change.get("json_path") or "").startswith("$"):
             errors.append(f"{label}: field change requires an exact source json_path")
+        expected_path = (source_paths_by_key or {}).get(key)
+        path = str(change.get("json_path") or "")
+        if expected_path and not (
+            path == expected_path
+            or path.startswith(expected_path + ".")
+            or path.startswith(expected_path + "[")
+        ):
+            errors.append(
+                f"{label}: change object_key is paired with another object's json_path"
+            )
         if "before" not in change or "after" not in change:
             errors.append(f"{label}: field change requires before and after values")
+        elif change.get("before") == change.get("after"):
+            errors.append(f"{label}: field change before and after values are identical")
     return errors
 
 
@@ -169,6 +211,11 @@ def _validate_remaps(
     expected_consumers: dict[str, set[str]] | None,
 ) -> list[str]:
     errors: list[str] = []
+    deleted_keys = {
+        str(deletion.get("object_key") or "")
+        for deletion in as_list(row.get("deletions"))
+    }
+    remapped_consumers: dict[str, set[str]] = {}
     for remap in as_list(row.get("remaps")):
         source = str(remap.get("from_object_key") or "")
         target = str(remap.get("to_object_key") or "")
@@ -182,13 +229,164 @@ def _validate_remaps(
         for consumer in consumers:
             if consumer not in allowed_keys:
                 errors.append(f"{label}: remap references unknown consumer {consumer!r}")
-        if (
-            expected_consumers is not None
-            and source in expected_consumers
-            and set(consumers) != expected_consumers[source]
-        ):
+        if len(consumers) != len(set(consumers)):
+            errors.append(f"{label}: remap consumer list contains duplicates")
+        overlap = remapped_consumers.setdefault(source, set()) & set(consumers)
+        if overlap:
             errors.append(
-                f"{label}: remap consumers must exactly match every source-graph consumer"
+                f"{label}: source consumer appears in multiple remaps: {sorted(overlap)!r}"
+            )
+        remapped_consumers[source].update(consumers)
+    if expected_consumers is not None:
+        for source, consumers in remapped_consumers.items():
+            expected_live = expected_consumers.get(source, set()) - deleted_keys
+            if consumers != expected_live:
+                errors.append(
+                    f"{label}: remap consumers must exactly match every source-graph consumer "
+                    "that remains after the operation"
+                )
+        for source in deleted_keys:
+            expected_live = expected_consumers.get(source, set()) - deleted_keys
+            if expected_live and remapped_consumers.get(source, set()) != expected_live:
+                errors.append(
+                    f"{label}: deleting consumed object {source!r} requires remap coverage "
+                    "for every retained source-graph consumer"
+                )
+    return errors
+
+
+def _dependency_graph(
+    expected_consumers: dict[str, set[str]],
+) -> dict[str, set[str]]:
+    graph: dict[str, set[str]] = {}
+    for source, consumers in expected_consumers.items():
+        graph.setdefault(source, set())
+        for consumer in consumers:
+            graph.setdefault(consumer, set()).add(source)
+    return graph
+
+
+def _path_exists(graph: dict[str, set[str]], start: str, target: str) -> bool:
+    pending = [start]
+    visited: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current == target:
+            return True
+        if current in visited:
+            continue
+        visited.add(current)
+        pending.extend(graph.get(current, set()) - visited)
+    return False
+
+
+def _name_collision_pairs(names: dict[str, str]) -> set[tuple[str, str, str, str]]:
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for key, name in names.items():
+        layer = key.partition(":")[0]
+        if layer and name:
+            grouped.setdefault((layer, name), []).append(key)
+    return {
+        (layer, name, left, right)
+        for (layer, name), keys in grouped.items()
+        for index, left in enumerate(sorted(set(keys)))
+        for right in sorted(set(keys))[index + 1 :]
+    }
+
+
+def validate_operation_set(
+    rows: list[dict[str, Any]],
+    valid_keys: set[str],
+    expected_consumers: dict[str, set[str]] | None = None,
+    object_names: dict[str, str] | None = None,
+    label: str = "operation set",
+) -> list[str]:
+    """Validate mutation semantics that depend on the complete accepted action set."""
+    errors: list[str] = []
+    deleted_keys = {
+        str(item.get("object_key") or "")
+        for row in rows
+        for item in as_list(row.get("deletions"))
+    }
+    remaps = [
+        remap for row in rows for remap in as_list(row.get("remaps"))
+    ]
+    for remap in remaps:
+        source = str(remap.get("from_object_key") or "")
+        target = str(remap.get("to_object_key") or "")
+        source_layer = source.partition(":")[0]
+        target_layer = target.partition(":")[0]
+        if source and target and source_layer != target_layer:
+            errors.append(f"{label}: remap crosses GTM layers: {source!r} to {target!r}")
+        elif source_layer and source_layer not in SUPPORTED_REMAP_LAYERS:
+            errors.append(f"{label}: remap is unsupported for layer {source_layer!r}")
+        if target and target in deleted_keys:
+            errors.append(f"{label}: remap target {target!r} is also deleted")
+
+    if expected_consumers is not None:
+        graph = _dependency_graph(expected_consumers)
+        new_edges: list[tuple[str, str, str]] = []
+        for remap in remaps:
+            source = str(remap.get("from_object_key") or "")
+            target = str(remap.get("to_object_key") or "")
+            for consumer in (
+                str(value) for value in as_list(remap.get("consumer_object_keys"))
+            ):
+                graph.setdefault(consumer, set()).discard(source)
+                graph.setdefault(consumer, set()).add(target)
+                new_edges.append((consumer, target, source))
+        live_graph = {
+            key: dependencies - deleted_keys
+            for key, dependencies in graph.items()
+            if key not in deleted_keys
+        }
+        for consumer, target, source in new_edges:
+            if consumer in deleted_keys or target in deleted_keys:
+                continue
+            dependencies = live_graph.setdefault(consumer, set())
+            dependencies.discard(target)
+            creates_cycle = consumer == target or _path_exists(
+                live_graph, target, consumer
+            )
+            dependencies.add(target)
+            if creates_cycle:
+                errors.append(
+                    f"{label}: remap {source!r} to {target!r} creates a dependency cycle "
+                    f"through consumer {consumer!r}"
+                )
+
+    if object_names is not None:
+        baseline_pairs = _name_collision_pairs(object_names)
+        final_names = {
+            key: name for key, name in object_names.items() if key not in deleted_keys
+        }
+        renamed: dict[str, str] = {}
+        for row in rows:
+            for rename in as_list(row.get("renames")):
+                key = str(rename.get("object_key") or "")
+                after = str(rename.get("after") or "").strip()
+                if key in deleted_keys:
+                    errors.append(f"{label}: renamed object {key!r} is also deleted")
+                previous = renamed.get(key)
+                if previous is not None and previous != after:
+                    errors.append(f"{label}: object {key!r} has conflicting final names")
+                renamed[key] = after
+                if key in final_names and after:
+                    final_names[key] = after
+            for creation in as_list(row.get("creations")):
+                layer = str(creation.get("layer") or "")
+                obj = creation.get("object")
+                id_key = ID_KEYS.get(layer)
+                if not id_key or not isinstance(obj, dict):
+                    continue
+                object_id = str(obj.get(id_key) or obj.get("name") or "")
+                name = str(obj.get("name") or "").strip()
+                if object_id and name:
+                    final_names[f"{layer}:{object_id}"] = name
+        introduced_pairs = _name_collision_pairs(final_names) - baseline_pairs
+        for layer, name, left, right in sorted(introduced_pairs):
+            errors.append(
+                f"{label}: duplicate final name {name!r} in {layer} for {left!r} and {right!r}"
             )
     return errors
 
@@ -211,6 +409,8 @@ def _validate_deletions_and_renames(
             rename.get("after") or ""
         ).strip():
             errors.append(f"{label}: rename requires before and after names")
+        elif str(rename.get("before")) == str(rename.get("after")):
+            errors.append(f"{label}: rename before and after names are identical")
     return errors
 
 
@@ -229,7 +429,7 @@ def object_keys(export_path: Path) -> set[str]:
 def object_consumer_map(export_path: Path) -> dict[str, set[str]]:
     data = json.loads(export_path.read_text(encoding="utf-8"))
     cv = container_version(data)
-    consumers = build_consumers(cv)
+    consumers = build_consumers(cv, container_root_path(data))
     result: dict[str, set[str]] = {}
     for layer, id_key in ID_KEYS.items():
         for obj in as_list(cv.get(layer)):
@@ -244,11 +444,37 @@ def object_consumer_map(export_path: Path) -> dict[str, set[str]]:
     return result
 
 
+def object_name_map(export_path: Path) -> dict[str, str]:
+    data = json.loads(export_path.read_text(encoding="utf-8"))
+    cv = container_version(data)
+    result: dict[str, str] = {}
+    for layer, id_key in ID_KEYS.items():
+        for obj in as_list(cv.get(layer)):
+            object_id = str(obj.get(id_key) or obj.get("name") or "")
+            if object_id:
+                result[f"{layer}:{object_id}"] = str(obj.get("name") or "")
+    return result
+
+
+def object_source_path_map(export_path: Path) -> dict[str, str]:
+    data = json.loads(export_path.read_text(encoding="utf-8"))
+    cv = container_version(data)
+    root_path = container_root_path(data)
+    result: dict[str, str] = {}
+    for layer, id_key in ID_KEYS.items():
+        for index, obj in enumerate(as_list(cv.get(layer))):
+            object_id = str(obj.get(id_key) or obj.get("name") or "")
+            if object_id:
+                result[f"{layer}:{object_id}"] = f"{root_path}.{layer}[{index}]"
+    return result
+
+
 def validate_structured_actions(
     row: dict[str, Any],
     valid_keys: set[str],
     label: str,
     expected_consumers: dict[str, set[str]] | None = None,
+    source_paths_by_key: dict[str, str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     action_count = sum(len(as_list(row.get(field))) for field in MUTATION_FIELDS)
@@ -257,10 +483,18 @@ def validate_structured_actions(
     creation_errors, created = _validate_creations(row, valid_keys, label)
     errors.extend(creation_errors)
     allowed_keys = valid_keys | created
-    errors.extend(_validate_additions(row, allowed_keys, label))
-    errors.extend(_validate_changes(row, allowed_keys, label))
+    errors.extend(_validate_additions(row, allowed_keys, label, source_paths_by_key))
+    errors.extend(_validate_changes(row, allowed_keys, label, source_paths_by_key))
     errors.extend(_validate_remaps(row, allowed_keys, label, expected_consumers))
     errors.extend(_validate_deletions_and_renames(row, allowed_keys, label))
+    errors.extend(
+        validate_operation_set(
+            [row],
+            allowed_keys,
+            expected_consumers,
+            label=label,
+        )
+    )
 
     declared_level = row.get("minimum_aggressiveness")
     if declared_level not in VALID_MUTATION_LEVELS:

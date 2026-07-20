@@ -1,5 +1,5 @@
 schema_version = 1
-reviewed_on = "2026-07-18"
+reviewed_on = "2026-07-20"
 
 [[vendors]]
 name = "Universal Analytics (legacy)"
@@ -10,13 +10,13 @@ official_docs = ["https://support.google.com/analytics/answer/10220206?hl=en", "
 [[vendors]]
 name = "GA4 / Google tag"
 category = "analytics"
-patterns = ["\\bga4\\b", "google analytics", "measurement id", "G-[A-Z0-9]+", "\\bgaawe\\b", "\\bgaawc\\b", "\\bgoogtag\\b", "google tag"]
+patterns = ["\\bga4\\b", "google analytics", "measurement id", "G-[A-Z0-9]+", "\\bgaawe\\b", "\\bgaawc\\b", "\\bgoogtag\\b", "google tag", "googletagmanager\\.com", "google-analytics\\.com", "\\bgtag\\s*\\("]
 official_docs = ["https://developers.google.com/analytics/devguides/collection/ga4/reference/events", "https://developers.google.com/analytics/devguides/collection/ga4/reference/recommended-events", "https://developers.google.com/analytics/devguides/collection/ga4/ecommerce", "https://support.google.com/analytics/answer/13316687?hl=en", "https://developers.google.com/tag-platform/tag-manager/gateway/setup-guide"]
 
 [[vendors]]
 name = "Google Ads"
 category = "media"
-patterns = ["google ads", "adwords", "AW-", "conversion linker"]
+patterns = ["google ads", "adwords", "AW-", "conversion linker", "googleadservices\\.com", "pagead/conversion"]
 official_docs = ["https://support.google.com/tagmanager/answer/6105160?hl=en", "https://developers.google.com/tag-platform/tag-manager/gateway/setup-guide"]
 
 [[vendors]]
@@ -36,6 +36,8 @@ name = "TikTok"
 category = "media"
 patterns = ["tiktok", "ttq", "tik tok"]
 official_docs = ["https://ads.tiktok.com/help/article/standard-events-parameters"]
+unsupported_standard_events = ["CompletePayment"]
+event_replacements = ["CompletePayment=>Purchase"]
 
 [[vendors]]
 name = "Snapchat"

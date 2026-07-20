@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from gtm_baseline_audit import audit_export
-from gtm_lib import ID_KEYS, container_version, source_descriptor
+from gtm_lib import ID_KEYS, container_version, source_descriptor, source_integrity_findings
 from gtm_validate_artifact import duplicate_ids, missing_references
 
 PATH_TOKEN_RE = re.compile(r"\.([^.[\]]+)|\[(\d+)\]")
@@ -69,7 +69,10 @@ def relative_path(path: str, object_key: str) -> str:
     if not path.startswith("$"):
         raise ValueError("JSON path must start with $")
     layer = object_key.split(":", 1)[0]
-    match = re.match(rf"^\$\.containerVersion\.{re.escape(layer)}\[\d+\](.*)$", path)
+    match = re.match(
+        rf"^\$\.(?:containerVersion\.)?{re.escape(layer)}\[\d+\](.*)$",
+        path,
+    )
     if match:
         return "$" + match.group(1)
     return path
@@ -167,11 +170,21 @@ def remap_trigger(source: str, target: str, consumer: dict[str, Any]) -> None:
             target if str(value) == source else value for value in as_list(consumer.get(field))
         ]
     for parameter in as_list(consumer.get("parameter")):
+        if not isinstance(parameter, dict):
+            continue
         if parameter.get("key") != "triggerIds":
             continue
         for item in as_list(parameter.get("list")):
+            if not isinstance(item, dict):
+                continue
             if str(item.get("value") or "") == source:
                 item["value"] = target
+    boundary = consumer.get("boundary")
+    if isinstance(boundary, dict) and "customEvaluationTriggerId" in boundary:
+        boundary["customEvaluationTriggerId"] = [
+            target if str(value) == source else value
+            for value in as_list(boundary.get("customEvaluationTriggerId"))
+        ]
 
 
 def remap_folder(source: str, target: str, consumer: dict[str, Any]) -> None:
@@ -210,6 +223,8 @@ def apply_remap(
         elif source_layer == "tag":
             for field in ("setupTag", "teardownTag"):
                 for ref in as_list(consumer.get(field)):
+                    if not isinstance(ref, dict):
+                        continue
                     if str(ref.get("tagName") or "") == before_name:
                         ref["tagName"] = after_name
         elif source_layer == "folder":
@@ -290,6 +305,8 @@ def rename_references(
         for consumer in catalog.values():
             for field in ("setupTag", "teardownTag"):
                 for ref in as_list(consumer.get(field)):
+                    if not isinstance(ref, dict):
+                        continue
                     if str(ref.get("tagName") or "") == before:
                         ref["tagName"] = after
 
@@ -510,6 +527,31 @@ def check_future_state(
     export_path: Path, operations: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
     source = load_json(export_path)
+    blocking_integrity = [
+        row for row in source_integrity_findings(source) if row.get("blocking")
+    ]
+    if blocking_integrity:
+        errors = [
+            "source integrity gate blocked future-state simulation: "
+            + ", ".join(
+                sorted(
+                    str(row.get("finding_type") or "source_integrity_error")
+                    for row in blocking_integrity
+                )
+            )
+        ]
+        return (
+            {
+                **source_descriptor(export_path),
+                "kind": "gtm_future_state_validation",
+                "schema_version": 1,
+                "status": "blocked_source_integrity",
+                "operation_count": len(as_list(operations.get("operations"))),
+                "source_integrity_findings": blocking_integrity,
+                "errors": errors,
+            },
+            errors,
+        )
     before_cv = container_version(source)
     future, errors = apply_operations(source, operations)
     future_cv = container_version(future)
@@ -564,7 +606,7 @@ def main() -> int:
     args = parser.parse_args()
     operations = load_json(args.operations)
     report, errors = check_future_state(args.export, operations)
-    if args.future_export:
+    if args.future_export and not errors:
         future, apply_errors = apply_operations(load_json(args.export), operations)
         errors.extend(apply_errors)
         args.future_export.parent.mkdir(parents=True, exist_ok=True)

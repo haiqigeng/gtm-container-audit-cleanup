@@ -15,9 +15,11 @@ from gtm_lib import (
     is_system_trigger_reference,
     is_system_variable_reference,
     load_container_version,
+    load_json,
     object_id,
     refs,
     sort_ids,
+    source_integrity_findings,
     trigger_group_members,
 )
 
@@ -52,13 +54,21 @@ def tag_reference_sets(
         trigger_ids.update(tag.get("blockingTriggerId", []) or [])
         setup_refs.update(
             str(ref["tagName"])
-            for ref in tag.get("setupTag", []) or []
-            if ref.get("tagName")
+            for ref in (
+                tag.get("setupTag", [])
+                if isinstance(tag.get("setupTag"), list)
+                else []
+            )
+            if isinstance(ref, dict) and ref.get("tagName")
         )
         teardown_refs.update(
             str(ref["tagName"])
-            for ref in tag.get("teardownTag", []) or []
-            if ref.get("tagName")
+            for ref in (
+                tag.get("teardownTag", [])
+                if isinstance(tag.get("teardownTag"), list)
+                else []
+            )
+            if isinstance(ref, dict) and ref.get("tagName")
         )
     for trigger in triggers:
         trigger_ids.update(trigger_group_members(trigger))
@@ -68,7 +78,15 @@ def tag_reference_sets(
 def folder_reference_set(cv: dict[str, Any]) -> set[str]:
     return {
         str(obj["parentFolderId"])
-        for layer in ("tag", "trigger", "variable", "client", "transformation")
+        for layer in (
+            "tag",
+            "trigger",
+            "variable",
+            "zone",
+            "client",
+            "gtagConfig",
+            "transformation",
+        )
         for obj in cv.get(layer, []) or []
         if obj.get("parentFolderId")
     }
@@ -77,7 +95,7 @@ def folder_reference_set(cv: dict[str, Any]) -> set[str]:
 def template_reference_set(cv: dict[str, Any]) -> set[str]:
     return {
         template_id
-        for layer in ("tag", "variable", "client", "transformation")
+        for layer in ("tag", "variable", "client", "gtagConfig", "transformation")
         for obj in cv.get(layer, []) or []
         for template_id in [custom_template_id(obj)]
         if template_id
@@ -103,6 +121,15 @@ def missing_references(cv: dict[str, Any]) -> dict[str, Any]:
     template_ids = {template.get("templateId") for template in templates}
 
     used_trigger_ids, setup_tag_refs, teardown_tag_refs = tag_reference_sets(tags, triggers)
+    used_trigger_ids.update(
+        trigger_id
+        for zone in cv.get("zone", []) or []
+        for trigger_id in (
+            zone.get("boundary", {}).get("customEvaluationTriggerId", [])
+            if isinstance(zone.get("boundary"), dict)
+            else []
+        )
+    )
     folder_refs = folder_reference_set(cv)
     template_refs = template_reference_set(cv)
 
@@ -140,8 +167,10 @@ def name_churn(original_cv: dict[str, Any], cv: dict[str, Any]) -> dict[str, Any
         "trigger",
         "variable",
         "folder",
+        "zone",
         "customTemplate",
         "client",
+        "gtagConfig",
         "transformation",
     ):
         key = ID_KEYS[layer]
@@ -306,8 +335,16 @@ def view_changes_churn_errors(
 
 
 def validate(path: Path, original: Path | None, mode: str) -> dict[str, Any]:
-    artifact_cv = load_container_version(path)
-    original_cv = load_container_version(original) if original else None
+    artifact_source_integrity = source_integrity_findings(load_json(path))
+    try:
+        artifact_cv = load_container_version(path)
+    except ValueError:
+        artifact_cv = {}
+    original_source_integrity = source_integrity_findings(load_json(original)) if original else []
+    try:
+        original_cv = load_container_version(original) if original else None
+    except ValueError:
+        original_cv = {}
     effective_cv = (
         apply_patch(original_cv, artifact_cv)
         if original_cv and mode in PATCH_MODES
@@ -317,6 +354,27 @@ def validate(path: Path, original: Path | None, mode: str) -> dict[str, Any]:
     original_missing = missing_references(original_cv) if original_cv else None
     errors = []
     warnings = []
+
+    blocking_artifact_integrity = [
+        row for row in artifact_source_integrity if row.get("blocking")
+    ]
+    if blocking_artifact_integrity:
+        errors.append(
+            {
+                "check": "artifact_source_integrity",
+                "details": blocking_artifact_integrity,
+            }
+        )
+    blocking_original_integrity = [
+        row for row in original_source_integrity if row.get("blocking")
+    ]
+    if blocking_original_integrity:
+        errors.append(
+            {
+                "check": "original_source_integrity",
+                "details": blocking_original_integrity,
+            }
+        )
 
     dupes = duplicate_ids(effective_cv)
     if dupes:

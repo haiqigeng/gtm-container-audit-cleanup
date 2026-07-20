@@ -9,8 +9,8 @@ from collections import defaultdict
 from typing import Any
 from urllib.parse import urlsplit
 
-from gtm_lib import refs, stable_hash, walk_json_fields
-from gtm_vendor_registry import detect_vendor_text
+from gtm_lib import behavior_projection, refs, stable_hash, walk_json_fields
+from gtm_vendor_registry import detect_vendor_text, vendor_records
 
 CONSENT_PURPOSES = (
     "analytics_storage",
@@ -30,6 +30,11 @@ GOOGLE_NATIVE_CONSENT_TYPES = {
     "gclidw",
     "googtag",
     "sp",
+}
+MANUAL_CONSENT_STATUSES = {
+    "NOTSET": "NOT_SET",
+    "NOTNEEDED": "NOT_NEEDED",
+    "NEEDED": "NEEDED",
 }
 SERVER_ROUTE_KEY_RE = re.compile(
     r"transport_url|server_container_url|endpoint|first.party|server.side",
@@ -51,6 +56,14 @@ FORWARDING_METADATA_SUFFIXES = (
     ".name",
     ".type",
 )
+FORWARDING_NON_PAYLOAD_PATH_TOKENS = (
+    ".firingTriggerId",
+    ".blockingTriggerId",
+    ".setupTag",
+    ".teardownTag",
+    ".scheduleStartMs",
+    ".scheduleEndMs",
+)
 
 
 def as_list(value: Any) -> list[Any]:
@@ -65,6 +78,11 @@ def consent_purpose(name: str) -> str:
 def consent_values(obj: dict[str, Any], source_path: str = "$") -> list[dict[str, str]]:
     rows = []
     for fact in walk_json_fields(obj, source_path):
+        json_path = str(fact.get("json_path") or "")
+        if any(token in json_path for token in FORWARDING_NON_PAYLOAD_PATH_TOKENS) or (
+            json_path.endswith(FORWARDING_METADATA_SUFFIXES)
+        ):
+            continue
         searchable = f"{fact['json_path']} {fact.get('value_preview') or ''}"
         if not any(purpose in searchable.lower() for purpose in CONSENT_PURPOSES) and not re.search(
             r"consent|optanon|didomi", searchable, re.I
@@ -99,11 +117,11 @@ def referenced_variables(
     obj: dict[str, Any], variables: list[dict[str, Any]]
 ) -> list[tuple[int, dict[str, Any]]]:
     """Resolve the exported variable chain without interpreting its business meaning."""
-    by_name = {
-        str(variable.get("name") or ""): (index, variable)
-        for index, variable in enumerate(variables)
-        if variable.get("name")
-    }
+    by_name: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+    for index, variable in enumerate(variables):
+        name = str(variable.get("name") or "")
+        if name:
+            by_name.setdefault(name, []).append((index, variable))
     queue = sorted(refs(obj))
     visited: set[str] = set()
     resolved: list[tuple[int, dict[str, Any]]] = []
@@ -112,12 +130,12 @@ def referenced_variables(
         if reference in visited:
             continue
         visited.add(reference)
-        target = by_name.get(reference)
-        if not target:
+        targets = by_name.get(reference, [])
+        if not targets:
             continue
-        index, variable = target
-        resolved.append((index, variable))
-        queue.extend(sorted(refs(variable) - visited))
+        for index, variable in targets:
+            resolved.append((index, variable))
+            queue.extend(sorted(refs(variable) - visited))
     return resolved
 
 
@@ -128,7 +146,20 @@ def forwarding_consent_values(
     rows = []
     for fact in consent_values(obj, source_path):
         json_path = str(fact.get("json_path") or "")
-        if ".consentSettings" in json_path or json_path.endswith(FORWARDING_METADATA_SUFFIXES):
+        parameter_match = re.search(r"\.parameter\[(\d+)\]", json_path)
+        parameter_key = ""
+        if parameter_match:
+            position = int(parameter_match.group(1))
+            parameters = as_list(obj.get("parameter"))
+            if position < len(parameters) and isinstance(parameters[position], dict):
+                parameter_key = str(parameters[position].get("key") or "").lower()
+        if (
+            ".consentSettings" in json_path
+            or any(token in json_path for token in FORWARDING_NON_PAYLOAD_PATH_TOKENS)
+            or json_path.endswith(FORWARDING_METADATA_SUFFIXES)
+            or parameter_key in {"event", "eventname", "event_name", "action"}
+            or (not via_variable and parameter_key in {"html", "javascript"})
+        ):
             continue
         searchable = f"{json_path} {fact.get('value_preview') or ''} {via_variable}"
         if not consent_purpose(searchable) and not CONSENT_SIGNAL_RE.search(searchable):
@@ -141,11 +172,24 @@ def tag_consent_route(
     tag: dict[str, Any],
     source_path: str = "$",
     variables: list[dict[str, Any]] | None = None,
+    root_path: str = "$.containerVersion",
 ) -> dict[str, Any]:
-    vendor, category = detect_vendor_text(json.dumps(tag, ensure_ascii=False))
-    settings = tag.get("consentSettings") or {}
-    status = str(settings.get("consentStatus") or "").upper() or "MISSING"
-    additional_checks = status not in {"MISSING", "NOT_SET"}
+    behavior = behavior_projection(tag)
+    serialized_behavior = json.dumps(behavior, ensure_ascii=False)
+    matches = vendor_records(serialized_behavior)
+    vendor, category = detect_vendor_text(serialized_behavior)
+    detected_vendors = [str(match.get("name") or "") for match in matches]
+    detected_categories = sorted(
+        {str(match.get("category") or "unclassified") for match in matches}
+    )
+    raw_settings = tag.get("consentSettings")
+    settings_shape_valid = raw_settings is None or isinstance(raw_settings, dict)
+    settings = raw_settings if isinstance(raw_settings, dict) else {}
+    raw_status = str(settings.get("consentStatus") or "").strip()
+    status_key = re.sub(r"[^A-Z]", "", raw_status.upper())
+    status = MANUAL_CONSENT_STATUSES.get(status_key, raw_status.upper() or "MISSING")
+    status_known = status in {*MANUAL_CONSENT_STATUSES.values(), "MISSING"}
+    additional_checks = status == "NEEDED"
     blockers = sorted(str(value) for value in as_list(tag.get("blockingTriggerId")))
     consent_references = sorted(
         reference
@@ -160,7 +204,7 @@ def tag_consent_route(
     forwarding_variables: set[str] = set()
     for index, variable in variable_chain:
         variable_name = str(variable.get("name") or "")
-        variable_path = f"$.containerVersion.variable[{index}]"
+        variable_path = f"{root_path}.variable[{index}]"
         variable_evidence = forwarding_consent_values(
             variable,
             variable_path,
@@ -184,21 +228,25 @@ def tag_consent_route(
             if purpose
         }
     )
-    forwarded_cmp_signal = any(
+    forwarded_cmp_signal = bool(server_hosts) and any(
         CONSENT_SIGNAL_RE.search(
             f"{row.get('json_path') or ''} {row.get('value_preview') or ''} "
             f"{row.get('via_variable') or ''}"
         )
         for row in forwarding_evidence
     )
-    if additional_checks or blockers:
+    if not status_known:
+        control_status = "unrecognized_consent_status"
+    elif additional_checks:
         control_status = "explicit_export_control"
+    elif blockers:
+        control_status = "blocker_control_candidate"
     elif server_hosts and forwarding_evidence:
-        control_status = "server_forwarded_consent_contract"
+        control_status = "server_forwarding_candidate"
     elif server_hosts:
         control_status = "server_contract_unproven"
     elif native_capability:
-        control_status = "native_consent_contract"
+        control_status = "native_consent_capability"
     elif consent_references:
         control_status = "consent_signal_review"
     else:
@@ -206,22 +254,32 @@ def tag_consent_route(
     return {
         "vendor": vendor,
         "vendor_category": category,
+        "detected_vendors": detected_vendors,
+        "detected_vendor_categories": detected_categories,
+        "consent_settings_shape_valid": settings_shape_valid,
+        "raw_consent_status": raw_status,
         "consent_status": status,
+        "consent_status_known": status_known,
         "additional_consent_checks_visible": additional_checks,
         "blocking_trigger_ids": blockers,
         "consent_variable_references": consent_references,
         "native_consent_capability": native_capability,
         "server_routing_hosts": sorted(server_hosts),
-        "server_consent_forwarding_variables": sorted(forwarding_variables),
-        "server_consent_forwarding_evidence": forwarding_evidence,
-        "forwarded_consent_purposes": forwarded_purposes,
+        "server_consent_forwarding_variables": (
+            sorted(forwarding_variables) if server_hosts else []
+        ),
+        "server_consent_forwarding_evidence": forwarding_evidence if server_hosts else [],
+        "detected_consent_payload_purposes": forwarded_purposes,
+        "forwarded_consent_purposes": forwarded_purposes if server_hosts else [],
         "forwarded_cmp_signal_visible": forwarded_cmp_signal,
         "server_enforcement_visibility": (
             "not_visible_in_web_export" if server_hosts else "not_applicable"
         ),
         "consent_source_values": consent_values(tag, source_path),
         "effective_control_status": control_status,
-        "requires_media_consent_review": category in MEDIA_CATEGORIES,
+        "requires_media_consent_review": any(
+            value in MEDIA_CATEGORIES for value in detected_categories
+        ),
     }
 
 

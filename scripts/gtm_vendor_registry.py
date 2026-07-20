@@ -53,20 +53,36 @@ def detect_vendor_text(text: str) -> tuple[str, str]:
     return str(entry.get("name", "Unclassified")), str(entry.get("category", "unclassified"))
 
 
-def vendor_record(text: str) -> dict[str, Any]:
+def vendor_records(text: str) -> list[dict[str, Any]]:
+    """Return every registry match while preserving preferred primary ordering."""
     entries = compiled_vendors()
     preferred_names: list[str] = []
     if re.search(r"\bUA-\d|universal analytics|\"type\"\s*:\s*\"ua\"", text, re.I):
         preferred_names.append("Universal Analytics (legacy)")
     elif re.search(r"\bAW-[A-Z0-9-]+|google ads|adwords|conversion linker", text, re.I):
         preferred_names.append("Google Ads")
-    for preferred_name in preferred_names:
-        for entry in entries:
-            if entry.get("name") == preferred_name:
-                return entry
-    for entry in entries:
-        if any(pattern.search(text) for pattern in entry["compiled_patterns"]):
-            return entry
+    matched = [
+        entry
+        for entry in entries
+        if any(pattern.search(text) for pattern in entry["compiled_patterns"])
+    ]
+    ordered = [
+        entry
+        for preferred_name in preferred_names
+        for entry in entries
+        if entry.get("name") == preferred_name
+    ]
+    ordered.extend(matched)
+    unique: dict[str, dict[str, Any]] = {}
+    for entry in ordered:
+        unique.setdefault(str(entry.get("name") or ""), entry)
+    return list(unique.values())
+
+
+def vendor_record(text: str) -> dict[str, Any]:
+    matches = vendor_records(text)
+    if matches:
+        return matches[0]
     return {"name": "Unclassified", "category": "unclassified", "official_docs": []}
 
 
@@ -96,9 +112,13 @@ def validate_registry(
     errors: list[str] = []
     warnings: list[str] = []
     registry = load_registry(path)
+    if registry.get("schema_version") != 1:
+        errors.append("schema_version must be 1")
     try:
         reviewed = date.fromisoformat(str(registry.get("reviewed_on") or ""))
         age = (date.today() - reviewed).days
+        if age < 0:
+            errors.append("reviewed_on cannot be in the future")
         if age > max_age_days:
             warnings.append(f"registry review is {age} days old; refresh official sources")
     except ValueError:
@@ -112,16 +132,53 @@ def validate_registry(
         if name in seen_names:
             errors.append(f"vendor {index}: duplicate name {name!r}")
         seen_names.add(name)
-        if not vendor.get("patterns"):
+        patterns = vendor.get("patterns")
+        if not isinstance(patterns, list) or not patterns:
             errors.append(f"vendor {name!r}: missing patterns")
-        for pattern in vendor.get("patterns", []):
+            patterns = []
+        for pattern in patterns:
+            if not isinstance(pattern, str) or not pattern:
+                errors.append(f"vendor {name!r}: patterns must be non-empty strings")
+                continue
             try:
                 re.compile(pattern, re.I)
             except re.error as exc:
                 errors.append(f"vendor {name!r}: invalid pattern {pattern!r}: {exc}")
         docs = vendor.get("official_docs", [])
-        if not docs:
+        if not isinstance(docs, list) or not docs:
             errors.append(f"vendor {name!r}: missing official_docs")
+            docs = []
+        elif len(docs) != len(set(docs)):
+            errors.append(f"vendor {name!r}: duplicate official_docs URL")
+        for url in docs:
+            if not isinstance(url, str) or not re.fullmatch(r"https://[^\s]+", url):
+                errors.append(f"vendor {name!r}: official_docs must use absolute HTTPS URLs")
+        unsupported = vendor.get("unsupported_standard_events", [])
+        replacements = vendor.get("event_replacements", [])
+        for field, values in (
+            ("unsupported_standard_events", unsupported),
+            ("event_replacements", replacements),
+        ):
+            if not isinstance(values, list) or any(
+                not isinstance(value, str) or not value.strip() for value in values
+            ):
+                errors.append(f"vendor {name!r}: {field} must be a list of non-empty strings")
+            elif len(values) != len(set(values)):
+                errors.append(f"vendor {name!r}: {field} contains duplicates")
+        if isinstance(replacements, list):
+            for replacement in replacements:
+                if not isinstance(replacement, str):
+                    continue
+                parts = [part.strip() for part in replacement.split("=>")]
+                if len(parts) != 2 or not all(parts):
+                    errors.append(
+                        f"vendor {name!r}: event replacement {replacement!r} must use old=>new"
+                    )
+                elif isinstance(unsupported, list) and parts[0] not in unsupported:
+                    errors.append(
+                        f"vendor {name!r}: replacement source {parts[0]!r} is not listed "
+                        "in unsupported_standard_events"
+                    )
         if online:
             for url in docs:
                 url_error = official_url_error(url)

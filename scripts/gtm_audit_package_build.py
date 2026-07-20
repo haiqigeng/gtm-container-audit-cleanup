@@ -48,8 +48,51 @@ def build_package(
 ) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    context = build_context_model(export_path, context_path)
     source_model = build_model(export_path)
+    if source_model.get("coverage_gate") == "blocked_source_integrity":
+        source_path = out_dir / "source_model.json"
+        manifest_path = out_dir / "audit_package_manifest.json"
+        manifest = {
+            **source_descriptor(export_path),
+            "kind": "gtm_audit_package_manifest",
+            "status": "blocked",
+            "source_model_coverage_gate": source_model.get("coverage_gate"),
+            "shared_facts_coverage_gate": "not_built",
+            "counts": {
+                "source_integrity_findings": len(
+                    source_model.get("source_integrity_findings", [])
+                ),
+                "source_model_objects": sum(
+                    len(source_model.get("objects", {}).get(key, []))
+                    for key in (
+                        "tags",
+                        "triggers",
+                        "variables",
+                        "customTemplates",
+                        "zones",
+                        "clients",
+                        "gtagConfigs",
+                        "transformations",
+                    )
+                ),
+            },
+            "required_next_artifacts": [
+                "corrected complete GTM ContainerVersion export"
+            ],
+            "files": {
+                "source_model": source_path.name,
+                "manifest": manifest_path.name,
+            },
+            "notes": [
+                "Source integrity is blocking; no review scaffold or inferred context was built.",
+                "Resolve every source_integrity_finding before starting the three independent runs.",
+            ],
+        }
+        write_json(source_path, source_model, pretty)
+        write_json(manifest_path, manifest, pretty)
+        return manifest
+
+    context = build_context_model(export_path, context_path)
     operational_scan = audit_export(export_path)
     technical = extract_export(export_path)
     shared_facts = build_shared_facts(
@@ -94,7 +137,9 @@ def build_package(
                     "triggers",
                     "variables",
                     "customTemplates",
+                    "zones",
                     "clients",
+                    "gtagConfigs",
                     "transformations",
                 )
             ),

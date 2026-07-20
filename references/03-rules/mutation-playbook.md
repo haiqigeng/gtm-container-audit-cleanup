@@ -5,6 +5,7 @@ Never mutate or publish from an audit request alone.
 ## Contents
 
 - Approval sequence
+- Source-integrity and layer-complete readback
 - Direct GTM/API/MCP
 - Import JSON
 - Custom code
@@ -33,7 +34,9 @@ Preferred when human-readable GTM View Changes matters.
 - Free GTM accounts may permit only three total workspaces, including the
   default. Warn and stop before cleanup when quota prevents creation.
 - Modify existing objects in place when possible; preserve IDs and history.
-- Create a new object only when the target architecture genuinely needs one.
+- Create a new object only when the target architecture genuinely needs one;
+  this includes first-class Zone and Google tag configuration entities when an
+  approved target design requires them.
 - Batch changes by dependency-safe operation, then read back and validate.
 - Delete only after every consumer is remapped and read back.
 - Never work in or publish the default/live workspace without explicit request.
@@ -67,6 +70,7 @@ Preserve:
 - export wrapper and required metadata;
 - enabled built-in variables;
 - all referenced custom templates;
+- clients, transformations, Zones, and Google tag configurations;
 - folders and parent IDs;
 - setup/teardown references;
 - system trigger references;
@@ -100,9 +104,12 @@ change it only when the approved operation identifies a concrete gap.
 
 After each batch:
 
+- verify that the readback is still a complete ContainerVersion with no
+  malformed or unmodeled entity layer and no missing or duplicate object ID;
 - fetch/read back changed objects;
 - compare exact fields with approved structured actions;
-- check references, names, templates, groups, built-ins, and consumers;
+- check references, names, templates, groups, built-ins, Zones, Google tag
+  configurations, and consumers;
 - update the field-level change record;
 - preserve rollback instructions.
 

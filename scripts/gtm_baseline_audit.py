@@ -19,26 +19,40 @@ from typing import Any
 from gtm_consent_model import consent_variable_conflicts, tag_consent_route
 from gtm_custom_code_extract import expression_facts
 from gtm_lib import (
+    BEHAVIOR_NEUTRAL_FIELDS,
+    ID_KEYS,
+    SEMANTIC_LAYERS,
+    behavior_projection,
+    container_root_path,
     container_version,
     custom_template_id,
     is_system_trigger_reference,
     is_system_variable_reference,
     refs,
     source_descriptor,
+    source_integrity_findings,
     system_reference_description,
     trigger_group_members,
 )
 from gtm_vendor_registry import detect_vendor_text
 
-COMMON_IGNORED = {"accountId", "containerId", "fingerprint", "path"}
+COMMON_IGNORED = set(BEHAVIOR_NEUTRAL_FIELDS)
 TAG_ID_IGNORED = COMMON_IGNORED | {"tagId", "name"}
 TAG_NORMALIZED_IGNORED = TAG_ID_IGNORED | {
     "firingTriggerId",
     "blockingTriggerId",
-    "parentFolderId",
-    "notes",
+    "setupTag",
+    "teardownTag",
+    "tagFiringOption",
+    "priority",
+    "liveOnly",
+    "paused",
     "scheduleStartMs",
     "scheduleEndMs",
+    "monitoringMetadata",
+    "monitoringMetadataTagNameKey",
+    "consentSettings",
+    "malwareDisabled",
 }
 TRIGGER_ID_IGNORED = COMMON_IGNORED | {"triggerId", "name"}
 VARIABLE_ID_IGNORED = COMMON_IGNORED | {"variableId", "name"}
@@ -94,17 +108,7 @@ def param_value(obj: dict[str, Any], key: str) -> Any:
 
 
 def object_id(obj: dict[str, Any], layer: str) -> str:
-    keys = {
-        "tag": "tagId",
-        "trigger": "triggerId",
-        "variable": "variableId",
-        "folder": "folderId",
-        "customTemplate": "templateId",
-        "builtInVariable": "name",
-        "client": "clientId",
-        "transformation": "transformationId",
-    }
-    value = obj.get(keys[layer]) or obj.get("name")
+    value = obj.get(ID_KEYS[layer]) or obj.get("name")
     return "" if value is None else str(value)
 
 
@@ -646,8 +650,7 @@ class BaselineBuilder:
         deterministic_evidence: str,
         default_action: str,
         required_resolution: str = (
-            "cleanup_operation | documented_exception | container_evidence_limit | "
-            "owner_decision_needed | not_applicable"
+            "cleanup_operation | documented_exception | owner_decision_needed"
         ),
         extra: dict[str, Any] | None = None,
     ) -> None:
@@ -751,14 +754,28 @@ def add_signature_findings(
     for sig, group in sorted(groups.items()):
         if len(group) < 2:
             continue
+        extra: dict[str, Any] = {}
+        evidence = f"{len(group)} {layer} objects share deterministic signature {sig}."
+        if layer == "trigger":
+            shared_conditions = sorted(
+                {
+                    normalized_condition(node)
+                    for node in condition_nodes(group[0])
+                    if normalized_condition(node)
+                }
+            )
+            if shared_conditions:
+                extra["shared_normalized_conditions"] = shared_conditions
+                evidence += f" Shared normalized conditions are {shared_conditions!r}."
         builder.add_finding(
             module_name,
             finding_type,
             layer,
             [object_summary(obj, layer) for obj in group],
             sig,
-            f"{len(group)} {layer} objects share deterministic signature {sig}.",
+            evidence,
             default_action,
+            extra=extra,
         )
 
 
@@ -773,38 +790,132 @@ def build_consumers(
     trigger_consumers: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     tag_consumers: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
 
+    for layer in SEMANTIC_LAYERS:
+        for obj in as_list(cv.get(layer)):
+            for ref in sorted(refs(obj)):
+                if layer == "variable" and ref == obj.get("name"):
+                    continue
+                variable_consumers[ref].append(object_summary(obj, layer))
+
     for tag in as_list(cv.get("tag")):
         summary = object_summary(tag, "tag")
-        for ref in sorted(refs(tag)):
-            variable_consumers[ref].append(summary)
         for trigger_id in as_list(tag.get("firingTriggerId")) + as_list(
             tag.get("blockingTriggerId")
         ):
             trigger_consumers[str(trigger_id)].append(summary)
         for relation in ("setupTag", "teardownTag"):
             for linked in as_list(tag.get(relation)):
+                if not isinstance(linked, dict):
+                    continue
                 tag_name = str(linked.get("tagName") or "")
                 if tag_name:
                     tag_consumers[tag_name].append({**summary, "consumer_relation": relation})
 
     for trigger in as_list(cv.get("trigger")):
-        for ref in sorted(refs(trigger)):
-            variable_consumers[ref].append(object_summary(trigger, "trigger"))
         for member_id in trigger_group_members(trigger):
             trigger_consumers[str(member_id)].append(object_summary(trigger, "trigger"))
 
-    for variable in as_list(cv.get("variable")):
-        for ref in sorted(refs(variable)):
-            if ref == variable.get("name"):
-                continue
-            variable_consumers[ref].append(object_summary(variable, "variable"))
-
-    for layer in ("client", "transformation"):
-        for obj in as_list(cv.get(layer)):
-            for ref in sorted(refs(obj)):
-                variable_consumers[ref].append(object_summary(obj, layer))
+    for zone in as_list(cv.get("zone")):
+        boundary = zone.get("boundary") if isinstance(zone.get("boundary"), dict) else {}
+        for trigger_id in as_list(boundary.get("customEvaluationTriggerId")):
+            trigger_consumers[str(trigger_id)].append(object_summary(zone, "zone"))
 
     return dict(variable_consumers), dict(trigger_consumers), dict(tag_consumers)
+
+
+def build_execution_reachability(cv: dict[str, Any]) -> dict[str, Any]:
+    """Resolve active and paused-only dependency subgraphs from configured roots."""
+    records = {
+        layer: as_list(cv.get(layer))
+        for layer in (*SEMANTIC_LAYERS, "builtInVariable")
+    }
+    variable_keys: dict[str, list[str]] = collections.defaultdict(list)
+    trigger_keys: dict[str, list[str]] = collections.defaultdict(list)
+    tag_keys: dict[str, list[str]] = collections.defaultdict(list)
+    template_keys: dict[str, list[str]] = collections.defaultdict(list)
+    paused_tag_keys: set[str] = set()
+
+    for layer, items in records.items():
+        for obj in items:
+            key = f"{layer}:{object_id(obj, layer)}"
+            if layer in {"variable", "builtInVariable"}:
+                variable_keys[object_name(obj)].append(key)
+            elif layer == "trigger":
+                trigger_keys[object_id(obj, layer)].append(key)
+            elif layer == "tag":
+                tag_keys[object_name(obj)].append(key)
+                if obj.get("paused"):
+                    paused_tag_keys.add(key)
+            elif layer == "customTemplate":
+                template_keys[object_id(obj, layer)].append(key)
+
+    dependencies: dict[str, set[str]] = collections.defaultdict(set)
+    for layer, items in records.items():
+        for obj in items:
+            source_key = f"{layer}:{object_id(obj, layer)}"
+            for reference in refs(obj):
+                dependencies[source_key].update(variable_keys.get(reference, []))
+            if layer == "tag":
+                for trigger_id in as_list(obj.get("firingTriggerId")) + as_list(
+                    obj.get("blockingTriggerId")
+                ):
+                    dependencies[source_key].update(trigger_keys.get(str(trigger_id), []))
+                for relation in ("setupTag", "teardownTag"):
+                    for sequence in as_list(obj.get(relation)):
+                        if isinstance(sequence, dict):
+                            dependencies[source_key].update(
+                                tag_keys.get(str(sequence.get("tagName") or ""), [])
+                            )
+            elif layer == "trigger":
+                for trigger_id in trigger_group_members(obj):
+                    dependencies[source_key].update(trigger_keys.get(str(trigger_id), []))
+            elif layer == "zone":
+                boundary = obj.get("boundary")
+                if isinstance(boundary, dict):
+                    for trigger_id in as_list(boundary.get("customEvaluationTriggerId")):
+                        dependencies[source_key].update(trigger_keys.get(str(trigger_id), []))
+            template_id = custom_template_id(obj)
+            if template_id:
+                dependencies[source_key].update(template_keys.get(template_id, []))
+
+    configured_roots = {
+        f"{layer}:{object_id(obj, layer)}"
+        for layer in ("zone", "client", "gtagConfig", "transformation")
+        for obj in records[layer]
+    }
+    active_tag_roots = {
+        f"tag:{object_id(tag, 'tag')}"
+        for tag in records["tag"]
+        if not tag.get("paused") and bool(as_list(tag.get("firingTriggerId")))
+    }
+
+    def reachable(roots: set[str], blocked: set[str] | None = None) -> set[str]:
+        blocked = blocked or set()
+        visited: set[str] = set()
+        queue = sorted(roots - blocked)
+        while queue:
+            current = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+            queue.extend(
+                sorted(dependencies.get(current, set()) - visited - blocked - set(queue))
+            )
+        return visited
+
+    active = reachable(active_tag_roots | configured_roots, paused_tag_keys)
+    paused = reachable(paused_tag_keys) - active
+    return {
+        "active_root_keys": sorted(active_tag_roots | configured_roots),
+        "paused_root_keys": sorted(paused_tag_keys),
+        "active_object_keys": sorted(active),
+        "paused_only_object_keys": sorted(paused),
+        "dependency_edges": [
+            {"from_object_key": source, "to_object_key": target}
+            for source, targets in sorted(dependencies.items())
+            for target in sorted(targets)
+        ],
+    }
 
 
 def consumer_activity(consumers: list[dict[str, Any]]) -> tuple[int, int]:
@@ -823,19 +934,26 @@ def build_lifecycle_matrix(
     variable_consumers: dict[str, list[dict[str, Any]]],
     trigger_consumers: dict[str, list[dict[str, Any]]],
     tag_consumers: dict[str, list[dict[str, Any]]],
+    reachability: dict[str, Any],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     layer_items = (
         ("tag", as_list(cv.get("tag"))),
         ("trigger", as_list(cv.get("trigger"))),
         ("variable", as_list(cv.get("variable"))),
+        ("builtInVariable", as_list(cv.get("builtInVariable"))),
+        ("zone", as_list(cv.get("zone"))),
         ("customTemplate", as_list(cv.get("customTemplate"))),
         ("folder", as_list(cv.get("folder"))),
         ("client", as_list(cv.get("client"))),
+        ("gtagConfig", as_list(cv.get("gtagConfig"))),
         ("transformation", as_list(cv.get("transformation"))),
     )
     template_consumers: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     folder_consumers: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    active_keys = set(as_list(reachability.get("active_object_keys")))
+    paused_only_keys = set(as_list(reachability.get("paused_only_object_keys")))
+    active_roots = set(as_list(reachability.get("active_root_keys")))
     for layer, items in layer_items:
         if layer in {"customTemplate", "folder"}:
             continue
@@ -851,40 +969,67 @@ def build_lifecycle_matrix(
     for layer, items in layer_items:
         for obj in items:
             oid = object_id(obj, layer)
+            current_key = f"{layer}:{oid}"
             if layer == "tag":
                 consumers = tag_consumers.get(object_name(obj), [])
-                direct_route = bool(obj.get("firingTriggerId"))
                 paused_state = bool(obj.get("paused"))
                 if paused_state:
                     usage = "paused"
-                elif direct_route:
+                elif current_key in active_roots:
                     usage = "active_direct"
-                elif consumers:
+                elif current_key in active_keys:
                     usage = "active_sequenced"
                 else:
                     usage = "active_without_route"
             elif layer == "trigger":
                 consumers = trigger_consumers.get(oid, [])
-                usage = "used" if consumers else "unreferenced"
-            elif layer == "variable":
+                usage = (
+                    "used"
+                    if current_key in active_keys
+                    else "used_only_by_paused_tags"
+                    if current_key in paused_only_keys
+                    else "unreferenced"
+                )
+            elif layer in {"variable", "builtInVariable"}:
                 consumers = variable_consumers.get(object_name(obj), [])
-                usage = "used" if consumers else "unreferenced"
+                usage = (
+                    "used"
+                    if current_key in active_keys
+                    else "used_only_by_paused_tags"
+                    if current_key in paused_only_keys
+                    else "unreferenced"
+                )
             elif layer == "customTemplate":
                 consumers = template_consumers.get(oid, [])
-                usage = "used" if consumers else "unreferenced"
+                usage = (
+                    "used"
+                    if current_key in active_keys
+                    else "used_only_by_paused_tags"
+                    if current_key in paused_only_keys
+                    else "unreferenced"
+                )
             elif layer == "folder":
                 consumers = folder_consumers.get(oid, [])
-                usage = "used" if consumers else "unreferenced"
+                member_keys = {
+                    f"{item.get('object_type')}:{item.get('object_id')}" for item in consumers
+                }
+                usage = (
+                    "used"
+                    if member_keys & active_keys
+                    else "used_only_by_paused_tags"
+                    if member_keys & paused_only_keys
+                    else "unreferenced"
+                )
             else:
                 consumers = []
-                usage = "configured"
+                usage = "configured_root"
 
             active_count, paused_count = consumer_activity(consumers)
             if consumers and active_count == 0 and paused_count:
                 usage = "used_only_by_paused_tags"
             rows.append(
                 {
-                    "object_key": f"{layer}:{oid}",
+                    "object_key": current_key,
                     "layer": layer,
                     "object_id": oid,
                     "object_name": object_name(obj),
@@ -944,26 +1089,34 @@ def build_folder_topology(cv: dict[str, Any]) -> dict[str, Any]:
 
 def build_destination_matrix(cv: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for tag in as_list(cv.get("tag")):
-        pairs = nested_parameter_pairs(tag.get("parameter", []))
-        destinations = [
-            {"field": key, "value": value}
-            for key, value in pairs
-            if DESTINATION_KEY_RE.search(key) and value.strip()
-        ]
-        urls = sorted(set(URL_RE.findall(code_value(tag) + " " + stable_payload(tag))))
-        vendor, category = detect_vendor_text(object_name(tag) + " " + stable_payload(tag))
-        rows.append(
-            {
-                "object_key": f"tag:{object_id(tag, 'tag')}",
-                "tag_name": object_name(tag),
-                "paused": bool(tag.get("paused")),
-                "vendor": vendor,
-                "vendor_category": category,
-                "destination_fields": destinations,
-                "configured_endpoints": urls,
-            }
-        )
+    for layer in ("tag", "gtagConfig"):
+        for obj in as_list(cv.get(layer)):
+            behavior = behavior_projection(obj)
+            pairs = nested_parameter_pairs(behavior.get("parameter", []))
+            destinations = [
+                {"field": key, "value": value}
+                for key, value in pairs
+                if DESTINATION_KEY_RE.search(key) and value.strip()
+            ]
+            urls = sorted(
+                set(URL_RE.findall(code_value(behavior) + " " + stable_payload(behavior)))
+            )
+            vendor, category = detect_vendor_text(
+                object_name(obj) + " " + stable_payload(behavior)
+            )
+            rows.append(
+                {
+                    "object_key": f"{layer}:{object_id(obj, layer)}",
+                    "object_layer": layer,
+                    "object_name": object_name(obj),
+                    "tag_name": object_name(obj) if layer == "tag" else "",
+                    "paused": bool(obj.get("paused")) if layer == "tag" else False,
+                    "vendor": vendor,
+                    "vendor_category": category,
+                    "destination_fields": destinations,
+                    "configured_endpoints": urls,
+                }
+            )
     return rows
 
 
@@ -992,7 +1145,8 @@ def add_lifecycle_findings(builder: BaselineBuilder, lifecycle: list[dict[str, A
         row
         for row in lifecycle
         if row["usage_state"] == "used_only_by_paused_tags"
-        and row["layer"] in {"trigger", "variable", "customTemplate", "folder"}
+        and row["layer"]
+        in {"trigger", "variable", "builtInVariable", "customTemplate", "folder"}
     ]
     builder.add_module("used_only_by_paused_tags", len(lifecycle))
     for row in candidates:
@@ -1076,110 +1230,205 @@ def add_folder_topology_findings(builder: BaselineBuilder, topology: dict[str, A
         )
 
 
+def condition_contradiction_details(nodes: list[dict[str, Any]]) -> list[str]:
+    constraints_by_left: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
+    for node in nodes:
+        operator, left, right = condition_values(node)
+        if left:
+            constraints_by_left[left].append((operator, right))
+
+    def numeric_values(
+        constraints: list[tuple[str, str]], operator_name: str
+    ) -> list[float]:
+        values: list[float] = []
+        for operator, right in constraints:
+            if operator != operator_name:
+                continue
+            try:
+                values.append(float(right))
+            except ValueError:
+                continue
+        return values
+
+    details: list[str] = []
+    opposite_operators = (
+        ("EQUALS", "NOT_EQUALS"),
+        ("CONTAINS", "DOES_NOT_CONTAIN"),
+        ("MATCH_REGEX", "DOES_NOT_MATCH_REGEX"),
+    )
+    for left, constraints in sorted(constraints_by_left.items()):
+        constraint_set = set(constraints)
+        equals_values = {right for operator, right in constraints if operator == "EQUALS"}
+        if len(equals_values) > 1:
+            details.append(f"{left} equals {sorted(equals_values)}")
+        for positive, negative in opposite_operators:
+            values = sorted(
+                right
+                for operator, right in constraint_set
+                if operator == positive and (negative, right) in constraint_set
+            )
+            if values:
+                details.append(f"{left} uses both {positive} and {negative} for {values}")
+        for equals_value in sorted(equals_values):
+            if "{{" in equals_value:
+                continue
+            for operator, right in constraints:
+                if not right or "{{" in right:
+                    continue
+                impossible = (
+                    operator == "CONTAINS" and right not in equals_value
+                    or operator == "DOES_NOT_CONTAIN" and right in equals_value
+                    or operator == "STARTS_WITH" and not equals_value.startswith(right)
+                    or operator == "ENDS_WITH" and not equals_value.endswith(right)
+                )
+                if impossible:
+                    details.append(
+                        f"{left} equals {equals_value!r} but also requires {operator} {right!r}"
+                    )
+
+        greater_values = numeric_values(constraints, "GREATER_THAN")
+        lesser_values = numeric_values(constraints, "LESS_THAN")
+        if greater_values and lesser_values and max(greater_values) >= min(lesser_values):
+            details.append(
+                f"{left} must be greater than {max(greater_values)} and less than {min(lesser_values)}"
+            )
+    return sorted(set(details))
+
+
+def add_condition_lint_findings(
+    builder: BaselineBuilder,
+    layer: str,
+    obj: dict[str, Any],
+    counts: collections.Counter[str],
+) -> None:
+    nodes = condition_nodes(obj)
+    subject = "trigger" if layer == "trigger" else "Zone boundary"
+    subject_lower = subject.lower()
+    key = f"{layer}:{object_id(obj, layer)}"
+    finding_types = (
+        {
+            "duplicate": "duplicate_trigger_condition",
+            "invalid_regex": "invalid_trigger_regex",
+            "permissive": "universally_permissive_condition",
+            "contradiction": "contradictory_trigger_conditions",
+            "complex": "complex_trigger_candidate",
+        }
+        if layer == "trigger"
+        else {
+            "duplicate": "duplicate_zone_boundary_condition",
+            "invalid_regex": "invalid_zone_boundary_regex",
+            "permissive": "universally_permissive_zone_boundary",
+            "contradiction": "contradictory_zone_boundary_conditions",
+            "complex": "complex_zone_boundary_candidate",
+        }
+    )
+    normalized = [normalized_condition(node) for node in nodes]
+    duplicate_conditions = sorted(
+        value for value, count in collections.Counter(normalized).items() if count > 1
+    )
+    if duplicate_conditions:
+        counts[f"{layer}_duplicate_conditions"] += 1
+        builder.add_finding(
+            "trigger_condition_lint",
+            finding_types["duplicate"],
+            layer,
+            [object_summary(obj, layer)],
+            f"{key}:duplicate-condition",
+            f"The {subject_lower} repeats normalized condition(s): "
+            + "; ".join(duplicate_conditions),
+            f"Remove repeated conditions without changing the remaining {subject_lower} scope.",
+        )
+
+    for node in nodes:
+        operator, _left, right = condition_values(node)
+        if operator in {"MATCH_REGEX", "DOES_NOT_MATCH_REGEX"}:
+            try:
+                re.compile(right)
+            except re.error as exc:
+                counts[f"{layer}_invalid_regex"] += 1
+                builder.add_finding(
+                    "trigger_condition_lint",
+                    finding_types["invalid_regex"],
+                    layer,
+                    [object_summary(obj, layer)],
+                    f"{key}:regex:{signature(right)}",
+                    f"The {subject_lower} contains invalid regular expression {right!r}: {exc}.",
+                    "Correct the expression and preserve the intended matching scope.",
+                )
+        if operator == "MATCH_REGEX" and right.strip() in ALWAYS_TRUE_REGEX:
+            counts[f"{layer}_permissive_regex"] += 1
+            builder.add_finding(
+                "trigger_condition_lint",
+                finding_types["permissive"],
+                layer,
+                [object_summary(obj, layer)],
+                f"{key}:permissive:{signature(right)}",
+                f"The {subject_lower} contains a universally permissive regex {right!r}.",
+                "Remove it if it adds no intentional documentation or safety boundary.",
+            )
+
+    contradictions = condition_contradiction_details(nodes)
+    if contradictions:
+        counts[f"{layer}_contradictions"] += 1
+        builder.add_finding(
+            "trigger_condition_lint",
+            finding_types["contradiction"],
+            layer,
+            [object_summary(obj, layer)],
+            f"{key}:contradiction",
+            f"The {subject_lower} contains mutually exclusive AND conditions: "
+            + "; ".join(contradictions),
+            "Correct the mutually exclusive conditions or split the intended routes.",
+        )
+
+    if len(nodes) > 3:
+        counts[f"{layer}_complex_conditions"] += 1
+        builder.add_finding(
+            "trigger_condition_lint",
+            finding_types["complex"],
+            layer,
+            [object_summary(obj, layer)],
+            f"{key}:complexity:{len(nodes)}",
+            f"The {subject_lower} contains {len(nodes)} comparison conditions.",
+            (
+                "Review for redundant or reusable conditions; do not simplify unless "
+                "execution scope remains identical."
+            ),
+            "cleanup_operation | documented_exception | owner_decision_needed",
+        )
+
+
 def add_trigger_lint_findings(
-    builder: BaselineBuilder, tags: list[dict[str, Any]], triggers: list[dict[str, Any]]
+    builder: BaselineBuilder,
+    tags: list[dict[str, Any]],
+    triggers: list[dict[str, Any]],
+    zones: list[dict[str, Any]],
 ) -> dict[str, int]:
     trigger_by_id = {str(item.get("triggerId")): item for item in triggers}
     counts: collections.Counter[str] = collections.Counter()
-    builder.add_module("trigger_condition_lint", len(triggers))
+    builder.add_module("trigger_condition_lint", len(triggers) + len(zones))
 
-    for trigger in triggers:
-        nodes = condition_nodes(trigger)
-        normalized = [normalized_condition(node) for node in nodes]
-        duplicate_conditions = sorted(
-            value for value, count in collections.Counter(normalized).items() if count > 1
-        )
-        if duplicate_conditions:
-            counts["duplicate_conditions"] += 1
-            builder.add_finding(
-                "trigger_condition_lint",
-                "duplicate_trigger_condition",
-                "trigger",
-                [object_summary(trigger, "trigger")],
-                f"trigger:{object_id(trigger, 'trigger')}:duplicate-condition",
-                "The trigger repeats normalized condition(s): " + "; ".join(duplicate_conditions),
-                "Remove repeated conditions without changing the remaining trigger scope.",
-            )
-
-        equals_by_left: dict[str, set[str]] = collections.defaultdict(set)
-        for node in nodes:
-            operator, left, right = condition_values(node)
-            if operator == "EQUALS":
-                equals_by_left[left].add(right)
-            if operator in {"MATCH_REGEX", "DOES_NOT_MATCH_REGEX"}:
-                try:
-                    re.compile(right)
-                except re.error as exc:
-                    counts["invalid_regex"] += 1
-                    builder.add_finding(
-                        "trigger_condition_lint",
-                        "invalid_trigger_regex",
-                        "trigger",
-                        [object_summary(trigger, "trigger")],
-                        f"trigger:{object_id(trigger, 'trigger')}:regex:{signature(right)}",
-                        f"The trigger contains invalid regular expression {right!r}: {exc}.",
-                        "Correct the expression and preserve the intended matching scope.",
-                    )
-            if operator == "MATCH_REGEX" and right.strip() in ALWAYS_TRUE_REGEX:
-                counts["permissive_regex"] += 1
-                builder.add_finding(
-                    "trigger_condition_lint",
-                    "universally_permissive_condition",
-                    "trigger",
-                    [object_summary(trigger, "trigger")],
-                    f"trigger:{object_id(trigger, 'trigger')}:permissive:{signature(right)}",
-                    f"The trigger contains a universally permissive regex condition {right!r}.",
-                    "Remove it if it adds no intentional documentation or safety boundary.",
-                )
-
-        contradictions = {
-            left: values for left, values in equals_by_left.items() if left and len(values) > 1
-        }
-        if contradictions:
-            counts["contradictions"] += 1
-            detail = "; ".join(
-                f"{left} equals {sorted(values)}" for left, values in sorted(contradictions.items())
-            )
-            builder.add_finding(
-                "trigger_condition_lint",
-                "contradictory_trigger_conditions",
-                "trigger",
-                [object_summary(trigger, "trigger")],
-                f"trigger:{object_id(trigger, 'trigger')}:contradiction",
-                "The same input is required to equal multiple different values: " + detail,
-                "Correct the mutually exclusive AND conditions or split the intended routes.",
-            )
-
-        if len(nodes) > 3:
-            counts["complex_triggers"] += 1
-            builder.add_finding(
-                "trigger_condition_lint",
-                "complex_trigger_candidate",
-                "trigger",
-                [object_summary(trigger, "trigger")],
-                f"trigger:{object_id(trigger, 'trigger')}:complexity:{len(nodes)}",
-                f"The trigger contains {len(nodes)} comparison conditions.",
-                "Review for redundant or reusable conditions; do not simplify unless execution scope remains identical.",
-                required_resolution=(
-                    "cleanup_operation | documented_exception | owner_decision_needed | not_applicable"
-                ),
-            )
+    for layer, items in (("trigger", triggers), ("zone", zones)):
+        for obj in items:
+            add_condition_lint_findings(builder, layer, obj, counts)
 
     builder.add_module("ineffective_blocking_triggers", len(tags))
     for tag in tags:
-        firing_events = (
-            set().union(
-                *(
-                    exact_event_names(trigger_by_id[trigger_id])
-                    for trigger_id in as_list(tag.get("firingTriggerId"))
-                    if str(trigger_id) in trigger_by_id
-                )
-            )
-            if tag.get("firingTriggerId")
-            else set()
-        )
-        if not firing_events:
+        firing_trigger_ids = [
+            str(trigger_id) for trigger_id in as_list(tag.get("firingTriggerId"))
+        ]
+        firing_event_sets = [
+            exact_event_names(trigger_by_id[trigger_id])
+            for trigger_id in firing_trigger_ids
+            if trigger_id in trigger_by_id
+        ]
+        if (
+            not firing_trigger_ids
+            or len(firing_event_sets) != len(firing_trigger_ids)
+            or any(not events for events in firing_event_sets)
+        ):
             continue
+        firing_events = set().union(*firing_event_sets)
         for blocker_id in as_list(tag.get("blockingTriggerId")):
             blocker = trigger_by_id.get(str(blocker_id))
             if not blocker:
@@ -1208,10 +1457,12 @@ def add_missing_reference_findings(
     tags = as_list(cv.get("tag"))
     triggers = as_list(cv.get("trigger"))
     variables = as_list(cv.get("variable"))
+    builtins = as_list(cv.get("builtInVariable"))
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
-    builtins = as_list(cv.get("builtInVariable"))
+    zones = as_list(cv.get("zone"))
     clients = as_list(cv.get("client"))
+    gtag_configs = as_list(cv.get("gtagConfig"))
     transformations = as_list(cv.get("transformation"))
 
     builder.add_module(
@@ -1221,7 +1472,9 @@ def add_missing_reference_findings(
         + len(variables)
         + len(folders)
         + len(templates)
+        + len(zones)
         + len(clients)
+        + len(gtag_configs)
         + len(transformations),
     )
 
@@ -1241,7 +1494,7 @@ def add_missing_reference_findings(
             f"var:{name}",
             f"Reference {{{{{name}}}}} is used but no variable or built-in with that name exists.",
             "Resolve reference before cleanup execution; use fresh readback or restore/create the missing source.",
-            "container_evidence_limit | cleanup_operation | documented_exception",
+            "cleanup_operation | documented_exception | owner_decision_needed",
         )
 
     trigger_ids = {str(trigger.get("triggerId")) for trigger in triggers}
@@ -1258,13 +1511,15 @@ def add_missing_reference_findings(
             f"trigger:{trigger_id}",
             f"Trigger ID {trigger_id} is consumed but no trigger with that ID exists.",
             "Resolve reference before cleanup execution; use fresh readback or restore/create the missing trigger.",
-            "container_evidence_limit | cleanup_operation | documented_exception",
+            "cleanup_operation | documented_exception | owner_decision_needed",
         )
 
     tag_names = {tag.get("name") for tag in tags}
     for tag in tags:
         for relation in ("setupTag", "teardownTag"):
             for ref in as_list(tag.get(relation)):
+                if not isinstance(ref, dict):
+                    continue
                 tag_name = ref.get("tagName")
                 if tag_name and tag_name not in tag_names:
                     builder.add_finding(
@@ -1278,7 +1533,7 @@ def add_missing_reference_findings(
                         f"{relation}:{tag_name}",
                         f"Tag {tag.get('name')!r} references missing {relation} tag {tag_name!r}.",
                         "Resolve sequencing reference before cleanup execution.",
-                        "container_evidence_limit | cleanup_operation | documented_exception",
+                        "cleanup_operation | documented_exception | owner_decision_needed",
                     )
 
     folder_ids = {str(folder.get("folderId")) for folder in folders}
@@ -1286,7 +1541,9 @@ def add_missing_reference_findings(
         ("tag", tags),
         ("trigger", triggers),
         ("variable", variables),
+        ("zone", zones),
         ("client", clients),
+        ("gtagConfig", gtag_configs),
         ("transformation", transformations),
     ):
         for item in items:
@@ -1310,6 +1567,7 @@ def add_missing_reference_findings(
         ("tag", tags),
         ("variable", variables),
         ("client", clients),
+        ("gtagConfig", gtag_configs),
         ("transformation", transformations),
     ):
         for item in items:
@@ -1329,38 +1587,96 @@ def add_missing_reference_findings(
                 )
 
 
+def add_source_integrity_findings(
+    builder: BaselineBuilder, data: dict[str, Any]
+) -> list[dict[str, Any]]:
+    findings = source_integrity_findings(data)
+    try:
+        cv = container_version(data)
+    except ValueError:
+        cv = {}
+    builder.add_module(
+        "source_integrity",
+        sum(len(as_list(cv.get(layer))) for layer in ID_KEYS),
+    )
+    for finding in findings:
+        layer = str(finding.get("layer") or "source")
+        object_id_value = str(finding.get("object_id") or finding.get("object_index") or "")
+        builder.add_finding(
+            "source_integrity",
+            str(finding.get("finding_type") or "source_integrity_error"),
+            layer,
+            [
+                {
+                    "object_id": object_id_value,
+                    "object_name": str(finding.get("source_path") or "$"),
+                    "object_identity": (
+                        f"{layer}|{object_id_value}|{finding.get('source_path') or '$'}"
+                    ),
+                }
+            ],
+            signature(finding),
+            str(finding.get("details") or "The source identity or shape is invalid."),
+            (
+                "Obtain a corrected complete export or resolve the source identity conflict "
+                "before claiming a complete audit or compiling mutations."
+            ),
+            "owner_decision_needed | documented_exception | cleanup_operation",
+            {"source_integrity_finding": finding},
+        )
+    return findings
+
+
 def add_unused_findings(
     builder: BaselineBuilder,
     cv: dict[str, Any],
-    variable_consumers: dict[str, list[dict[str, Any]]],
-    trigger_consumers: dict[str, list[dict[str, Any]]],
-    tag_consumers: dict[str, list[dict[str, Any]]],
+    lifecycle: list[dict[str, Any]],
 ) -> None:
     triggers = as_list(cv.get("trigger"))
     variables = as_list(cv.get("variable"))
+    builtins = as_list(cv.get("builtInVariable"))
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     tags = as_list(cv.get("tag"))
     clients = as_list(cv.get("client"))
+    gtag_configs = as_list(cv.get("gtagConfig"))
     transformations = as_list(cv.get("transformation"))
+    lifecycle_by_key = {
+        str(row.get("object_key") or ""): row for row in lifecycle
+    }
 
-    builder.add_module("unused_variables", len(variables))
-    for variable in variables:
-        if variable_consumers.get(variable.get("name")):
-            continue
-        builder.add_finding(
-            "unused_variables",
-            "unused_object",
-            "variable",
-            [object_summary(variable, "variable")],
-            f"variable:{object_id(variable, 'variable')}",
-            "No export-visible tag, trigger, variable, or custom-code placeholder references this variable.",
-            "Delete candidate only after configuration and architecture review confirm no export-visible dependency or intentional staged role.",
-        )
+    builder.add_module("unused_variables", len(variables) + len(builtins))
+    for layer, items in (("variable", variables), ("builtInVariable", builtins)):
+        for variable in items:
+            key = f"{layer}:{object_id(variable, layer)}"
+            if lifecycle_by_key.get(key, {}).get("usage_state") != "unreferenced":
+                continue
+            builder.add_finding(
+                "unused_variables",
+                "unused_built_in_variable" if layer == "builtInVariable" else "unused_object",
+                layer,
+                [object_summary(variable, layer)],
+                key,
+                (
+                    "No active export-visible execution root reaches this enabled built-in "
+                    "variable."
+                    if layer == "builtInVariable"
+                    else "No active export-visible execution root reaches this variable or "
+                    "its dependency chain."
+                ),
+                (
+                    "Disable the unused built-in after confirming no active tag, trigger, or "
+                    "reachable variable references it."
+                    if layer == "builtInVariable"
+                    else "Delete candidate only after configuration and architecture review "
+                    "confirm no export-visible dependency or intentional staged role."
+                ),
+            )
 
     builder.add_module("unused_triggers", len(triggers))
     for trigger in triggers:
-        if trigger_consumers.get(str(trigger.get("triggerId"))):
+        key = f"trigger:{object_id(trigger, 'trigger')}"
+        if lifecycle_by_key.get(key, {}).get("usage_state") != "unreferenced":
             continue
         builder.add_finding(
             "unused_triggers",
@@ -1368,13 +1684,14 @@ def add_unused_findings(
             "trigger",
             [object_summary(trigger, "trigger")],
             f"trigger:{object_id(trigger, 'trigger')}",
-            "No tag or trigger group consumes this trigger ID in the export.",
+            "No active tag, Zone, or reachable trigger group reaches this trigger ID.",
             "Delete candidate after architecture review confirms it is not a future or staged trigger.",
         )
 
     builder.add_module("tags_without_firing_triggers", len(tags))
     for tag in tags:
-        if tag.get("paused") or tag.get("firingTriggerId") or tag_consumers.get(object_name(tag)):
+        key = f"tag:{object_id(tag, 'tag')}"
+        if lifecycle_by_key.get(key, {}).get("usage_state") != "active_without_route":
             continue
         builder.add_finding(
             "tags_without_firing_triggers",
@@ -1382,19 +1699,23 @@ def add_unused_findings(
             "tag",
             [object_summary(tag, "tag")],
             f"tag:{object_id(tag, 'tag')}",
-            "Tag has no firingTriggerId in the export.",
+            "Active tag has no firing trigger and is not reachable through an active setup/teardown chain.",
             "Fix, pause/delete, or document why the tag is intentionally triggerless.",
         )
 
     builder.add_module("unused_custom_templates", len(templates))
     used_template_ids = {
         custom_template_id(item)
-        for item in tags + variables + clients + transformations
+        for item in tags + variables + clients + gtag_configs + transformations
         if custom_template_id(item)
     }
     for template in templates:
         template_id = str(template.get("templateId"))
-        if template_id in used_template_ids:
+        key = f"customTemplate:{template_id}"
+        if (
+            template_id in used_template_ids
+            and lifecycle_by_key.get(key, {}).get("usage_state") != "unreferenced"
+        ):
             continue
         builder.add_finding(
             "unused_custom_templates",
@@ -1402,7 +1723,7 @@ def add_unused_findings(
             "customTemplate",
             [object_summary(template, "customTemplate")],
             f"template:{template_id}",
-            "No tag or variable uses this custom template ID in the export.",
+            "No active export-visible execution root reaches this custom template ID.",
             "Delete candidate only after confirming no workspace/template dependency remains.",
         )
 
@@ -1414,7 +1735,11 @@ def add_unused_findings(
     }
     for folder in folders:
         folder_id = str(folder.get("folderId"))
-        if folder_id in used_folder_ids:
+        key = f"folder:{folder_id}"
+        if (
+            folder_id in used_folder_ids
+            and lifecycle_by_key.get(key, {}).get("usage_state") != "unreferenced"
+        ):
             continue
         builder.add_finding(
             "unused_folders",
@@ -1422,15 +1747,21 @@ def add_unused_findings(
             "folder",
             [object_summary(folder, "folder")],
             f"folder:{folder_id}",
-            "No tag, trigger, or variable references this folder.",
+            "No active export-visible object is assigned to this folder.",
             "Delete or repurpose after owner confirms folder is not needed for organization.",
         )
 
 
-def add_trigger_group_findings(builder: BaselineBuilder, triggers: list[dict[str, Any]]) -> None:
+def add_trigger_group_findings(
+    builder: BaselineBuilder,
+    triggers: list[dict[str, Any]],
+    trigger_consumers: dict[str, list[dict[str, Any]]],
+) -> None:
     builder.add_module("single_member_trigger_groups", len(triggers))
     trigger_by_id = {str(trigger.get("triggerId")): trigger for trigger in triggers}
     for trigger in triggers:
+        if trigger.get("type") != "TRIGGER_GROUP":
+            continue
         members = trigger_group_members(trigger)
         if len(members) != 1:
             continue
@@ -1438,14 +1769,40 @@ def add_trigger_group_findings(builder: BaselineBuilder, triggers: list[dict[str
         objects = [object_summary(trigger, "trigger")]
         if child:
             objects.append(object_summary(child, "trigger"))
+        group_id = object_id(trigger, "trigger")
+        consumers = trigger_consumers.get(group_id, [])
+        consumer_labels = sorted(
+            f"{item.get('object_type')}:{item.get('object_id')}:{item.get('object_name')}"
+            for item in consumers
+        )
+        child_is_group = bool(child and child.get("type") == "TRIGGER_GROUP")
+        child_consumes_group = bool(
+            child and group_id in {str(value) for value in trigger_group_members(child)}
+        )
+        dependency_first = child_is_group or child_consumes_group
+        safe_order = (
+            "Resolve the nested or cyclic group dependency before any consumer remap; "
+            "then prove the resulting route is acyclic."
+            if dependency_first
+            else "Remap the listed consumers to the child first, verify references, and only then delete the group."
+        )
         builder.add_finding(
             "single_member_trigger_groups",
             "single_member_trigger_group",
             "trigger",
             objects,
             f"trigger_group:{object_id(trigger, 'trigger')}->{members[0]}",
-            f"Trigger group {trigger.get('name')!r} contains exactly one child trigger {members[0]}.",
-            "Flatten consumers to the child trigger and delete the group when the selected cleanup route supports deletion.",
+            (
+                f"Trigger group {trigger.get('name')!r} contains exactly one child trigger "
+                f"{members[0]}; export-visible consumers are {consumer_labels!r}."
+            ),
+            safe_order,
+            extra={
+                "consumer_objects": consumers,
+                "child_trigger_id": members[0],
+                "safe_remediation_order": safe_order,
+                "cycle_or_nested_dependency_first": dependency_first,
+            },
         )
 
     builder.add_module("trigger_group_structure", len(triggers))
@@ -1455,6 +1812,68 @@ def add_trigger_group_findings(builder: BaselineBuilder, triggers: list[dict[str
         if trigger.get("type") == "TRIGGER_GROUP" and trigger.get("triggerId") is not None
     }
     for trigger_id, trigger in sorted(groups.items()):
+        invalid_details: list[str] = []
+        latent_duplicate_values: set[str] = set()
+        raw_parameters = trigger.get("parameter")
+        if raw_parameters is not None and not isinstance(raw_parameters, list):
+            invalid_details.append("parameter is not an array")
+        for parameter_index, parameter in enumerate(as_list(raw_parameters)):
+            if not isinstance(parameter, dict):
+                invalid_details.append(
+                    f"parameter[{parameter_index}] is not an object"
+                )
+                continue
+            if parameter.get("key") != "triggerIds":
+                continue
+            raw_members = parameter.get("list")
+            if not isinstance(raw_members, list):
+                invalid_details.append(
+                    f"parameter[{parameter_index}].list is not an array"
+                )
+                continue
+            invalid_member_indexes = [
+                member_index
+                for member_index, member in enumerate(raw_members)
+                if not isinstance(member, dict)
+                or not str(member.get("value") or "").strip()
+            ]
+            if invalid_member_indexes:
+                invalid_details.append(
+                    f"parameter[{parameter_index}].list has invalid entries at "
+                    f"{invalid_member_indexes}"
+                )
+            valid_values = {
+                str(member.get("value") or "").strip()
+                for member in raw_members
+                if isinstance(member, dict) and str(member.get("value") or "").strip()
+            }
+            malformed_scalar_values = {
+                str(member).strip()
+                for member in raw_members
+                if not isinstance(member, dict) and str(member).strip()
+            }
+            latent_duplicate_values.update(valid_values & malformed_scalar_values)
+        if latent_duplicate_values:
+            invalid_details.append(
+                "malformed scalar entries repeat valid member values "
+                f"{sorted(latent_duplicate_values)!r}"
+            )
+        if invalid_details:
+            builder.add_finding(
+                "trigger_group_structure",
+                "invalid_trigger_group_member_structure",
+                "trigger",
+                [object_summary(trigger, "trigger")],
+                f"invalid_group_structure:{trigger_id}",
+                "Trigger group member structure is malformed: "
+                + "; ".join(invalid_details)
+                + ".",
+                "Restore an array of triggerIds entries with one nonblank value per member.",
+                extra={
+                    "latent_duplicate_member_values": sorted(latent_duplicate_values),
+                    "malformed_values_are_not_treated_as_valid_edges": True,
+                },
+            )
         members = [str(value) for value in trigger_group_members(trigger)]
         if not members:
             builder.add_finding(
@@ -1478,6 +1897,24 @@ def add_trigger_group_findings(builder: BaselineBuilder, triggers: list[dict[str
                 f"duplicate_members:{trigger_id}:{','.join(duplicates)}",
                 f"Trigger group {trigger.get('name')!r} repeats member IDs {duplicates!r}.",
                 "Keep each required child trigger once and preserve the intended group semantics.",
+            )
+        nested = sorted({member for member in members if member in groups and member != trigger_id})
+        if nested:
+            builder.add_finding(
+                "trigger_group_structure",
+                "nested_trigger_groups",
+                "trigger",
+                [
+                    object_summary(groups[group_id], "trigger")
+                    for group_id in [trigger_id, *nested]
+                ],
+                f"nested_groups:{trigger_id}:{','.join(nested)}",
+                f"Trigger group {trigger.get('name')!r} contains nested trigger groups {nested!r}.",
+                (
+                    "Confirm the nested AND semantics are intentional; otherwise flatten the "
+                    "route while preserving every consumer and child condition."
+                ),
+                "cleanup_operation | documented_exception | owner_decision_needed",
             )
 
     reported_cycles: set[tuple[str, ...]] = set()
@@ -1509,6 +1946,381 @@ def add_trigger_group_findings(builder: BaselineBuilder, triggers: list[dict[str
 
     for trigger_id in sorted(groups):
         visit(trigger_id, ())
+
+
+def tag_sequence_entries(tag: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for relation in ("setupTag", "teardownTag"):
+        for index, item in enumerate(as_list(tag.get(relation))):
+            if not isinstance(item, dict):
+                continue
+            rows.append(
+                {
+                    "relation": relation,
+                    "index": index,
+                    "target_name": str(item.get("tagName") or ""),
+                    "settings": item,
+                }
+            )
+    return rows
+
+
+def add_tag_sequence_findings(builder: BaselineBuilder, tags: list[dict[str, Any]]) -> None:
+    builder.add_module("tag_sequence_structure", len(tags))
+    tags_by_name: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    for tag in tags:
+        tags_by_name[object_name(tag)].append(tag)
+
+    sequence_graph: dict[str, set[str]] = collections.defaultdict(set)
+    tag_by_key = {f"tag:{object_id(tag, 'tag')}": tag for tag in tags}
+    for tag in tags:
+        source_key = f"tag:{object_id(tag, 'tag')}"
+        source_name = object_name(tag)
+        for relation in ("setupTag", "teardownTag"):
+            raw_entries = tag.get(relation)
+            if raw_entries is not None and not isinstance(raw_entries, list):
+                builder.add_finding(
+                    "tag_sequence_structure",
+                    "invalid_tag_sequence_shape",
+                    "tag",
+                    [object_summary(tag, "tag")],
+                    f"{source_key}:{relation}:invalid-shape",
+                    f"Tag {source_name!r} exports {relation} as a non-array value.",
+                    "Restore the GTM sequence array before evaluating or changing its order.",
+                )
+            for index, item in enumerate(as_list(raw_entries)):
+                if not isinstance(item, dict):
+                    builder.add_finding(
+                        "tag_sequence_structure",
+                        "invalid_tag_sequence_entry",
+                        "tag",
+                        [object_summary(tag, "tag")],
+                        f"{source_key}:{relation}:{index}:invalid-entry",
+                        f"Tag {source_name!r} has a non-object {relation} entry at index {index}.",
+                        "Restore a sequence object with a valid tagName and failure-control setting.",
+                    )
+                elif not str(item.get("tagName") or "").strip():
+                    builder.add_finding(
+                        "tag_sequence_structure",
+                        "tag_sequence_target_missing_name",
+                        "tag",
+                        [object_summary(tag, "tag")],
+                        f"{source_key}:{relation}:{index}:missing-name",
+                        f"Tag {source_name!r} has a {relation} entry without tagName at index {index}.",
+                        "Bind the sequence to an existing uniquely named tag or remove the empty entry.",
+                    )
+        entries = tag_sequence_entries(tag)
+        by_relation_target = collections.Counter(
+            (row["relation"], row["target_name"]) for row in entries
+        )
+        for (relation, target_name), count in sorted(by_relation_target.items()):
+            if count > 1:
+                builder.add_finding(
+                    "tag_sequence_structure",
+                    "duplicate_tag_sequence_reference",
+                    "tag",
+                    [object_summary(tag, "tag")],
+                    f"{source_key}:{relation}:{target_name}:duplicate",
+                    f"Tag {source_name!r} repeats {relation} target {target_name!r} {count} times.",
+                    "Keep the required sequence target once and preserve its failure-control setting.",
+                )
+        setup_targets = {
+            row["target_name"] for row in entries if row["relation"] == "setupTag"
+        }
+        teardown_targets = {
+            row["target_name"] for row in entries if row["relation"] == "teardownTag"
+        }
+        for target_name in sorted(setup_targets & teardown_targets):
+            builder.add_finding(
+                "tag_sequence_structure",
+                "conflicting_tag_sequence_roles",
+                "tag",
+                [object_summary(tag, "tag")],
+                f"{source_key}:both:{target_name}",
+                f"Tag {source_name!r} uses {target_name!r} as both setup and teardown.",
+                "Confirm the intended before/after behavior and keep the target in only the correct role.",
+                "cleanup_operation | documented_exception | owner_decision_needed",
+            )
+        for row in entries:
+            target_name = row["target_name"]
+            relation = row["relation"]
+            targets = tags_by_name.get(target_name, [])
+            self_reference = target_name == source_name and bool(target_name)
+            if self_reference:
+                builder.add_finding(
+                    "tag_sequence_structure",
+                    "self_referential_tag_sequence",
+                    "tag",
+                    [object_summary(tag, "tag")],
+                    f"{source_key}:{relation}:self",
+                    f"Tag {source_name!r} references itself as {relation}.",
+                    "Remove the self-reference and restore the intended acyclic sequence.",
+                )
+            if len(targets) > 1:
+                builder.add_finding(
+                    "tag_sequence_structure",
+                    "ambiguous_tag_sequence_reference",
+                    "tag",
+                    [object_summary(tag, "tag"), *[object_summary(item, "tag") for item in targets]],
+                    f"{source_key}:{relation}:{target_name}:ambiguous",
+                    f"Sequence target name {target_name!r} resolves to {len(targets)} tags.",
+                    "Make tag names unique, then bind the sequence to the intended target.",
+                )
+                continue
+            if self_reference:
+                continue
+            if len(targets) == 1:
+                target = targets[0]
+                target_key = f"tag:{object_id(target, 'tag')}"
+                sequence_graph[source_key].add(target_key)
+                if not tag.get("paused") and target.get("paused"):
+                    builder.add_finding(
+                        "tag_sequence_structure",
+                        "active_sequence_targets_paused_tag",
+                        "tag",
+                        [object_summary(tag, "tag"), object_summary(target, "tag")],
+                        f"{source_key}:{relation}:{target_key}:paused",
+                        f"Active tag {source_name!r} sequences paused tag {target_name!r}.",
+                        "Activate the required target or remove/remap the ineffective sequence.",
+                    )
+
+    reported_cycles: set[tuple[str, ...]] = set()
+    visit_state: dict[str, int] = {}
+
+    def visit(current: str, path: tuple[str, ...]) -> None:
+        if current in path:
+            cycle = path[path.index(current) :] + (current,)
+            identity = tuple(sorted(set(cycle[:-1])))
+            if identity in reported_cycles:
+                return
+            reported_cycles.add(identity)
+            builder.add_finding(
+                "tag_sequence_structure",
+                "cyclic_tag_sequence",
+                "tag",
+                [object_summary(tag_by_key[key], "tag") for key in identity],
+                "tag_sequence_cycle:" + "->".join(cycle),
+                "Setup/teardown sequencing forms a cycle: " + " -> ".join(cycle) + ".",
+                "Break the cycle and preserve one explicit acyclic execution order.",
+            )
+            return
+        if visit_state.get(current) == 2:
+            return
+        visit_state[current] = 1
+        for target in sorted(sequence_graph.get(current, set())):
+            visit(target, (*path, current))
+        visit_state[current] = 2
+
+    for tag_key in sorted(tag_by_key):
+        visit(tag_key, ())
+
+
+VALID_TAG_FIRING_OPTIONS = {"UNLIMITED", "ONCEPEREVENT", "ONCEPERLOAD"}
+
+
+def add_tag_execution_control_findings(
+    builder: BaselineBuilder, tags: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    builder.add_module("tag_execution_controls", len(tags))
+    rows: list[dict[str, Any]] = []
+    for tag in tags:
+        start_raw = tag.get("scheduleStartMs")
+        end_raw = tag.get("scheduleEndMs")
+
+        def parsed_timestamp(value: Any) -> int | None:
+            try:
+                return int(str(value)) if value not in {None, ""} else None
+            except (TypeError, ValueError):
+                return None
+
+        start = parsed_timestamp(start_raw)
+        end = parsed_timestamp(end_raw)
+        firing_option = str(tag.get("tagFiringOption") or "")
+        normalized_option = re.sub(r"[^A-Z]", "", firing_option.upper())
+        row = {
+            "object_key": f"tag:{object_id(tag, 'tag')}",
+            "tag_name": object_name(tag),
+            "paused": bool(tag.get("paused")),
+            "live_only": bool(tag.get("liveOnly")),
+            "schedule_start_ms": start_raw,
+            "schedule_end_ms": end_raw,
+            "tag_firing_option": firing_option,
+            "has_setup_sequence": bool(as_list(tag.get("setupTag"))),
+            "has_teardown_sequence": bool(as_list(tag.get("teardownTag"))),
+        }
+        rows.append(row)
+        if (
+            start_raw not in {None, ""}
+            and start is None
+            or end_raw not in {None, ""}
+            and end is None
+        ):
+            builder.add_finding(
+                "tag_execution_controls",
+                "invalid_tag_schedule_timestamp",
+                "tag",
+                [object_summary(tag, "tag")],
+                f"{row['object_key']}:invalid-schedule",
+                f"Tag schedule contains a non-integer boundary: start={start_raw!r}, end={end_raw!r}.",
+                "Replace malformed schedule boundaries with valid millisecond timestamps or remove them.",
+            )
+        if start is not None and end is not None and start >= end:
+            builder.add_finding(
+                "tag_execution_controls",
+                "invalid_tag_schedule_order",
+                "tag",
+                [object_summary(tag, "tag")],
+                f"{row['object_key']}:schedule-order",
+                f"Tag schedule starts at {start} and ends at {end}; the active interval is empty or reversed.",
+                "Correct the schedule interval or remove obsolete scheduling controls.",
+            )
+        if firing_option and normalized_option not in VALID_TAG_FIRING_OPTIONS:
+            builder.add_finding(
+                "tag_execution_controls",
+                "unrecognized_tag_firing_option",
+                "tag",
+                [object_summary(tag, "tag")],
+                f"{row['object_key']}:firing-option:{firing_option}",
+                f"Tag uses unrecognized tagFiringOption {firing_option!r}.",
+                "Confirm the exported enum and restore a supported GTM firing option.",
+            )
+    return rows
+
+
+def add_zone_structure_findings(
+    builder: BaselineBuilder, zones: list[dict[str, Any]]
+) -> None:
+    builder.add_module("zone_structure", len(zones))
+    for zone in zones:
+        zone_key = f"zone:{object_id(zone, 'zone')}"
+        children = zone.get("childContainer")
+        child_rows = as_list(children)
+        if children is not None and not isinstance(children, list):
+            builder.add_finding(
+                "zone_structure",
+                "invalid_zone_child_container_shape",
+                "zone",
+                [object_summary(zone, "zone")],
+                f"{zone_key}:invalid-child-shape",
+                "Zone childContainer is not an array in the export.",
+                "Obtain a valid complete export or restore the Zone child-container list.",
+            )
+        child_ids = [
+            str(child.get("publicId") or "")
+            for child in child_rows
+            if isinstance(child, dict)
+        ]
+        if not child_rows:
+            builder.add_finding(
+                "zone_structure",
+                "zone_without_child_container",
+                "zone",
+                [object_summary(zone, "zone")],
+                f"{zone_key}:no-child",
+                "Zone contains no exported child container.",
+                "Attach the intended child container or remove the obsolete Zone after owner confirmation.",
+            )
+        invalid_children = [
+            index
+            for index, child in enumerate(child_rows)
+            if not isinstance(child, dict) or not str(child.get("publicId") or "").strip()
+        ]
+        if invalid_children:
+            builder.add_finding(
+                "zone_structure",
+                "invalid_zone_child_container",
+                "zone",
+                [object_summary(zone, "zone")],
+                f"{zone_key}:invalid-children:{','.join(map(str, invalid_children))}",
+                f"Zone child container entries at indexes {invalid_children} have no publicId.",
+                "Restore valid child-container identities before relying on the Zone.",
+            )
+        duplicates = sorted(
+            child_id
+            for child_id, count in collections.Counter(child_ids).items()
+            if child_id and count > 1
+        )
+        if duplicates:
+            builder.add_finding(
+                "zone_structure",
+                "duplicate_zone_child_container",
+                "zone",
+                [object_summary(zone, "zone")],
+                f"{zone_key}:duplicate-children:{','.join(duplicates)}",
+                f"Zone repeats child container public IDs {duplicates!r}.",
+                "Keep each intended child container once.",
+            )
+        raw_boundary = zone.get("boundary")
+        if raw_boundary is not None and not isinstance(raw_boundary, dict):
+            builder.add_finding(
+                "zone_structure",
+                "invalid_zone_boundary_shape",
+                "zone",
+                [object_summary(zone, "zone")],
+                f"{zone_key}:invalid-boundary-shape",
+                "Zone boundary is not an object in the export.",
+                "Restore the Zone boundary object before relying on its scope.",
+            )
+        boundary = raw_boundary if isinstance(raw_boundary, dict) else {}
+        for field in ("condition", "customEvaluationTriggerId"):
+            if field in boundary and not isinstance(boundary.get(field), list):
+                builder.add_finding(
+                    "zone_structure",
+                    "invalid_zone_boundary_field_shape",
+                    "zone",
+                    [object_summary(zone, "zone")],
+                    f"{zone_key}:invalid-boundary-{field}",
+                    f"Zone boundary field {field} is not an array in the export.",
+                    "Restore the exported Zone boundary array and re-evaluate its scope.",
+                )
+        if not as_list(boundary.get("condition")) and not as_list(
+            boundary.get("customEvaluationTriggerId")
+        ):
+            builder.add_finding(
+                "zone_structure",
+                "unbounded_zone_scope_review",
+                "zone",
+                [object_summary(zone, "zone")],
+                f"{zone_key}:unbounded",
+                "Zone has no exported boundary condition or custom evaluation trigger.",
+                "Confirm that an all-scope Zone is intentional or add the required boundary.",
+                "cleanup_operation | documented_exception | owner_decision_needed",
+            )
+        raw_restrictions = zone.get("typeRestriction")
+        if raw_restrictions is not None and not isinstance(raw_restrictions, dict):
+            builder.add_finding(
+                "zone_structure",
+                "invalid_zone_type_restriction_shape",
+                "zone",
+                [object_summary(zone, "zone")],
+                f"{zone_key}:invalid-type-restriction-shape",
+                "Zone typeRestriction is not an object in the export.",
+                "Restore the Zone type-restriction object before relying on its allowlist.",
+            )
+        restrictions = raw_restrictions if isinstance(raw_restrictions, dict) else {}
+        if "whitelistedTypeId" in restrictions and not isinstance(
+            restrictions.get("whitelistedTypeId"), list
+        ):
+            builder.add_finding(
+                "zone_structure",
+                "invalid_zone_type_allowlist_shape",
+                "zone",
+                [object_summary(zone, "zone")],
+                f"{zone_key}:invalid-type-allowlist-shape",
+                "Zone whitelistedTypeId is not an array in the export.",
+                "Restore the exported type allowlist and confirm each permitted tag type.",
+            )
+        if restrictions.get("enable") and not as_list(restrictions.get("whitelistedTypeId")):
+            builder.add_finding(
+                "zone_structure",
+                "empty_enabled_zone_type_allowlist",
+                "zone",
+                [object_summary(zone, "zone")],
+                f"{zone_key}:empty-type-allowlist",
+                "Zone enables type restrictions but exports no whitelisted type IDs.",
+                "Confirm an intentional deny-all policy or restore the required type allowlist.",
+                "cleanup_operation | documented_exception | owner_decision_needed",
+            )
 
 
 def add_duplicate_code_findings(
@@ -1611,6 +2423,7 @@ def add_consent_logic_findings(
     builder: BaselineBuilder,
     tags: list[dict[str, Any]],
     variables: list[dict[str, Any]],
+    root_path: str,
 ) -> None:
     conflicts = consent_variable_conflicts(variables)
     builder.add_module("consent_variable_logic", len(variables))
@@ -1635,19 +2448,46 @@ def add_consent_logic_findings(
             ),
         )
 
+    builder.add_module("media_tag_consent_route", len(tags))
     media_tags: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    for tag in tags:
-        route = tag_consent_route(tag, variables=variables)
+    tag_routes: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for index, tag in enumerate(tags):
+        route = tag_consent_route(
+            tag,
+            source_path=f"{root_path}.tag[{index}]",
+            variables=variables,
+            root_path=root_path,
+        )
+        tag_routes.append((tag, route))
+        if not route["consent_settings_shape_valid"]:
+            builder.add_finding(
+                "media_tag_consent_route",
+                "invalid_consent_settings_shape",
+                "tag",
+                [object_summary(tag, "tag")],
+                f"consent_settings_shape:{object_id(tag, 'tag')}",
+                "Tag consentSettings is not an object in the export.",
+                "Restore a valid consentSettings object before evaluating the tag's control route.",
+            )
+        if route["raw_consent_status"] and not route["consent_status_known"]:
+            builder.add_finding(
+                "media_tag_consent_route",
+                "unrecognized_manual_consent_status",
+                "tag",
+                [object_summary(tag, "tag")],
+                f"consent_status:{object_id(tag, 'tag')}:{route['raw_consent_status']}",
+                f"Tag exports unrecognized manual consent status {route['raw_consent_status']!r}.",
+                "Restore one of the official GTM manual-consent status values and re-evaluate the route.",
+            )
         if not route["requires_media_consent_review"]:
             continue
         if route["effective_control_status"] in {
             "explicit_export_control",
-            "native_consent_contract",
-            "server_forwarded_consent_contract",
+            "native_consent_capability",
+            "server_forwarding_candidate",
         }:
             continue
         media_tags.append((tag, route))
-    builder.add_module("media_tag_consent_route", len(tags))
     for tag, route in media_tags:
         builder.add_finding(
             "media_tag_consent_route",
@@ -1656,7 +2496,7 @@ def add_consent_logic_findings(
             [object_summary(tag, "tag")],
             f"media_consent:{object_id(tag, 'tag')}:{route['effective_control_status']}",
             (
-                f"{route['vendor']} tag has effective export control status "
+                f"Detected vendors {route['detected_vendors']!r} have effective export control status "
                 f"{route['effective_control_status']!r}, consentSettings status "
                 f"{route['consent_status']!r}, blockers {route['blocking_trigger_ids']!r}, "
                 f"native capability {route['native_consent_capability']!r}, and server hosts "
@@ -1674,6 +2514,79 @@ def add_consent_logic_findings(
             extra={"effective_consent_route": route},
         )
 
+    contract_groups: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = (
+        collections.defaultdict(list)
+    )
+    for tag, route in tag_routes:
+        pairs = nested_parameter_pairs(tag.get("parameter", []))
+        events = sorted(
+            {
+                value
+                for key, value in pairs
+                if re.sub(r"[^a-z]", "", key.lower()) == "eventname" and value.strip()
+            }
+        )
+        destinations = sorted(
+            {
+                f"{key.lower()}={value}"
+                for key, value in pairs
+                if DESTINATION_KEY_RE.search(key) and value.strip()
+            }
+        )
+        if not events or not destinations:
+            continue
+        contract_key = stable_payload(
+            {
+                "type": str(tag.get("type") or ""),
+                "events": events,
+                "destinations": destinations,
+            }
+        )
+        contract_groups[contract_key].append((tag, route))
+
+    for contract_key, group in sorted(contract_groups.items()):
+        if len(group) < 2:
+            continue
+        control_rows = [
+            {
+                "object_key": f"tag:{object_id(tag, 'tag')}",
+                "consent_status": route["consent_status"],
+                "additional_consent_checks_visible": route[
+                    "additional_consent_checks_visible"
+                ],
+                "blocking_trigger_ids": route["blocking_trigger_ids"],
+                "effective_control_status": route["effective_control_status"],
+                "server_routing_hosts": route["server_routing_hosts"],
+                "forwarded_consent_purposes": route["forwarded_consent_purposes"],
+            }
+            for tag, route in group
+        ]
+        if len({stable_payload(row | {"object_key": ""}) for row in control_rows}) < 2:
+            continue
+        contract = json.loads(contract_key)
+        builder.add_finding(
+            "media_tag_consent_route",
+            "same_contract_different_consent_control_candidate",
+            "tag",
+            [object_summary(tag, "tag") for tag, _route in group],
+            f"consent_control_collision:{signature(contract)}",
+            (
+                f"Tags share exact exported event(s) {contract['events']!r}, destination(s) "
+                f"{contract['destinations']!r}, and tag type {contract['type']!r}, but their "
+                "visible consent-control routes differ. This proves a control collision candidate, "
+                "not which route is correct."
+            ),
+            (
+                "Run configuration review for each route, then retain both only when their "
+                "business scope and effective consent contracts are independently justified."
+            ),
+            "cleanup_operation | documented_exception | owner_decision_needed",
+            extra={
+                "shared_event_destination_contract": contract,
+                "consent_control_comparison": control_rows,
+            },
+        )
+
 
 def add_name_hygiene_findings(builder: BaselineBuilder, cv: dict[str, Any]) -> None:
     items: list[tuple[str, dict[str, Any]]] = []
@@ -1682,6 +2595,7 @@ def add_name_hygiene_findings(builder: BaselineBuilder, cv: dict[str, Any]) -> N
         "trigger",
         "variable",
         "folder",
+        "zone",
         "customTemplate",
         "client",
         "transformation",
@@ -1784,6 +2698,8 @@ def add_tag_naming_findings(
                 "selected naming policy and keep every final tag name unique."
             ),
             extra={
+                "source_lens": "inferred_policy_candidate",
+                "policy_confirmation_required": True,
                 "selected_naming_policy": selected,
                 "target_naming_pattern": pattern,
                 "proposed_final_name": proposed,
@@ -1822,6 +2738,8 @@ def add_trigger_naming_findings(
                 "trigger-group consumers."
             ),
             extra={
+                "source_lens": "inferred_policy_candidate",
+                "policy_confirmation_required": True,
                 "selected_naming_policy": selected,
                 "target_naming_pattern": f"{prefix} - event_or_condition",
                 "proposed_final_name": proposed,
@@ -1859,6 +2777,8 @@ def add_variable_naming_findings(
                 "templates, Custom HTML, and Custom JavaScript."
             ),
             extra={
+                "source_lens": "inferred_policy_candidate",
+                "policy_confirmation_required": True,
                 "selected_naming_policy": selected,
                 "target_naming_pattern": f"{prefix} - name_or_source",
                 "proposed_final_name": proposed,
@@ -1894,8 +2814,10 @@ def add_folder_naming_findings(
                 "area-only folders unless object volume requires deeper ranging."
             ),
             "Keep or simplify folder naming after counting objects per area.",
-            "owner_decision_needed | cleanup_operation | not_applicable",
+            "owner_decision_needed | cleanup_operation | documented_exception",
             extra={
+                "source_lens": "inferred_policy_candidate",
+                "policy_confirmation_required": True,
                 "selected_naming_policy": selected,
                 "target_naming_pattern": "Area",
                 "proposed_final_name": proposed,
@@ -1953,21 +2875,46 @@ def add_naming_architecture_findings(
 
 def audit_export(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
+    builder = BaselineBuilder()
+    integrity_findings = add_source_integrity_findings(builder, data)
+    blocking_integrity = [
+        finding for finding in integrity_findings if finding.get("blocking")
+    ]
+    if blocking_integrity:
+        return {
+            **source_descriptor(path),
+            "kind": "gtm_operational_sanitation_scan",
+            "schema_version": 3,
+            "run_status": "blocked_source_integrity",
+            "blocking_source_findings": blocking_integrity,
+            "modules": list(builder.modules.values()),
+            "findings": builder.findings,
+        }
+
     cv = container_version(data)
+    root_path = container_root_path(data)
     tags = as_list(cv.get("tag"))
     triggers = as_list(cv.get("trigger"))
     variables = as_list(cv.get("variable"))
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     builtins = as_list(cv.get("builtInVariable"))
+    zones = as_list(cv.get("zone"))
     clients = as_list(cv.get("client"))
+    gtag_configs = as_list(cv.get("gtagConfig"))
     transformations = as_list(cv.get("transformation"))
 
-    builder = BaselineBuilder()
     variable_consumers, trigger_consumers, tag_consumers = build_consumers(cv)
     system_refs = recognized_system_references(variable_consumers, trigger_consumers)
     naming_policy = infer_tag_order(tags)
-    lifecycle = build_lifecycle_matrix(cv, variable_consumers, trigger_consumers, tag_consumers)
+    reachability = build_execution_reachability(cv)
+    lifecycle = build_lifecycle_matrix(
+        cv,
+        variable_consumers,
+        trigger_consumers,
+        tag_consumers,
+        reachability,
+    )
     folder_topology = build_folder_topology(cv)
     destination_matrix = build_destination_matrix(cv)
 
@@ -1979,9 +2926,12 @@ def audit_export(path: Path) -> dict[str, Any]:
         + len(folders)
         + len(templates)
         + len(builtins)
+        + len(zones)
         + len(clients)
+        + len(gtag_configs)
         + len(transformations),
     )
+    builder.add_module("destination_inventory", len(destination_matrix))
     builder.add_module(
         "recognized_system_references",
         sum(len(values) for values in system_refs.values()),
@@ -1991,6 +2941,7 @@ def audit_export(path: Path) -> dict[str, Any]:
     add_duplicate_name_findings(builder, "duplicate_trigger_names", "trigger", triggers)
     add_duplicate_name_findings(builder, "duplicate_variable_names", "variable", variables)
     add_duplicate_name_findings(builder, "duplicate_folder_names", "folder", folders)
+    add_duplicate_name_findings(builder, "duplicate_zone_names", "zone", zones)
     add_duplicate_name_findings(
         builder,
         "duplicate_custom_template_names",
@@ -2042,6 +2993,24 @@ def audit_export(path: Path) -> dict[str, Any]:
     )
     add_signature_findings(
         builder,
+        "duplicate_zone_configurations",
+        "duplicate_configuration",
+        "zone",
+        zones,
+        COMMON_IGNORED | {"zoneId", "name"},
+        "Compare child-container scope, boundary logic, and type restrictions before consolidation.",
+    )
+    add_signature_findings(
+        builder,
+        "duplicate_google_tag_configurations",
+        "duplicate_configuration",
+        "gtagConfig",
+        gtag_configs,
+        COMMON_IGNORED | {"gtagConfigId"},
+        "Compare destination, transport, consent, and inherited event behavior before consolidation.",
+    )
+    add_signature_findings(
+        builder,
         "duplicate_client_configurations",
         "duplicate_configuration",
         "client",
@@ -2087,14 +3056,17 @@ def audit_export(path: Path) -> dict[str, Any]:
         )
 
     add_ua_styled_setup_findings(builder, tags, triggers, variables)
-    add_unused_findings(builder, cv, variable_consumers, trigger_consumers, tag_consumers)
+    add_unused_findings(builder, cv, lifecycle)
     add_lifecycle_findings(builder, lifecycle)
-    add_trigger_group_findings(builder, triggers)
+    add_tag_sequence_findings(builder, tags)
+    execution_control_matrix = add_tag_execution_control_findings(builder, tags)
+    add_trigger_group_findings(builder, triggers, trigger_consumers)
+    add_zone_structure_findings(builder, zones)
     add_duplicate_code_findings(builder, tags, variables)
     add_builtin_mirror_findings(builder, variables, builtins)
     add_custom_formula_findings(builder, variables)
-    add_consent_logic_findings(builder, tags, variables)
-    trigger_lint_summary = add_trigger_lint_findings(builder, tags, triggers)
+    add_consent_logic_findings(builder, tags, variables, root_path)
+    trigger_lint_summary = add_trigger_lint_findings(builder, tags, triggers, zones)
     add_folder_topology_findings(builder, folder_topology)
     add_name_hygiene_findings(builder, cv)
     add_naming_architecture_findings(builder, cv, naming_policy)
@@ -2103,7 +3075,7 @@ def audit_export(path: Path) -> dict[str, Any]:
     return {
         **source_descriptor(path),
         "kind": "gtm_operational_sanitation_scan",
-        "schema_version": 2,
+        "schema_version": 3,
         "run_status": "complete",
         "counts": {
             "tags": len(tags),
@@ -2112,12 +3084,16 @@ def audit_export(path: Path) -> dict[str, Any]:
             "folders": len(folders),
             "customTemplates": len(templates),
             "builtInVariables": len(builtins),
+            "zones": len(zones),
             "clients": len(clients),
+            "gtagConfigs": len(gtag_configs),
             "transformations": len(transformations),
         },
         "recognized_system_references": system_refs,
         "naming_policy": naming_policy,
+        "execution_reachability": reachability,
         "lifecycle_matrix": lifecycle,
+        "execution_control_matrix": execution_control_matrix,
         "folder_topology": folder_topology,
         "destination_matrix": destination_matrix,
         "trigger_lint_summary": trigger_lint_summary,

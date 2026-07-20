@@ -7,9 +7,15 @@ The packet carries the source, context, and shared-fact hashes. It also carries
 a decision ledger covering every source obligation, execution phases, and
 projected object counts by layer.
 
+Compilation is fail-closed on source identity. The source must be a complete
+ContainerVersion shape with modeled entity layers, valid object records, and
+unique IDs. Missing or duplicate IDs, malformed entity lists, or an unmodeled
+top-level list block operations instead of being silently ignored.
+
 ## Contents
 
 - Dispositions and human fields
+- Source identity, layer coverage, and behavior-impact alignment
 - Structured creations, additions, field changes, remaps, deletions, and renames
 - Consolidation and challenge review
 - Merge/conflict rules and aggressiveness
@@ -110,6 +116,11 @@ field change, not a source-object remap. Variable remaps update `{{Name}}`; trig
 remaps update firing/blocking/group IDs; tag remaps update setup/teardown names;
 folder remaps update parent IDs.
 
+Zone boundary remaps update boundary trigger IDs. Name-based references in tags,
+variables, Google tag configurations, templates, clients, transformations, and
+Zones must resolve to exactly one source object; an ambiguous name is not a
+valid remap target.
+
 ### Deletion
 
 ```json
@@ -130,6 +141,10 @@ folder remaps update parent IDs.
 ```
 
 Renames must remain unique within the GTM layer and update name-based references.
+Field changes and renames must have different before/after values. A no-op is
+not an operation and cannot satisfy an architecture cleanup obligation. Every
+field addition/change path must sit under the source object named by its
+`object_key`; pairing a valid key with another object's path is invalid.
 
 ## Decision Ledger And Execution Order
 
@@ -142,7 +157,8 @@ Apply approved operations in dependency-safe phases: create objects; add missing
 fields/list members; apply logic correction; remap consumers; flatten trigger
 groups and sequencing; rename; delete; then readback validation. The simulated
 packet records before/after/delta counts for tags, triggers, variables,
-templates, folders, clients, transformations, and built-ins where applicable.
+templates, folders, clients, transformations, Zones, Google tag configurations,
+and built-ins where applicable.
 
 ## Consolidation
 
@@ -174,7 +190,18 @@ multi-market changes from over-inference.
 - Reject different targets for one field, rename, or remap source.
 - Reject deleting an object that is changed elsewhere.
 - Reject remapping to an object selected for deletion.
+- Reject cross-layer or unsupported-layer remaps and any remap that creates a
+  dependency cycle through its consumer.
+- Reject newly duplicated final names after applying the complete accepted
+  creation, rename, and deletion set.
 - Reject mutation of an unresolved or intentional-variant architecture comparison.
+- Reconcile every behavior-impacting change with architecture, even when it is
+  not a consolidation. Logic, destination, trigger, routing, consent, schedule,
+  sequencing, and deletion changes must be supported by architecture or blocked
+  when architecture keeps the behavior or remains unresolved.
+- Require architecture support for creations that introduce a new behavioral
+  object or route. Export-only metadata, notes, folders, and reference-safe
+  naming changes do not become behavior changes merely because their JSON differs.
 
 ## Aggressiveness
 

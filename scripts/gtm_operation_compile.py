@@ -14,7 +14,7 @@ from typing import Any
 
 from gtm_architecture_review import validate_review as validate_architecture_review
 from gtm_configuration_review import validate_review as validate_configuration_review
-from gtm_lib import ID_KEYS, container_version, stable_hash
+from gtm_lib import ID_KEYS, container_version, source_integrity_findings, stable_hash
 from gtm_operational_review import validate_review as validate_operational_review
 from gtm_review_common import as_list
 
@@ -63,7 +63,21 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def source_object_catalog(export_path: Path) -> dict[str, dict[str, str]]:
-    cv = container_version(load_json(export_path))
+    data = load_json(export_path)
+    blocking_integrity = [
+        row for row in source_integrity_findings(data) if row.get("blocking")
+    ]
+    if blocking_integrity:
+        raise ValueError(
+            "source integrity gate blocked operation compilation: "
+            + ", ".join(
+                sorted(
+                    str(row.get("finding_type") or "source_integrity_error")
+                    for row in blocking_integrity
+                )
+            )
+        )
+    cv = container_version(data)
     catalog: dict[str, dict[str, str]] = {}
     for layer, id_key in ID_KEYS.items():
         for obj in as_list(cv.get(layer)):
@@ -291,7 +305,7 @@ def merge_compatible_operations(
 def normalized_mutation_path(object_key: str, json_path: str) -> str:
     layer = object_key.split(":", 1)[0]
     match = re.match(
-        rf"^\$\.containerVersion\.{re.escape(layer)}\[\d+\](.*)$",
+        rf"^\$\.(?:containerVersion\.)?{re.escape(layer)}\[\d+\](.*)$",
         json_path,
     )
     return "$" + match.group(1) if match else json_path
@@ -488,6 +502,56 @@ def destructive_object_keys(operation: dict[str, Any]) -> set[str]:
     }
 
 
+NON_BEHAVIOR_PATHS = {
+    "$.accountId",
+    "$.containerId",
+    "$.workspaceId",
+    "$.fingerprint",
+    "$.path",
+    "$.tagManagerUrl",
+    "$.name",
+    "$.notes",
+    "$.parentFolderId",
+}
+
+
+def behavior_impact_keys(operation: dict[str, Any]) -> set[str]:
+    """Return existing objects whose execution, data, or routing can change."""
+    keys = destructive_object_keys(operation)
+    for field in ("additions", "changes"):
+        for item in as_list(operation.get(field)):
+            object_key = str(item.get("object_key") or "")
+            path = normalized_mutation_path(
+                object_key,
+                str(item.get("json_path") or ""),
+            )
+            if object_key and path not in NON_BEHAVIOR_PATHS:
+                keys.add(object_key)
+    for remap in as_list(operation.get("remaps")):
+        keys.update(
+            str(value)
+            for value in [
+                remap.get("from_object_key"),
+                remap.get("to_object_key"),
+                *as_list(remap.get("consumer_object_keys")),
+            ]
+            if value
+        )
+    return keys
+
+
+def creation_keys(operation: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for creation in as_list(operation.get("creations")):
+        layer = str(creation.get("layer") or "")
+        obj = creation.get("object") or {}
+        id_key = ID_KEYS.get(layer, "")
+        object_id = str(obj.get(id_key) or obj.get("name") or "")
+        if layer and object_id:
+            keys.add(f"{layer}:{object_id}")
+    return keys
+
+
 def consolidation_alignment_errors(
     operation: dict[str, Any], operational_by_id: dict[str, dict[str, Any]]
 ) -> list[str]:
@@ -510,6 +574,7 @@ def consolidation_alignment_errors(
 def comparison_reconciliation_errors(
     operation_key: str,
     destructive_keys: set[str],
+    behavior_keys: set[str],
     comparisons: list[dict[str, Any]],
 ) -> list[str]:
     errors: list[str] = []
@@ -517,24 +582,34 @@ def comparison_reconciliation_errors(
         candidate_keys = {
             str(value) for value in as_list(comparison.get("candidate_object_keys"))
         }
-        affected = sorted(candidate_keys & destructive_keys)
-        if not affected:
+        destructive = sorted(candidate_keys & destructive_keys)
+        behavior = sorted(candidate_keys & behavior_keys)
+        if not behavior:
             continue
         disposition = comparison.get("disposition")
         verdict = comparison.get("relationship_verdict")
         comparison_id = comparison.get("comparison_id")
-        if disposition == "keep" and verdict in {
+        if destructive and disposition == "keep" and verdict in {
             "Intentional variant",
             "Complementary",
             "Unrelated",
         }:
             errors.append(
-                f"{operation_key!r} removes or remaps {affected!r}, but architecture "
+                f"{operation_key!r} removes or remaps {destructive!r}, but architecture "
                 f"comparison {comparison_id} says to keep them"
+            )
+        elif disposition == "keep" and verdict in {
+            "Intentional variant",
+            "Complementary",
+            "Unrelated",
+        }:
+            errors.append(
+                f"{operation_key!r} changes behavior of {behavior!r}, but architecture "
+                f"comparison {comparison_id} preserves their configured distinction"
             )
         if disposition in {"owner_decision_needed", "container_evidence_limit"}:
             errors.append(
-                f"{operation_key!r} removes or remaps {affected!r} while architecture "
+                f"{operation_key!r} changes {behavior!r} while architecture "
                 f"comparison {comparison_id} is unresolved"
             )
     return errors
@@ -543,21 +618,32 @@ def comparison_reconciliation_errors(
 def family_reconciliation_errors(
     operation_key: str,
     destructive_keys: set[str],
+    behavior_keys: set[str],
     families: list[dict[str, Any]],
 ) -> list[str]:
     errors: list[str] = []
     for family in families:
         family_keys = {str(value) for value in as_list(family.get("chain_object_keys"))}
-        affected = sorted(destructive_keys & family_keys)
-        if not affected:
+        destructive = sorted(destructive_keys & family_keys)
+        behavior = sorted(behavior_keys & family_keys)
+        if not behavior:
             continue
         disposition = family.get("disposition")
         verdict = family.get("relationship_verdict")
         family_id = family.get("family_id")
         if disposition in {"owner_decision_needed", "container_evidence_limit"}:
             errors.append(
-                f"{operation_key!r} removes or remaps {affected!r} while architecture "
+                f"{operation_key!r} changes {behavior!r} while architecture "
                 f"family {family_id} remains unresolved"
+            )
+        elif destructive and disposition == "keep" and verdict in {
+            "Intentional variant",
+            "Complementary",
+            "Unrelated",
+        }:
+            errors.append(
+                f"{operation_key!r} removes or remaps {destructive!r} but architecture "
+                f"family {family_id} says to keep the chain"
             )
         elif disposition == "keep" and verdict in {
             "Intentional variant",
@@ -565,8 +651,8 @@ def family_reconciliation_errors(
             "Unrelated",
         }:
             errors.append(
-                f"{operation_key!r} removes or remaps {affected!r} but architecture "
-                f"family {family_id} says to keep the chain"
+                f"{operation_key!r} changes behavior of {behavior!r} but architecture "
+                f"family {family_id} preserves the configured chain"
             )
     return errors
 
@@ -585,14 +671,38 @@ def validate_cross_run_reconciliation(
     for operation in operations:
         operation_key = str(operation.get("operation_key") or "")
         destructive_keys = destructive_object_keys(operation)
+        behavior_keys = behavior_impact_keys(operation)
+        created_keys = creation_keys(operation)
         errors.extend(consolidation_alignment_errors(operation, operational_by_id))
+        if behavior_keys and "business_architecture" not in as_list(
+            operation.get("source_runs")
+        ):
+            errors.append(
+                f"{operation_key!r} changes behavior of {sorted(behavior_keys)!r} "
+                "without an aligned business-architecture operation"
+            )
+        if created_keys and "business_architecture" not in as_list(
+            operation.get("source_runs")
+        ):
+            errors.append(
+                f"{operation_key!r} creates {sorted(created_keys)!r} without an aligned "
+                "business-architecture operation"
+            )
         errors.extend(
             comparison_reconciliation_errors(
-                operation_key, destructive_keys, comparison_rows
+                operation_key,
+                destructive_keys,
+                behavior_keys,
+                comparison_rows,
             )
         )
         errors.extend(
-            family_reconciliation_errors(operation_key, destructive_keys, family_rows)
+            family_reconciliation_errors(
+                operation_key,
+                destructive_keys,
+                behavior_keys,
+                family_rows,
+            )
         )
     return errors
 

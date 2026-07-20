@@ -10,25 +10,30 @@ from typing import Any
 
 from gtm_configuration_facts import (
     build_consumers,
+    logic_anchors,
     object_consumers,
     reference_trace_requirements,
 )
-from gtm_consent_model import consent_values, tag_consent_route
+from gtm_consent_model import consent_values, server_route_hosts, tag_consent_route
 from gtm_context_model import build_context_model
 from gtm_custom_code_extract import extract_export
 from gtm_lib import (
     ID_KEYS,
     comparable,
+    container_root_path,
     container_version,
+    is_system_trigger_reference,
     object_id,
     refs,
     source_descriptor,
     stable_hash,
+    system_reference_description,
     trigger_group_members,
     walk_json_fields,
 )
 from gtm_relationships import (
     business_scope_tokens,
+    configured_destinations,
     object_records,
     tag_contract,
     trigger_conditions,
@@ -53,11 +58,454 @@ def source_leaf_facts(obj: dict[str, Any], source_path: str) -> list[dict[str, A
     ]
 
 
+def semantic_absence_facts(
+    layer: str, obj: dict[str, Any], source_path: str
+) -> list[dict[str, Any]]:
+    required_fields = {
+        "zone": ("childContainer", "boundary", "typeRestriction"),
+        "gtagConfig": ("type", "parameter"),
+    }.get(layer, ())
+    return [
+        {
+            "json_path": f"{source_path}.{field}",
+            "value_hash": stable_hash({"missing_field": field}),
+            "value_type": "missing",
+            "value_preview": "<missing from exported object>",
+            "referenced_variables": [],
+        }
+        for field in required_fields
+        if field not in obj
+    ]
+
+
+def unique_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique = {
+        (str(fact.get("json_path") or ""), str(fact.get("value_hash") or "")): fact
+        for fact in facts
+    }
+    return [unique[key] for key in sorted(unique)]
+
+
+def selected_record_facts(
+    record: dict[str, Any], tokens: tuple[str, ...]
+) -> list[dict[str, Any]]:
+    facts = source_leaf_facts(record["object"], record["source_json_path"])
+    logic = set(logic_anchors(facts))
+    selected = [
+        fact
+        for fact in facts
+        if fact["json_path"] in logic
+        and any(token in fact["json_path"].lower() for token in tokens)
+    ]
+    identity = [
+        fact
+        for fact in facts
+        if fact["json_path"].lower().endswith((".name", ".type", ".paused"))
+    ]
+    return unique_facts([*identity, *selected])
+
+
+def dependency_facts_for_record(
+    record: dict[str, Any],
+    records: dict[str, list[dict[str, Any]]],
+    consumers: dict[str, list[dict[str, str]]],
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    """Resolve execution edges and downstream consumer contracts without runtime inference."""
+    obj = record["object"]
+    layer = record["layer"]
+    triggers_by_id: dict[str, list[dict[str, Any]]] = {}
+    tags_by_name: dict[str, list[dict[str, Any]]] = {}
+    records_by_key = {
+        item["object_key"]: item
+        for layer_records in records.values()
+        for item in layer_records
+    }
+    for item in records.get("trigger", []):
+        triggers_by_id.setdefault(str(item["object_id"]), []).append(item)
+    for item in records.get("tag", []):
+        tags_by_name.setdefault(str(item["object_name"]), []).append(item)
+
+    source_facts = source_leaf_facts(obj, record["source_json_path"])
+
+    def source_paths(relation: str, reference: str) -> list[str]:
+        if relation == "trigger_group_member":
+            return [
+                fact["json_path"]
+                for fact in source_facts
+                if ".parameter" in fact["json_path"]
+                and str(fact.get("value_preview") or "") == reference
+            ]
+        matching = [
+            fact["json_path"]
+            for fact in source_facts
+            if relation.lower() in fact["json_path"].lower()
+            and str(fact.get("value_preview") or "") == reference
+        ]
+        if matching:
+            return matching
+        return [
+            fact["json_path"]
+            for fact in source_facts
+            if relation.lower() in fact["json_path"].lower()
+        ]
+
+    traces: list[dict[str, Any]] = []
+    dependency_facts: list[dict[str, Any]] = []
+
+    def trigger_member_entries(
+        trigger: dict[str, Any], source_path: str
+    ) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        parameters = trigger.get("parameter")
+        if not isinstance(parameters, list):
+            return entries
+        for parameter_index, parameter in enumerate(parameters):
+            if not isinstance(parameter, dict) or parameter.get("key") != "triggerIds":
+                continue
+            members = parameter.get("list")
+            list_path = f"{source_path}.parameter[{parameter_index}].list"
+            if not isinstance(members, list):
+                entries.append(
+                    {
+                        "reference": f"<malformed-list:{parameter_index}>",
+                        "resolution_state": "malformed",
+                        "source_reference_paths": [list_path],
+                    }
+                )
+                continue
+            for member_index, member in enumerate(members):
+                member_path = f"{list_path}[{member_index}]"
+                reference = (
+                    str(member.get("value") or "").strip()
+                    if isinstance(member, dict)
+                    else ""
+                )
+                entries.append(
+                    {
+                        "reference": reference or f"<malformed-member:{member_index}>",
+                        "resolution_state": "pending" if reference else "malformed",
+                        "source_reference_paths": [
+                            f"{member_path}.value" if reference else member_path
+                        ],
+                    }
+                )
+        return entries
+
+    def resolve_trigger(
+        reference: str,
+        relation: str,
+        active: tuple[str, ...],
+        reference_paths: list[str] | None = None,
+    ) -> dict[str, Any]:
+        def traced(result: dict[str, Any]) -> dict[str, Any]:
+            result["source_reference_paths"] = list(reference_paths or [])
+            return result
+
+        if is_system_trigger_reference(reference):
+            return traced({
+                "relation": relation,
+                "reference": reference,
+                "resolution_state": "recognized_system_reference",
+                "system_description": system_reference_description("trigger", reference),
+                "targets": [],
+            })
+        if reference in active:
+            return traced({
+                "relation": relation,
+                "reference": reference,
+                "resolution_state": "cycle",
+                "cycle_path": [*active, reference],
+                "targets": [],
+            })
+        matches = triggers_by_id.get(reference, [])
+        if not matches:
+            return traced({
+                "relation": relation,
+                "reference": reference,
+                "resolution_state": "missing",
+                "targets": [],
+            })
+        targets = []
+        for target in matches:
+            target_facts = selected_record_facts(
+                target,
+                (
+                    "filter",
+                    "condition",
+                    "triggertype",
+                    "triggerids",
+                    "parameter",
+                    ".type",
+                ),
+            )
+            dependency_facts.extend(target_facts)
+            children = []
+            for child in trigger_member_entries(
+                target["object"], target["source_json_path"]
+            ):
+                if child["resolution_state"] == "malformed":
+                    children.append(
+                        {
+                            "relation": "trigger_group_member",
+                            "reference": child["reference"],
+                            "resolution_state": "malformed",
+                            "source_reference_paths": child["source_reference_paths"],
+                            "targets": [],
+                        }
+                    )
+                else:
+                    children.append(
+                        resolve_trigger(
+                            child["reference"],
+                            "trigger_group_member",
+                            (*active, reference),
+                            child["source_reference_paths"],
+                        )
+                    )
+            targets.append(
+                {
+                    "object_key": target["object_key"],
+                    "object_name": target["object_name"],
+                    "object_type": target["object_type"],
+                    "source_json_path": target["source_json_path"],
+                    "conditions": trigger_conditions(target["object"]),
+                    "member_traces": children,
+                }
+            )
+        return traced({
+            "relation": relation,
+            "reference": reference,
+            "resolution_state": "unique" if len(matches) == 1 else "ambiguous",
+            "targets": targets,
+        })
+
+    trigger_relations: list[tuple[str, str]] = []
+    if layer == "tag":
+        for relation in ("firingTriggerId", "blockingTriggerId"):
+            trigger_relations.extend(
+                (relation, str(value)) for value in as_list(obj.get(relation))
+            )
+    elif layer == "trigger":
+        for member in trigger_member_entries(obj, record["source_json_path"]):
+            if member["resolution_state"] == "malformed":
+                traces.append(
+                    {
+                        "relation": "trigger_group_member",
+                        "reference": member["reference"],
+                        "resolution_state": "malformed",
+                        "source_reference_paths": member["source_reference_paths"],
+                        "targets": [],
+                    }
+                )
+            else:
+                traces.append(
+                    resolve_trigger(
+                        member["reference"],
+                        "trigger_group_member",
+                        (),
+                        member["source_reference_paths"],
+                    )
+                )
+    elif layer == "zone":
+        boundary = obj.get("boundary") if isinstance(obj.get("boundary"), dict) else {}
+        trigger_relations.extend(
+            ("customEvaluationTriggerId", str(value))
+            for value in as_list(boundary.get("customEvaluationTriggerId"))
+        )
+    for relation, reference in trigger_relations:
+        trace = resolve_trigger(reference, relation, (), source_paths(relation, reference))
+        traces.append(trace)
+
+    if layer == "tag":
+        def resolve_tag_sequence(
+            reference: str,
+            relation: str,
+            active: tuple[str, ...],
+        ) -> dict[str, Any]:
+            if reference in active:
+                cycle_targets = tags_by_name.get(reference, [])
+                for target in cycle_targets:
+                    dependency_facts.extend(
+                        selected_record_facts(
+                            target,
+                            (
+                                "firingtriggerid",
+                                "blockingtriggerid",
+                                "setuptag",
+                                "teardowntag",
+                                "consent",
+                                "parameter",
+                                "html",
+                                "javascript",
+                                ".paused",
+                                ".type",
+                            ),
+                        )
+                    )
+                return {
+                    "relation": relation,
+                    "reference": reference,
+                    "resolution_state": "cycle",
+                    "cycle_path": [*active, reference],
+                    "targets": [
+                        {
+                            "object_key": target["object_key"],
+                            "object_name": target["object_name"],
+                            "object_type": target["object_type"],
+                            "paused": bool(target["paused"]),
+                            "source_json_path": target["source_json_path"],
+                            "sequence_traces": [],
+                        }
+                        for target in cycle_targets
+                    ],
+                }
+            matches = tags_by_name.get(reference, []) if reference else []
+            targets = []
+            for target in matches:
+                target_facts = selected_record_facts(
+                    target,
+                    (
+                        "firingtriggerid",
+                        "blockingtriggerid",
+                        "setuptag",
+                        "teardowntag",
+                        "consent",
+                        "parameter",
+                        "html",
+                        "javascript",
+                        ".paused",
+                        ".type",
+                    ),
+                )
+                dependency_facts.extend(target_facts)
+                child_traces = []
+                for child_relation in ("setupTag", "teardownTag"):
+                    for child in as_list(target["object"].get(child_relation)):
+                        if not isinstance(child, dict):
+                            continue
+                        child_name = str(child.get("tagName") or "")
+                        if child_name:
+                            child_traces.append(
+                                resolve_tag_sequence(
+                                    child_name,
+                                    child_relation,
+                                    (*active, reference),
+                                )
+                            )
+                targets.append(
+                    {
+                        "object_key": target["object_key"],
+                        "object_name": target["object_name"],
+                        "object_type": target["object_type"],
+                        "paused": bool(target["paused"]),
+                        "source_json_path": target["source_json_path"],
+                        "sequence_traces": child_traces,
+                    }
+                )
+            return {
+                "relation": relation,
+                "reference": reference,
+                "resolution_state": (
+                    "missing"
+                    if not matches
+                    else "unique"
+                    if len(matches) == 1
+                    else "ambiguous"
+                ),
+                "targets": targets,
+            }
+
+        for relation in ("setupTag", "teardownTag"):
+            for index, item in enumerate(as_list(obj.get(relation))):
+                reference = str(item.get("tagName") or "") if isinstance(item, dict) else ""
+                if not reference:
+                    trace = {
+                        "relation": relation,
+                        "reference": "",
+                        "resolution_state": "malformed",
+                        "targets": [],
+                    }
+                else:
+                    trace = resolve_tag_sequence(
+                        reference,
+                        relation,
+                        (str(record.get("object_name") or ""),),
+                    )
+                item_path = f"{record['source_json_path']}.{relation}[{index}]"
+                trace["source_reference_paths"] = [
+                    fact["json_path"]
+                    for fact in source_facts
+                    if fact["json_path"] == item_path
+                    or fact["json_path"].startswith(item_path + ".")
+                ] or [item_path]
+                traces.append(trace)
+
+    consumer_facts: list[dict[str, Any]] = []
+    consumer_contexts: list[dict[str, Any]] = []
+    for consumer in object_consumers(layer, obj, consumers):
+        target = records_by_key.get(str(consumer.get("consumer_key") or ""))
+        if not target:
+            continue
+        contract = tag_contract(target) if target["layer"] == "tag" else {}
+        consumer_contexts.append(
+            {
+                "consumer_key": target["object_key"],
+                "consumer_name": target["object_name"],
+                "consumer_type": target["object_type"],
+                "relation": str(consumer.get("relation") or ""),
+                "source_reference_path": str(consumer.get("source_json_path") or ""),
+                "events": as_list(contract.get("events")),
+                "destinations": as_list(contract.get("destinations")),
+                "referenced_variables": sorted(refs(target["object"])),
+            }
+        )
+        candidate_facts = source_leaf_facts(target["object"], target["source_json_path"])
+        reference_path = str(consumer.get("source_json_path") or "")
+        consumer_facts.extend(
+            fact
+            for fact in candidate_facts
+            if fact["json_path"] == reference_path
+            or any(
+                token in fact["json_path"].lower()
+                for token in (
+                    "eventname",
+                    "destination",
+                    "measurementid",
+                    "pixel",
+                    "firingtriggerid",
+                    "blockingtriggerid",
+                    "setuptag",
+                    "teardowntag",
+                    "consent",
+                    "parameter",
+                    "html",
+                    "javascript",
+                    "currency",
+                    "value",
+                    "items",
+                    ".type",
+                )
+            )
+        )
+    return (
+        traces,
+        unique_facts(dependency_facts),
+        unique_facts(consumer_facts),
+        sorted(consumer_contexts, key=lambda item: item["consumer_key"]),
+    )
+
+
 def behavior_signatures(
     record: dict[str, Any],
     trace_requirements: list[dict[str, Any]],
     technical: dict[str, Any],
     consent: dict[str, Any],
+    execution_dependencies: list[dict[str, Any]],
 ) -> dict[str, str]:
     obj = record["object"]
     route = {
@@ -81,7 +529,9 @@ def behavior_signatures(
     }
     return {
         "configuration": record["config_hash"],
-        "execution_route": stable_hash(route),
+        "execution_route": stable_hash(
+            {"direct_route": route, "resolved_dependencies": execution_dependencies}
+        ),
         "trigger_logic": stable_hash(trigger_conditions(obj)),
         "terminal_sources": stable_hash(terminals),
         "formula": stable_hash(formulas),
@@ -116,12 +566,23 @@ def build_shared_facts(
     navigation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     data = json.loads(export_path.read_text(encoding="utf-8"))
+    navigation = navigation or build_model(export_path)
+    if navigation.get("coverage_gate") == "blocked_source_integrity":
+        finding_types = sorted(
+            str(row.get("finding_type") or "source_integrity_error")
+            for row in as_list(navigation.get("source_integrity_findings"))
+            if row.get("blocking")
+        )
+        raise ValueError(
+            "source integrity gate blocked shared facts"
+            + (": " + ", ".join(finding_types) if finding_types else "")
+        )
     cv = container_version(data)
+    root_path = container_root_path(data)
     context = context or build_context_model(export_path)
     technical = technical or extract_export(export_path)
-    navigation = navigation or build_model(export_path)
-    consumers = build_consumers(cv)
-    records = object_records(cv)
+    consumers = build_consumers(cv, root_path)
+    records = object_records(cv, root_path)
     semantic_by_key = {
         record["object_key"]: record
         for layer_records in records.values()
@@ -131,11 +592,91 @@ def build_shared_facts(
         f"{row['layer']}:{row['object_id']}": row for row in as_list(technical.get("rows"))
     }
     variables = as_list(cv.get("variable"))
+    destination_records = records.get("tag", []) + records.get("gtagConfig", [])
+    destination_peer_contexts: dict[str, list[dict[str, Any]]] = {}
+    destination_peer_facts: dict[str, list[dict[str, Any]]] = {}
+    for record in destination_records:
+        destinations = set(configured_destinations(record))
+        peers = []
+        peer_facts = []
+        for peer in destination_records:
+            if peer["object_key"] == record["object_key"]:
+                continue
+            shared_destinations = sorted(
+                destinations & set(configured_destinations(peer))
+            )
+            if not shared_destinations:
+                continue
+            peer_contract = tag_contract(peer) if peer["layer"] == "tag" else {}
+            candidate_facts = [
+                *source_leaf_facts(peer["object"], peer["source_json_path"]),
+                *semantic_absence_facts(
+                    peer["layer"], peer["object"], peer["source_json_path"]
+                ),
+            ]
+            destination_anchors = [
+                fact["json_path"]
+                for fact in candidate_facts
+                if str(fact.get("value_preview") or "").lower()
+                in set(shared_destinations)
+            ]
+            peer_facts.extend(
+                fact
+                for fact in candidate_facts
+                if fact["json_path"] in destination_anchors
+                or any(
+                    token in fact["json_path"].lower()
+                    for token in (
+                        "eventname",
+                        "measurementid",
+                        "destination",
+                        "parameter",
+                        "consentsettings",
+                        "firingtriggerid",
+                        "blockingtriggerid",
+                        "setuptag",
+                        "teardowntag",
+                        "schedulestartms",
+                        "scheduleendms",
+                        "tagfiringoption",
+                        ".paused",
+                        ".type",
+                    )
+                )
+            )
+            peer_route = tag_consent_route(
+                peer["object"],
+                peer["source_json_path"],
+                variables=variables,
+                root_path=root_path,
+            )
+            peers.append(
+                {
+                    "object_key": peer["object_key"],
+                    "layer": peer["layer"],
+                    "object_name": peer["object_name"],
+                    "object_type": peer["object_type"],
+                    "type_present": "type" in peer["object"],
+                    "shared_destinations": shared_destinations,
+                    "events": as_list(peer_contract.get("events")),
+                    "source_json_path": peer["source_json_path"],
+                    "destination_evidence_anchors": destination_anchors,
+                    "server_routing_hosts": server_route_hosts(peer["object"]),
+                    "effective_control_status": str(
+                        peer_route.get("effective_control_status") or ""
+                    ),
+                    "consent_status": str(peer_route.get("consent_status") or ""),
+                }
+            )
+        destination_peer_contexts[record["object_key"]] = sorted(
+            peers, key=lambda item: item["object_key"]
+        )
+        destination_peer_facts[record["object_key"]] = unique_facts(peer_facts)
     object_rows: list[dict[str, Any]] = []
     for layer, id_key in ID_KEYS.items():
         for index, obj in enumerate(as_list(cv.get(layer))):
             key = f"{layer}:{object_id(obj, id_key)}"
-            source_path = f"$.containerVersion.{layer}[{index}]"
+            source_path = f"{root_path}.{layer}[{index}]"
             record = semantic_by_key.get(
                 key,
                 {
@@ -158,15 +699,24 @@ def build_shared_facts(
             obj = record["object"]
             key = record["object_key"]
             technical_row = technical_by_key.get(key, {})
-            traces = reference_trace_requirements(cv, obj) if layer in records else []
+            traces = (
+                reference_trace_requirements(cv, obj, root_path) if layer in records else []
+            )
+            (
+                execution_dependencies,
+                dependency_facts,
+                consumer_dependency_facts,
+                consumer_dependency_contexts,
+            ) = dependency_facts_for_record(record, records, consumers)
             consent_values_for_object = consent_values(obj, record["source_json_path"])
             consent = (
                 tag_consent_route(
                     obj,
                     record["source_json_path"],
                     variables=variables,
+                    root_path=root_path,
                 )
-                if record["layer"] == "tag"
+                if record["layer"] in {"tag", "gtagConfig"}
                 else {"consent_source_values": consent_values_for_object}
             )
             contract = tag_contract(record) if record["layer"] == "tag" else {}
@@ -194,6 +744,15 @@ def build_shared_facts(
                 "source_json_path": record["source_json_path"],
                 "configuration_hash": record["config_hash"],
                 "source_leaf_facts": source_leaf_facts(obj, record["source_json_path"]),
+                "source_absence_facts": semantic_absence_facts(
+                    record["layer"], obj, record["source_json_path"]
+                ),
+                "execution_dependency_traces": execution_dependencies,
+                "execution_dependency_facts": dependency_facts,
+                "consumer_dependency_facts": consumer_dependency_facts,
+                "consumer_dependency_contexts": consumer_dependency_contexts,
+                "destination_peer_contexts": destination_peer_contexts.get(key, []),
+                "destination_peer_facts": destination_peer_facts.get(key, []),
                 "referenced_variables": sorted(refs(obj)),
                 "consumers": (
                     object_consumers(record["layer"], obj, consumers)
@@ -223,6 +782,7 @@ def build_shared_facts(
                 traces,
                 technical_row,
                 consent,
+                execution_dependencies,
             )
             object_rows.append(row)
 
@@ -243,14 +803,16 @@ def build_shared_facts(
             "objects": len(object_rows),
             "source_leaves": sum(len(row["source_leaf_facts"]) for row in object_rows),
             "unresolved_edges": navigation["counts"]["unresolved_edges"],
+            "source_integrity_findings": len(
+                as_list(navigation.get("source_integrity_findings"))
+            ),
             "custom_code_objects": navigation["counts"]["custom_code_objects"],
         },
-        "integrity_findings": navigation["unresolved_edges"],
-        "coverage_gate": (
-            "pass_with_integrity_findings"
-            if navigation["counts"]["unresolved_edges"]
-            else "pass"
-        ),
+        "integrity_findings": {
+            "source": as_list(navigation.get("source_integrity_findings")),
+            "unresolved_edges": navigation["unresolved_edges"],
+        },
+        "coverage_gate": navigation.get("coverage_gate", "blocked_source_integrity"),
         "objects": sorted(object_rows, key=lambda row: row["object_key"]),
     }
     payload["shared_facts_sha256"] = shared_content_hash(payload)

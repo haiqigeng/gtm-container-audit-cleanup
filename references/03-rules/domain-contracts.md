@@ -2,7 +2,9 @@
 
 Use the versioned `vendor-registry.toml` first. When a detected vendor or feature
 has no suitable current entry, search the internet and use the vendor's official
-documentation. Record the exact official HTTPS URL in the configuration review.
+documentation to update the versioned registry, validate it, and rebuild the
+review. Record the exact official HTTPS URL only after that source/domain is
+registry-bound to the vendor.
 
 ## Contents
 
@@ -10,6 +12,7 @@ documentation. Record the exact official HTTPS URL in the configuration review.
 - Google Analytics 4 and ecommerce
 - Consent and CMP
 - Browser-to-server and server containers
+- Google tag configurations and Zones
 - Media, affiliate, publisher, and GTM mechanics
 
 ## Topic-Specific Obligations
@@ -29,17 +32,46 @@ Typical obligations are:
   at the consuming event, plus consent semantics where relevant;
 - custom templates, clients, and transformations: permissions/behavior,
   request claiming/routing, payload/consent handling, transformation scope, and
-  allowlist/redaction behavior.
+  allowlist/redaction behavior;
+- Google tag configurations: destination/config command, inherited settings,
+  variable-backed values, and overlap with tag destinations;
+- Zones: child-container scope, boundary trigger behavior, type restrictions,
+  and allowlists.
 
 Each topic records the configured value, expected official rule, exact source
 anchor, official URL, and verdict. A non-compliant topic becomes a defect. An
 unproven topic cannot support a Correct object verdict.
 
+The scaffold assigns each applicable topic a deterministic state. Visible
+missing required fields and registry-listed unsupported/retired event names are
+`known_noncompliant`; dynamic type, shape, availability, unresolved consent,
+and unseen server behavior are `unproven_from_container`; other current-source
+questions remain `source_check_required`. These states cannot be weakened to
+`Not applicable`. Versioned `unsupported_standard_events` and
+`event_replacements` metadata must be unique, structurally valid, and supported
+by the vendor's registered official source; a replacement is a review cue, not
+permission to mutate automatically.
+
 An unrecognized external host, loaded script, or custom template is not a
 reason to skip vendor validation. Record the detection cue, identify the vendor
-or integration, cite a current official HTTPS setup/reference page, explain the
-official ownership of that source, and complete the generated contract topics.
+or integration, find a current official HTTPS setup/reference page, add its
+verified ownership/domain to the registry, validate, rebuild, and then complete
+the generated contract topics. Before rebuild, the unknown-vendor topic remains
+Unproven and cannot accept an arbitrary analyst-supplied URL as official proof.
 Avoid broad vendor detection from generic parameter words.
+
+One object can implement more than one downstream vendor. Preserve every
+matched vendor context and generate separate obligations for each. An unmatched
+external host remains its own mandatory research topic even when the same code
+also contains a recognized vendor; a primary-vendor label must never hide the
+second integration.
+
+Only behavior-bearing fields can prove an integration host. Ignore GTM
+UI/export URLs, paths, notes, fingerprints, workspace IDs, and folder placement
+for vendor inference. An explicit server-transport endpoint in a recognized
+vendor or Google tag configuration belongs to its server-routing contract; do
+not duplicate it as an unknown vendor unless separate request/script evidence
+shows another integration role.
 
 ## Google Analytics 4
 
@@ -68,6 +100,8 @@ contract. Typical checks include:
 - `add_shipping_info` and `add_payment_info`: items and relevant method field;
 - `purchase`: unique `transaction_id`, currency, numeric value, tax/shipping,
   coupon when used, and complete `items`;
+- `refund`: `transaction_id` linked to the original purchase, refunded items,
+  and values where applicable;
 - item arrays use item objects and appropriate item-level fields;
 - value and quantity come from event-time ecommerce data, not fixed product
   positions or unrelated custom formulas.
@@ -94,6 +128,17 @@ Check:
 - external scripts loading before consent;
 - consent values forwarded to server routes;
 - duplicate CMP listeners or consent-update tags.
+
+Interpret exported manual-consent status using the GTM API enum exactly:
+`needed` means the tag declares additional consent checks; `notNeeded` means it
+declares that no additional check is needed; and `notSet` means no manual choice
+is recorded. Only `needed` proves an additional-consent requirement. Native
+consent capability, a consent-looking name, or `notSet` is candidate evidence,
+not proof that the effective route is gated. Unknown or malformed enum values
+are configuration defects rather than values to normalize by inference.
+Likewise, an event/object name containing `consent` and an arbitrary blocking
+trigger do not prove that consent is forwarded or that the blocker can affect
+the firing route. Preserve all vendors detected in mixed custom code.
 
 Do not make legal decisions. A mapping that cannot be identified from container
 evidence requires one precise owner/legal question.
@@ -130,6 +175,10 @@ inconsistently applied forwarding contract. When the web-side contract is
 coherent, use a disposition such as `client transport contract aligned; server
 enforcement not audited`, not a privacy alert or unresolved owner decision
 solely because the receiving container is unseen.
+Do not label a value as forwarded unless the same exported route contains a
+server endpoint and a behavior-bearing payload/settings chain. Keep a separate
+detected-consent-payload fact when consent-like values exist without a server
+route.
 
 The web export cannot prove what the server container forwards, transforms,
 redacts, blocks, or deduplicates. Audit those claims only when the complete
@@ -151,6 +200,28 @@ transport because their ownership and forwarding behavior differ. Record
 status can live in GTM Admin/CDN configuration and must not be invented from an
 ordinary Google tag alone. Consent review remains mandatory because first-party
 routing changes the request path, not the visitor's consent choice.
+
+## Google Tag Configurations And Zones
+
+Primary sources:
+
+- Google tag configuration resource: https://developers.google.com/tag-platform/tag-manager/api/reference/rest/v2/accounts.containers.workspaces.gtag_config
+- Zone resource: https://developers.google.com/tag-platform/tag-manager/api/reference/rest/v2/accounts.containers.workspaces.zones
+- ContainerVersion layers: https://developers.google.com/tag-platform/tag-manager/api/reference/rest/v2/accounts.containers.versions
+
+Treat exported `gtagConfig` and `zone` entities as first-class configuration
+objects, not opaque metadata. For a Google tag configuration, inspect the
+destination/config ID, every parameter and variable reference, and any shared
+destination already configured by tags. A shared destination is an architecture
+candidate, not automatic duplication: configuration, routing, scope, and intent
+still decide whether consolidation is safe.
+
+For each Zone, inspect every child-container public ID, boundary trigger,
+allowlist and type-restriction control, and variable dependency. Flag malformed,
+empty, duplicate, or missing child entries and structurally unbounded boundaries.
+Two Zones managing the same child set are an architecture candidate, not proof
+of equivalence. The web export cannot prove the state or behavior inside an
+unseen child container.
 
 ## Media, Affiliate, And Publisher Vendors
 

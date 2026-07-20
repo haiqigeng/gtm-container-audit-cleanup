@@ -19,32 +19,47 @@ from pathlib import Path
 from typing import Any
 
 from gtm_configuration_facts import parameter_static_values
-from gtm_consent_model import consent_variable_conflicts
+from gtm_consent_model import consent_variable_conflicts, tag_consent_route
 from gtm_lib import (
+    BEHAVIOR_NEUTRAL_FIELDS,
     ID_KEYS,
     SEMANTIC_LAYERS,
+    behavior_projection,
     comparable,
+    container_root_path,
     container_version,
     is_system_trigger_reference,
     object_id,
     refs,
     source_descriptor,
+    source_integrity_findings,
     stable_hash,
+    trigger_group_members,
     walk_json_fields,
 )
 from gtm_vendor_registry import vendor_record
 
-COMMON_IGNORED = {"accountId", "containerId", "fingerprint", "path"}
+COMMON_IGNORED = set(BEHAVIOR_NEUTRAL_FIELDS)
 IDENTITY_IGNORED = {
     **{layer: COMMON_IGNORED | {ID_KEYS[layer], "name"} for layer in SEMANTIC_LAYERS},
 }
 TAG_ROUTE_FIELDS = {
     "firingTriggerId",
     "blockingTriggerId",
+    "setupTag",
+    "teardownTag",
+    "tagFiringOption",
+    "priority",
+    "liveOnly",
+    "paused",
     "parentFolderId",
     "notes",
     "scheduleStartMs",
     "scheduleEndMs",
+    "monitoringMetadata",
+    "monitoringMetadataTagNameKey",
+    "consentSettings",
+    "malwareDisabled",
 }
 DESTINATION_KEY_RE = re.compile(
     r"(?:measurement|property|pixel|advertiser|conversion|destination|tag|account).*id$",
@@ -66,6 +81,8 @@ GENERIC_CONFIG_TOKENS = {
     "boolean",
     "false",
     "integer",
+    "http",
+    "https",
     "list",
     "map",
     "metadata",
@@ -105,6 +122,22 @@ NAME_SYNONYMS = {
     "basket": "cart",
     "panier": "cart",
 }
+BUSINESS_EVENT_SYNONYMS = {
+    "achat": "purchase",
+    "completepayment": "purchase",
+    "completepurchase": "purchase",
+    "ordercomplete": "purchase",
+    "ordercompleted": "purchase",
+    "purchase": "purchase",
+    "transaction": "purchase",
+}
+CUSTOM_CODE_EVENT_PATTERNS = (
+    re.compile(r"\bfbq\s*\(\s*['\"](?:track|trackCustom)['\"]\s*,\s*['\"]([^'\"]+)", re.I),
+    re.compile(r"\bttq\s*\.\s*track\s*\(\s*['\"]([^'\"]+)", re.I),
+    re.compile(r"\bgtag\s*\(\s*['\"]event['\"]\s*,\s*['\"]([^'\"]+)", re.I),
+    re.compile(r"\bsnaptr\s*\(\s*['\"]track['\"]\s*,\s*['\"]([^'\"]+)", re.I),
+    re.compile(r"\bpintrk\s*\(\s*['\"]track['\"]\s*,\s*['\"]([^'\"]+)", re.I),
+)
 DIMENSIONS_BY_LAYER = {
     "tag": [
         "purpose",
@@ -116,6 +149,13 @@ DIMENSIONS_BY_LAYER = {
     ],
     "trigger": ["purpose", "configuration", "execution_scope", "consumers"],
     "variable": ["purpose", "configuration", "consumers", "output_payload"],
+    "zone": [
+        "purpose",
+        "configuration",
+        "execution_scope",
+        "consumers",
+        "consent_sequence",
+    ],
     "customTemplate": [
         "purpose",
         "configuration",
@@ -124,6 +164,14 @@ DIMENSIONS_BY_LAYER = {
         "consent_sequence",
     ],
     "client": [
+        "purpose",
+        "configuration",
+        "execution_scope",
+        "consumers",
+        "output_payload",
+        "consent_sequence",
+    ],
+    "gtagConfig": [
         "purpose",
         "configuration",
         "execution_scope",
@@ -147,13 +195,23 @@ DISCOVERY_METHOD_BY_COMPARISON_TYPE = {
     "same_vendor_destination_event": "consumer_destination_and_event_overlap",
     "same_vendor_event_family": "consumer_destination_and_event_overlap",
     "cross_vendor_event_family": "consumer_destination_and_event_overlap",
+    "cross_vendor_consent_route_review": "consent_sequence_and_server_route_conflicts",
+    "shared_configured_destination": "consumer_destination_and_event_overlap",
+    "shared_destination_consent_inheritance_review": "consent_sequence_and_server_route_conflicts",
+    "browser_server_event_route_family": "consumer_destination_and_event_overlap",
+    "browser_server_consent_deduplication_review": "consent_sequence_and_server_route_conflicts",
+    "browser_server_terminal_source_review": "terminal_source_formula_and_output_overlap",
+    "shared_zone_child_container": "normalized_condition_and_route_variants",
     "shared_execution_trigger": "normalized_condition_and_route_variants",
     "related_trigger_scope_tag_family": "funnel_question_market_and_product_families",
     "multi_firing_route_consolidation_review": "normalized_condition_and_route_variants",
     "semantic_name_family_candidate": "semantic_name_and_business_term_variants",
     "shared_terminal_source": "terminal_source_formula_and_output_overlap",
     "shared_input_variable_logic": "terminal_source_formula_and_output_overlap",
+    "shared_business_event_input": "terminal_source_formula_and_output_overlap",
     "different_consent_purposes_same_logic": "consent_sequence_and_server_route_conflicts",
+    "consent_sequence_server_route_variant": "consent_sequence_and_server_route_conflicts",
+    "cyclic_trigger_group_dependency": "normalized_condition_and_route_variants",
     "equivalent_custom_code": "terminal_source_formula_and_output_overlap",
     "equivalent_trigger_conditions": "normalized_condition_and_route_variants",
     "near_equivalent_trigger_conditions": "normalized_condition_and_route_variants",
@@ -196,13 +254,19 @@ def logic_anchors(obj: dict[str, Any], source_path: str) -> list[str]:
         for field in (
             "accountId",
             "containerId",
+            "workspaceId",
             "fingerprint",
             "path",
+            "tagManagerUrl",
+            "notes",
+            "parentFolderId",
             "tagId",
             "triggerId",
             "variableId",
             "templateId",
             "clientId",
+            "zoneId",
+            "gtagConfigId",
             "transformationId",
             "name",
         )
@@ -215,35 +279,64 @@ def logic_anchors(obj: dict[str, Any], source_path: str) -> list[str]:
 
 
 def config_specificity_tokens(obj: dict[str, Any]) -> list[str]:
-    tokens = {
+    semantic = {
+        key: value
+        for key, value in behavior_projection(obj).items()
+        if key not in {*ID_KEYS.values(), "name"}
+    }
+    reference_tokens = {
         normalized_text(reference)
-        for reference in refs(obj)
+        for reference in refs(semantic)
         if len(normalized_text(reference)) >= 4
     }
-    for parameter in as_list(obj.get("parameter")):
+    parameter_tokens: set[str] = set()
+    for parameter in as_list(semantic.get("parameter")):
         key = normalized_text(parameter.get("key"))
         if len(key) >= 4 and key not in GENERIC_CONFIG_TOKENS:
-            tokens.add(key)
-    for fact in walk_json_fields(obj):
+            parameter_tokens.add(key)
+    serialized = json.dumps(semantic, ensure_ascii=False)
+    host_tokens: set[str] = set()
+    for match in re.finditer(r"https?://([^/\s\"'<>]+)", serialized, re.I):
+        host = normalized_text(match.group(1).rsplit("@", 1)[-1])
+        if host:
+            host_tokens.add(host)
+    preview_tokens: set[str] = set()
+    for fact in walk_json_fields(semantic):
         preview = str(fact.get("value_preview") or "")
         for token in re.findall(r"[A-Za-z][A-Za-z0-9_.-]{3,}", preview):
             normalized = normalized_text(token)
-            if normalized not in GENERIC_CONFIG_TOKENS and "@" not in normalized:
-                tokens.add(normalized)
-    if not tokens:
-        tokens.update(
+            if (
+                normalized not in GENERIC_CONFIG_TOKENS
+                and normalized.rstrip(".") not in {"http", "https"}
+                and "@" not in normalized
+            ):
+                preview_tokens.add(normalized)
+    ordered_tokens: list[str] = []
+    for group in (
+        host_tokens,
+        reference_tokens,
+        parameter_tokens,
+        preview_tokens,
+    ):
+        for token in sorted(group):
+            if token and token not in ordered_tokens:
+                ordered_tokens.append(token)
+    if not ordered_tokens:
+        ordered_tokens.extend(
             normalized_text(token)
             for token in re.findall(r"[A-Za-z][A-Za-z0-9_.-]{3,}", str(obj.get("name") or ""))
         )
-    return sorted(token for token in tokens if token)[:60]
+    return ordered_tokens[:60]
 
 
-def object_records(cv: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def object_records(
+    cv: dict[str, Any], root_path: str = "$.containerVersion"
+) -> dict[str, list[dict[str, Any]]]:
     records: dict[str, list[dict[str, Any]]] = {}
     for layer in SEMANTIC_LAYERS:
         layer_records = []
         for index, obj in enumerate(as_list(cv.get(layer))):
-            source_path = f"$.containerVersion.{layer}[{index}]"
+            source_path = f"{root_path}.{layer}[{index}]"
             layer_records.append(
                 {
                     "layer": layer,
@@ -253,7 +346,8 @@ def object_records(cv: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
                     "object_id": object_id(obj, ID_KEYS[layer]),
                     "object_name": str(obj.get("name") or ""),
                     "object_type": str(
-                        obj.get("type") or ("customTemplate" if layer == "customTemplate" else "")
+                        obj.get("type")
+                        or (layer if layer in {"customTemplate", "zone", "gtagConfig"} else "")
                     ),
                     "paused": bool(obj.get("paused")) if layer == "tag" else False,
                     "config_hash": object_hash(obj),
@@ -334,10 +428,21 @@ def tag_contract(record: dict[str, Any]) -> dict[str, Any]:
             if normalized_text(value) not in GENERIC_EVENT_VALUES
         }
     )
-    events = resolved_events or primary_events or secondary_events
+    code_events = sorted(
+        {
+            normalized_text(match.group(1))
+            for pattern in CUSTOM_CODE_EVENT_PATTERNS
+            for match in pattern.finditer(custom_code(obj))
+            if normalized_text(match.group(1)) not in GENERIC_EVENT_VALUES
+        }
+    )
+    events = sorted(set(resolved_events or primary_events or secondary_events) | set(code_events))
     if not events:
         return {}
-    vendor = str(vendor_record(json.dumps(obj, ensure_ascii=False)).get("name") or "")
+    vendor = str(
+        vendor_record(json.dumps(behavior_projection(obj), ensure_ascii=False)).get("name")
+        or ""
+    )
     return {
         "vendor": vendor,
         "type": record["object_type"],
@@ -367,7 +472,18 @@ def tag_event_family_key(record: dict[str, Any]) -> str:
 
 def tag_business_event_key(record: dict[str, Any]) -> str:
     contract = tag_contract(record)
-    return json.dumps(contract.get("events"), sort_keys=True) if contract else ""
+    if not contract:
+        return ""
+    events = sorted(
+        {
+            BUSINESS_EVENT_SYNONYMS.get(
+                re.sub(r"[^a-z0-9]+", "", normalized_text(value)),
+                normalized_text(value),
+            )
+            for value in as_list(contract.get("events"))
+        }
+    )
+    return json.dumps(events, sort_keys=True) if events else ""
 
 
 def custom_code(obj: dict[str, Any]) -> str:
@@ -532,7 +648,14 @@ class CandidateBuilder:
                 "similarity_score": 0.0,
                 "required_comparison_dimensions": DIMENSIONS_BY_LAYER.get(
                     layer,
-                    ["purpose", "configuration", "execution_scope", "consumers"],
+                    [
+                        "purpose",
+                        "configuration",
+                        "execution_scope",
+                        "consumers",
+                        "output_payload",
+                        "consent_sequence",
+                    ],
                 ),
             }
             self._candidates[member_keys] = current
@@ -636,6 +759,13 @@ def add_tag_family_candidates(builder: CandidateBuilder, tags: list[dict[str, An
             f"{json.loads(key)!r} across vendor implementations.",
             0.75,
         )
+        builder.add(
+            "cross_vendor_consent_route_review",
+            group,
+            "Cross-vendor delivery of one business event requires an explicit comparison of "
+            "consent ownership, browser/server routing, and deduplication responsibility.",
+            0.75,
+        )
 
     tags_by_trigger: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in tags:
@@ -655,6 +785,197 @@ def add_tag_family_candidates(builder: CandidateBuilder, tags: list[dict[str, An
             group,
             f"Tags share non-system firing trigger {trigger_id} and overlap on that execution path.",
             0.8,
+        )
+
+
+def add_consent_sequence_candidates(
+    builder: CandidateBuilder,
+    tags: list[dict[str, Any]],
+    variables: list[dict[str, Any]],
+) -> None:
+    for key, group in keyed_record_groups(tags, tag_contract_key):
+        signatures: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        routes: dict[str, dict[str, Any]] = {}
+        for record in group:
+            obj = record["object"]
+            consent = tag_consent_route(obj, variables=variables)
+            route = {
+                "firing": sorted(str(value) for value in as_list(obj.get("firingTriggerId"))),
+                "blocking": sorted(
+                    str(value) for value in as_list(obj.get("blockingTriggerId"))
+                ),
+                "setup": as_list(obj.get("setupTag")),
+                "teardown": as_list(obj.get("teardownTag")),
+                "schedule_start": obj.get("scheduleStartMs"),
+                "schedule_end": obj.get("scheduleEndMs"),
+                "firing_option": obj.get("tagFiringOption"),
+                "consent_status": consent.get("consent_status"),
+                "effective_control": consent.get("effective_control_status"),
+                "server_hosts": as_list(consent.get("server_routing_hosts")),
+                "forwarded_purposes": as_list(
+                    consent.get("forwarded_consent_purposes")
+                ),
+            }
+            route_hash = stable_hash(route)
+            signatures[route_hash].append(record)
+            routes[route_hash] = route
+        if len(signatures) < 2:
+            continue
+        contract = json.loads(key)
+        builder.add(
+            "consent_sequence_server_route_variant",
+            group,
+            "Tags share vendor, destination, and event contract "
+            f"{contract!r} but expose different execution/consent/server-route signatures "
+            f"{routes!r}; compare the routes before consolidation or retention.",
+            0.95,
+        )
+
+
+def configured_destinations(record: dict[str, Any]) -> list[str]:
+    return sorted(
+        {
+            normalized_text(value)
+            for key, value in nested_key_values(record["object"].get("parameter", []))
+            if (
+                DESTINATION_KEY_RE.search(normalized_text(key))
+                or normalized_text(key) == "conversionlabel"
+            )
+            and str(value).strip()
+        }
+    )
+
+
+def add_destination_candidates(
+    builder: CandidateBuilder, records: dict[str, list[dict[str, Any]]]
+) -> None:
+    destination_objects = records.get("tag", []) + records.get("gtagConfig", [])
+    for key, group in keyed_record_groups(
+        destination_objects,
+        lambda record: json.dumps(configured_destinations(record))
+        if configured_destinations(record)
+        else "",
+    ):
+        builder.add(
+            "shared_configured_destination",
+            group,
+            f"Objects share configured destination values {json.loads(key)!r}; compare "
+            "configuration ownership, event role, routing, and consent inheritance.",
+            0.9,
+        )
+        builder.add(
+            "shared_destination_consent_inheritance_review",
+            group,
+            "Objects sharing one configured destination require an explicit comparison of "
+            "consent inheritance and execution ownership.",
+            0.9,
+        )
+
+
+def add_shared_business_input_candidates(
+    builder: CandidateBuilder, tags: list[dict[str, Any]]
+) -> None:
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for record in tags:
+        event_key = tag_business_event_key(record)
+        if not event_key:
+            continue
+        for reference in sorted(refs(record["object"])):
+            groups[(event_key, normalized_text(reference))].append(record)
+    for (event_key, reference), group in sorted(groups.items()):
+        if len({record["object_key"] for record in group}) < 2:
+            continue
+        builder.add(
+            "shared_business_event_input",
+            group,
+            f"Tags delivering business event family {json.loads(event_key)!r} read shared "
+            f"GTM input {reference!r}; compare source ownership, transformations, and output use.",
+            0.8,
+        )
+
+
+def add_browser_server_route_candidates(
+    builder: CandidateBuilder, records: dict[str, list[dict[str, Any]]]
+) -> None:
+    tags = records.get("tag", [])
+    for config in records.get("gtagConfig", []):
+        destinations = set(configured_destinations(config))
+        if not destinations:
+            continue
+        server_values = [
+            value
+            for key, value in nested_key_values(config["object"].get("parameter", []))
+            if normalized_text(key) in {"server_container_url", "transport_url"}
+            and str(value).strip()
+        ]
+        if not server_values:
+            continue
+        seed_tags = [
+            tag for tag in tags if destinations & set(configured_destinations(tag))
+        ]
+        business_events = {
+            tag_business_event_key(tag)
+            for tag in seed_tags
+            if tag_business_event_key(tag)
+        }
+        for event_key in sorted(business_events):
+            event_tags = [tag for tag in tags if tag_business_event_key(tag) == event_key]
+            if len(event_tags) < 2:
+                continue
+            members = [config, *event_tags]
+            server_hosts = sorted(
+                {
+                    match.group(1).rsplit("@", 1)[-1].lower()
+                    for value in server_values
+                    for match in re.finditer(r"https?://([^/\s\"'<>]+)", value, re.I)
+                }
+            )
+            basis = (
+                f"Google tag configuration {config['object_key']} routes destination(s) "
+                f"{sorted(destinations)!r} toward server host(s) {server_hosts!r}, while tags "
+                f"{[tag['object_key'] for tag in event_tags]!r} deliver business event family "
+                f"{json.loads(event_key)!r}; compare browser/server duplication and ownership."
+            )
+            builder.add("browser_server_event_route_family", members, basis, 0.95)
+            builder.add(
+                "browser_server_consent_deduplication_review",
+                members,
+                "The browser/server event family requires one explicit decision for consent "
+                "enforcement, downstream routing, event_id or transaction_id deduplication, "
+                "and the system of record.",
+                0.95,
+            )
+            builder.add(
+                "browser_server_terminal_source_review",
+                members,
+                "The browser/server family must compare the terminal transaction_id, event_id, "
+                "value, currency, and item sources used for downstream payload and deduplication.",
+                0.95,
+            )
+
+
+def add_zone_candidates(builder: CandidateBuilder, zones: list[dict[str, Any]]) -> None:
+    for key, group in keyed_record_groups(
+        zones,
+        lambda record: json.dumps(
+            sorted(
+                {
+                    str(child.get("publicId") or "").strip()
+                    for child in as_list(record["object"].get("childContainer"))
+                    if isinstance(child, dict) and str(child.get("publicId") or "").strip()
+                }
+            )
+        ),
+    ):
+        child_ids = json.loads(key)
+        if not child_ids:
+            continue
+        builder.add(
+            "shared_zone_child_container",
+            group,
+            f"Zones govern the same child container set {child_ids!r}; compare boundaries, "
+            "type restrictions, and ownership before retaining both.",
+            1.0,
         )
 
 
@@ -916,14 +1237,61 @@ def add_trigger_candidates(builder: CandidateBuilder, triggers: list[dict[str, A
         )
 
 
-def relationship_candidates(cv: dict[str, Any]) -> list[dict[str, Any]]:
-    records = object_records(cv)
+def add_trigger_group_cycle_candidates(
+    builder: CandidateBuilder, triggers: list[dict[str, Any]]
+) -> None:
+    groups = {
+        str(record["object_id"]): record
+        for record in triggers
+        if record["object_type"] == "TRIGGER_GROUP"
+    }
+    reported: set[tuple[str, ...]] = set()
+
+    def visit(current: str, active: tuple[str, ...]) -> None:
+        if current in active:
+            cycle = active[active.index(current) :] + (current,)
+            identity = tuple(sorted(set(cycle[:-1])))
+            if len(identity) < 2 or identity in reported:
+                return
+            reported.add(identity)
+            builder.add(
+                "cyclic_trigger_group_dependency",
+                [groups[value] for value in identity],
+                "Trigger groups form the cyclic dependency " + " -> ".join(cycle) + ".",
+                1.0,
+            )
+            return
+        record = groups.get(current)
+        if not record:
+            return
+        for child in trigger_group_members(record["object"]):
+            if str(child) in groups:
+                visit(str(child), (*active, current))
+
+    for trigger_id in sorted(groups):
+        visit(trigger_id, ())
+
+
+def relationship_candidates(
+    cv: dict[str, Any], root_path: str = "$.containerVersion"
+) -> list[dict[str, Any]]:
+    records = object_records(cv, root_path)
     builder = CandidateBuilder()
     add_exact_candidates(builder, records)
     add_tag_family_candidates(builder, records.get("tag", []))
+    add_shared_business_input_candidates(builder, records.get("tag", []))
+    add_consent_sequence_candidates(
+        builder,
+        records.get("tag", []),
+        [record["object"] for record in records.get("variable", [])],
+    )
+    add_destination_candidates(builder, records)
+    add_browser_server_route_candidates(builder, records)
+    add_zone_candidates(builder, records.get("zone", []))
     add_variable_candidates(builder, records.get("variable", []))
     add_code_candidates(builder, records)
     add_trigger_candidates(builder, records.get("trigger", []))
+    add_trigger_group_cycle_candidates(builder, records.get("trigger", []))
     add_tag_trigger_scope_candidates(
         builder,
         records.get("tag", []),
@@ -940,7 +1308,20 @@ def relationship_candidates(cv: dict[str, Any]) -> list[dict[str, Any]]:
 
 def scan_export(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    rows = relationship_candidates(container_version(data))
+    blocking_integrity = [
+        row for row in source_integrity_findings(data) if row.get("blocking")
+    ]
+    if blocking_integrity:
+        raise ValueError(
+            "source integrity gate blocked relationship discovery: "
+            + ", ".join(
+                sorted(
+                    str(row.get("finding_type") or "source_integrity_error")
+                    for row in blocking_integrity
+                )
+            )
+        )
+    rows = relationship_candidates(container_version(data), container_root_path(data))
     return {
         **source_descriptor(path),
         "kind": "gtm_relationship_comparison_candidates",

@@ -46,6 +46,13 @@ hidden proof tabs as well as visible tabs.
 
 The before/after diff is authoritative. Never invent a change log from the plan.
 
+Before diffing, validate both before and after sources as complete
+ContainerVersion artifacts. Block the change log on malformed or unmodeled
+entity layers, missing IDs, or duplicate IDs; positional matching or
+first/last-wins identity would create false attribution. Diff every modeled
+layer, including built-ins, folders, templates, clients, transformations,
+Zones, and Google tag configurations, even when only some layers changed.
+
 Approval linkage is field-specific, not object-specific. Replay approved
 operations in order and link only an exact layer, object ID, action, field path,
 before value, and after value. An unexpected field on an object that also has an

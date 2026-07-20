@@ -47,20 +47,56 @@ copied or stale hash is not enough to pass.
 
 1. **Operational sanitation** checks references, unused and paused-only
    objects, exact duplicates, trigger groups, regex and blocker defects,
-   sequencing, folders, templates, built-ins, naming, and lifecycle hygiene.
+   sequencing, schedules, folders, Zones, templates, built-ins, naming,
+   consent-control shape, and active-root lifecycle hygiene. Remediation for a
+   nested/cyclic trigger group is dependency-ordered, never a blind flatten.
+   Payload comparison deliberately excludes route, consent, sequencing,
+   schedule, and firing controls so equal payloads on conflicting routes remain
+   visible; deleting a consumed object requires complete remap coverage.
 2. **Configuration correctness** reviews every tag, trigger, variable,
-   template, client, and transformation. It follows every referenced variable
-   to its terminal source, checks every configuration branch, inspects every
-   exported custom-code line, and tests applicable vendor contracts.
+   Zone, template, client, Google tag configuration, and transformation. It
+   follows every referenced variable to every possible terminal source, checks
+   every configuration branch, inspects every exported custom-code line, and
+   tests all matched and unknown-host vendor contracts. UI/export metadata is
+   excluded from host inference, and recognized transport endpoints stay in the
+   server-routing contract. Cross-object trigger/sequence conditions, empty
+   structures, destination peers, and downstream consumer-event fields remain
+   citeable D3 evidence, including peer server/type/consent state without
+   assuming destination inheritance. Decisive malformed/missing/cyclic source
+   states create locked Issue/Unclear obligations across branches, D3,
+   contracts, defects, and the overall verdict; duplicate review identities
+   fail rather than overwrite. GA4 purchase/refund reviews include
+   explicit transaction-ID obligations. Opaque custom templates and incomplete
+   parser coverage cannot be certified as Correct; parser fallback describes
+   every individual code segment, not merely its hashes, and cannot invert a
+   source-proven send, request, DOM/script effect, dataLayer/storage action, or
+   return while citing the right tokens. Source-proven health/security signals
+   require a finding, concrete proposed action, evidence-bound exception basis,
+   or source-specific owner question; relabeling the verdict is not resolution.
+   A confirmed technical issue links to exactly one concrete defect.
 3. **Business architecture** compares complete execution chains and business
    families. It finds functional overlap, conflicting funnel logic, duplicate
-   destinations, unnecessary variants, and missed consolidation that exact
-   matching cannot reveal.
+   destinations, Zones governing the same child container, unnecessary
+   variants, trigger-group cycles, custom-code business events, route/consent
+   variants, browser/server event-destination-consent families, unresolved
+   chain edges, and missed consolidation that exact matching cannot reveal.
+   Visible unsafe relationships cannot be retained or hidden behind a generic
+   container-evidence limit without a candidate-bound operation or precise,
+   relationship-specific owner decision. No-op and object/path-mismatched
+   operations do not count. Missing runtime deduplication or consent-parity
+   proof stays explicitly unproven and cannot be restated as guaranteed,
+   identical, synchronized, verified, or equivalent.
 
 The third review also performs an open discovery pass. This catches objects
 that look different but serve the same funnel step, use the same terminal data,
 send the same business event, or apply conflicting consent logic. Machine-made
 candidate lists are the starting point, not the boundary of the audit.
+Every added discovery declares a mapped comparison type, is attributed to
+suitable locked methods, and inherits any deterministic unsafe-class policy
+across candidate subsets/supersets or from its own declared unsafe type.
+Retention must cite how every member actually differs; verdicts, dispositions,
+owner questions, and zero-discovery attestations are validated as one coherent
+decision rather than independent form fields.
 
 Only after all three validators pass are their approved actions reconciled and
 simulated against a future copy of the container.
@@ -74,10 +110,15 @@ logic check in an exact, source-ordered obligation manifest.
 
 ## Inputs
 
-The normal input is a complete GTM container export JSON. Equivalent complete,
+The normal input is a complete GTM container export JSON. Source identity,
+entity layers, IDs, and shapes are checked before any semantic scaffold is
+built; ambiguous or unmodelled identity blocks all three reviews. Equivalent complete,
 read-only GTM API or UI configuration evidence is also supported. Website,
 business model, ecommerce, market, CMP, media, and server-routing context help
 interpret the configuration.
+Business inference uses only behavior reachable from active/configured roots.
+Orphan logic remains an audit target but cannot redefine the business model,
+and a server transport URL is not treated as proof of Google tag gateway.
 
 A web container can be reviewed for the browser-to-server routing visible in
 its export. Transport tags do not need separate client-side blockers when the
@@ -85,6 +126,8 @@ web configuration demonstrably forwards the required consent state for
 server-side enforcement. The audit checks that forwarding contract and keeps
 the unseen server behavior outside its verdict. The receiving server container
 requires its own complete export for a server-side audit.
+Consent-like names/events and arbitrary blockers are only candidates; proof of
+forwarding requires both a server route and a behavior-bearing payload chain.
 
 ## Outputs
 
@@ -111,15 +154,18 @@ without approval, or publish a GTM version.
 ## Install
 
 Python 3.11+ provides deterministic scaffolds and gates. `openpyxl` creates XLSX
-files; optional `esprima` adds JavaScript parser facts.
+files; optional `esprima` adds JavaScript parser facts. If parser coverage is
+unavailable or fails for a code block, the configuration review receives a
+mandatory evidence-limit obligation and cannot silently treat empty AST facts
+as a clean result.
 
 ```powershell
 python -m pip install -e ".[analysis,dev]"
 ```
 
-The full audit requires the deterministic Python pipeline. Without it, an agent
-may provide only a clearly labelled limited advisory after the user accepts the
-reduced assurance; it must not claim that the complete audit gates passed.
+The full audit requires the deterministic Python pipeline and complete
+container evidence. If either is unavailable, report the audit as blocked and
+request the missing prerequisite; there is no reduced audit mode.
 
 ## Start An Audit
 

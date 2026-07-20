@@ -20,8 +20,12 @@ from gtm_review_common import (
     canonical_review_facts,
     object_consumer_map,
     object_keys,
+    object_name_map,
+    object_source_path_map,
+    precise_question,
     specific_text,
     validate_challenge,
+    validate_operation_set,
     validate_structured_actions,
 )
 from gtm_shared_facts import build_shared_facts
@@ -63,6 +67,78 @@ DECISION_FIELDS = {
     "owner_question",
     "challenge_review",
 }
+
+MANDATORY_OPERATIONAL_MODULES = (
+    "source_integrity",
+    "inventory",
+    "destination_inventory",
+    "recognized_system_references",
+    "missing_references",
+    "duplicate_tag_names",
+    "duplicate_trigger_names",
+    "duplicate_variable_names",
+    "duplicate_folder_names",
+    "duplicate_zone_names",
+    "duplicate_custom_template_names",
+    "duplicate_client_names",
+    "duplicate_transformation_names",
+    "duplicate_tag_configurations",
+    "normalized_duplicate_tag_signatures",
+    "duplicate_trigger_logic",
+    "duplicate_variable_logic",
+    "duplicate_zone_configurations",
+    "duplicate_google_tag_configurations",
+    "duplicate_client_configurations",
+    "duplicate_transformation_configurations",
+    "duplicate_custom_template_configurations",
+    "duplicate_variable_paths",
+    "outdated_ua_styled_setup_objects",
+    "unused_variables",
+    "unused_triggers",
+    "tags_without_firing_triggers",
+    "unused_custom_templates",
+    "unused_folders",
+    "paused_tags",
+    "used_only_by_paused_tags",
+    "tag_sequence_structure",
+    "tag_execution_controls",
+    "single_member_trigger_groups",
+    "trigger_group_structure",
+    "zone_structure",
+    "duplicate_custom_code",
+    "variables_mirroring_builtins",
+    "custom_variable_formula_logic",
+    "consent_variable_logic",
+    "media_tag_consent_route",
+    "trigger_condition_lint",
+    "ineffective_blocking_triggers",
+    "unfiled_objects",
+    "singleton_folders",
+    "overloaded_folders",
+    "name_hygiene",
+    "naming_architecture_standardization",
+)
+
+
+def mandatory_module_errors(scan: dict[str, Any]) -> list[str]:
+    rows = as_list(scan.get("modules"))
+    names = [str(row.get("module_name") or "") for row in rows]
+    errors: list[str] = []
+    missing = sorted(set(MANDATORY_OPERATIONAL_MODULES) - set(names))
+    duplicate = sorted(name for name in set(names) if name and names.count(name) > 1)
+    if missing:
+        errors.append("mandatory operational modules missing: " + ", ".join(missing))
+    if duplicate:
+        errors.append("duplicate operational module results: " + ", ".join(duplicate))
+    for row in rows:
+        name = str(row.get("module_name") or "")
+        if name not in MANDATORY_OPERATIONAL_MODULES:
+            continue
+        if row.get("module_status") not in {"findings", "zero_findings"}:
+            errors.append(f"mandatory operational module {name} has no closed status")
+        if not isinstance(row.get("objects_scanned"), int) or row.get("objects_scanned", -1) < 0:
+            errors.append(f"mandatory operational module {name} has invalid source count")
+    return errors
 
 
 def matching_owner_exception(
@@ -128,6 +204,15 @@ def scaffold_review(
         for row in as_list(shared_facts.get("objects"))
     }
     scan = audit_export(export_path)
+    if scan.get("run_status") != "complete":
+        finding_types = sorted(
+            str(row.get("finding_type") or "source_integrity_error")
+            for row in as_list(scan.get("blocking_source_findings"))
+        )
+        raise ValueError(
+            "source integrity gate blocked operational review"
+            + (": " + ", ".join(finding_types) if finding_types else "")
+        )
     findings = []
     for finding in as_list(scan.get("findings")):
         if finding.get("finding_type") == "zero_findings":
@@ -251,6 +336,11 @@ def validate_review_identity(
             expected.get("unresolved_context_questions"),
             "unresolved context questions changed",
         ),
+        (
+            "module_results",
+            expected.get("module_results"),
+            "mandatory module results differ from the source scan",
+        ),
         ("run_status", "complete", "run_status must be complete"),
     )
     return [
@@ -372,6 +462,7 @@ def validate_cleanup_operation(
     operation_keys: dict[str, str],
     valid_keys: set[str],
     expected_consumers: dict[str, set[str]],
+    source_paths_by_key: dict[str, str],
     label: str,
 ) -> tuple[list[str], list[str]]:
     errors, warnings = register_operation_key(row, finding_id, operation_keys, label)
@@ -396,7 +487,15 @@ def validate_cleanup_operation(
     if row.get("execution_readiness") not in VALID_READINESS:
         errors.append(f"{label}: execution_readiness is invalid")
     errors.extend(taxonomy_errors(row.get("area"), row.get("problem_type"), label))
-    errors.extend(validate_structured_actions(row, valid_keys, label, expected_consumers))
+    errors.extend(
+        validate_structured_actions(
+            row,
+            valid_keys,
+            label,
+            expected_consumers,
+            source_paths_by_key,
+        )
+    )
     errors.extend(validate_challenge(row, label))
     return errors, warnings
 
@@ -413,7 +512,7 @@ def validate_non_operation(row: dict[str, Any], label: str) -> list[str]:
     )
     if any(as_list(row.get(field)) for field in mutation_fields):
         errors.append(f"{label}: non-operation disposition cannot contain mutations")
-    if row.get("disposition") == "owner_decision_needed" and not specific_text(
+    if row.get("disposition") == "owner_decision_needed" and not precise_question(
         row.get("owner_question"), 5
     ):
         errors.append(f"{label}: owner decision requires one precise owner question")
@@ -427,6 +526,7 @@ def validate_finding_decision(
     operation_keys: dict[str, str],
     valid_keys: set[str],
     expected_consumers: dict[str, set[str]],
+    source_paths_by_key: dict[str, str],
 ) -> tuple[list[str], list[str]]:
     finding_id = str(expected_row.get("finding_id") or "")
     label = f"finding {finding_id}"
@@ -442,6 +542,7 @@ def validate_finding_decision(
             operation_keys,
             valid_keys,
             expected_consumers,
+            source_paths_by_key,
             label,
         )
         errors.extend(operation_errors)
@@ -456,9 +557,12 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
     expected = scaffold_review(export_path, expected_shared)
     errors: list[str] = []
     warnings: list[str] = []
+    errors.extend(mandatory_module_errors(audit_export(export_path)))
     descriptor = source_descriptor(export_path)
     valid_keys = object_keys(export_path)
     expected_consumers = object_consumer_map(export_path)
+    object_names = object_name_map(export_path)
+    source_paths_by_key = object_source_path_map(export_path)
 
     errors.extend(
         validate_review_identity(
@@ -479,9 +583,24 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             operation_keys,
             valid_keys,
             expected_consumers,
+            source_paths_by_key,
         )
         errors.extend(finding_errors)
         warnings.extend(finding_warnings)
+    cleanup_rows = [
+        row
+        for row in supplied_by_id.values()
+        if row.get("disposition") == "cleanup_operation"
+    ]
+    errors.extend(
+        validate_operation_set(
+            cleanup_rows,
+            valid_keys,
+            expected_consumers,
+            object_names,
+            "operational review operation set",
+        )
+    )
     return errors, warnings
 
 

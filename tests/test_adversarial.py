@@ -29,6 +29,7 @@ from gtm_operational_review import validate_review as validate_operational
 from gtm_relationships import relationship_candidates
 from gtm_review_shards import merge_review, split_review
 from gtm_three_run_gate import run_gate
+from gtm_vendor_registry import vendor_records
 
 
 class AdversarialAuditTests(unittest.TestCase):
@@ -53,10 +54,45 @@ class AdversarialAuditTests(unittest.TestCase):
             )
         )
         case_ids = {row["id"] for row in manifest["cases"]}
-        self.assertEqual(12, len(case_ids))
+        self.assertEqual(51, len(case_ids))
         self.assertIn("single_member_trigger_group", case_ids)
         self.assertIn("dynamic_ga4_purchase_contract", case_ids)
         self.assertIn("worsened_future_finding", case_ids)
+        self.assertIn("ambiguous_source_identity", case_ids)
+        self.assertIn("zone_and_google_tag_config_coverage", case_ids)
+        self.assertIn("behavior_change_architecture_conflict", case_ids)
+        self.assertIn("duplicate_reference_name_ambiguity", case_ids)
+        self.assertIn("nested_control_shape_corruption", case_ids)
+        self.assertIn("mixed_route_blocker_conservatism", case_ids)
+        self.assertIn("zone_gtag_change_log", case_ids)
+        self.assertIn("javascript_parser_fallback_visibility", case_ids)
+        self.assertIn("mixed_vendor_unknown_host", case_ids)
+        self.assertIn("export_metadata_duplicate_resilience", case_ids)
+        self.assertIn("consent_control_evidence_boundaries", case_ids)
+        self.assertIn("dependency_trace_cross_object_coverage", case_ids)
+        self.assertIn("reachability_context_and_gateway_separation", case_ids)
+        self.assertIn("architecture_verdict_coherence", case_ids)
+        self.assertIn("transaction_id_contract_presence", case_ids)
+        self.assertIn("custom_code_representation_safety", case_ids)
+        self.assertIn("same_payload_different_route", case_ids)
+        self.assertIn("same_contract_consent_collision", case_ids)
+        self.assertIn("consumed_delete_remap_coverage", case_ids)
+        self.assertIn("deterministic_configuration_contradiction", case_ids)
+        self.assertIn("exact_parser_fallback_attestation", case_ids)
+        self.assertIn("opaque_custom_template_boundary", case_ids)
+        self.assertIn("browser_server_consent_dedup_family", case_ids)
+        self.assertIn("unsafe_architecture_retention", case_ids)
+        self.assertIn("visible_relationship_evidence_boundary", case_ids)
+        self.assertIn("dependency_safe_remap_semantics", case_ids)
+        self.assertIn("final_layer_name_uniqueness", case_ids)
+        self.assertIn("configuration_obligation_identity_and_polarity", case_ids)
+        self.assertIn("exact_once_configuration_rows", case_ids)
+        self.assertIn("parser_segment_semantic_coverage", case_ids)
+        self.assertIn("unknown_vendor_source_registry_boundary", case_ids)
+        self.assertIn("destination_peer_inheritance_boundary", case_ids)
+        self.assertIn("architecture_operation_candidate_binding", case_ids)
+        self.assertIn("discovered_unsafe_policy_attribution", case_ids)
+        self.assertIn("architecture_negative_runtime_claims", case_ids)
 
     def test_provided_context_is_reproducible_and_tamper_evident(self) -> None:
         context_path = self.write_json(
@@ -270,6 +306,46 @@ class AdversarialAuditTests(unittest.TestCase):
         )
         self.assertTrue(any("placeholder" in error for error in errors))
 
+        research_check["source"] = "https://metricsvendor.unrelated.org/official/setup"
+        errors, _ = validate_configuration(
+            export, self.write_json("spoofed-contract.json", review)
+        )
+        self.assertTrue(any("unregistered vendor source" in error for error in errors))
+
+    def test_mixed_vendor_tag_keeps_every_vendor_and_unknown_host_obligation(self) -> None:
+        data = sample_export()
+        data["containerVersion"]["tag"][1]["tagManagerUrl"] = (
+            "https://metadata.example/container/tag/2"
+        )
+        html_parameter = data["containerVersion"]["tag"][1]["parameter"][0]
+        html_parameter["value"] = (
+            "<script src='https://mystery.example/sdk.js'></script>"
+            "<script>fbq('track', 'Purchase'); ttq.track('CompletePayment');</script>"
+        )
+        export = self.write_json("mixed-vendor.json", data)
+        scaffold = scaffold_configuration(export)
+        row = next(item for item in scaffold["rows"] if item["object_key"] == "tag:2")
+        context_names = {item["vendor"] for item in row["vendor_contexts"]}
+        self.assertTrue({"Meta", "TikTok"}.issubset(context_names))
+        self.assertIn(
+            "Unclassified external integration (mystery.example)", context_names
+        )
+        self.assertNotIn(
+            "Unclassified external integration (metadata.example)", context_names
+        )
+        self.assertNotIn("metadata.example", scaffold["audit_context"]["external_hosts"])
+        unknown_topics = [
+            item
+            for item in row["required_contract_topics"]
+            if item["category"] == "unknown_vendor"
+        ]
+        self.assertTrue(unknown_topics)
+        self.assertTrue(all(item["research_required"] for item in unknown_topics))
+        self.assertEqual(
+            {"Meta", "TikTok"},
+            {item["name"] for item in vendor_records(html_parameter["value"])},
+        )
+
     def test_exact_duplicate_cannot_be_silently_kept(self) -> None:
         architecture = complete_architecture(self.export)
         duplicate = next(
@@ -389,6 +465,85 @@ class AdversarialAuditTests(unittest.TestCase):
             {"findings": []}, architecture, [operation]
         )
         self.assertTrue(any("says to keep" in error for error in errors))
+
+    def test_architecture_keep_blocks_behavior_change_but_not_metadata_maintenance(self) -> None:
+        architecture = {
+            "comparisons": [],
+            "families": [
+                {
+                    "family_id": "FAM-KEEP",
+                    "chain_object_keys": ["tag:1", "trigger:10"],
+                    "relationship_verdict": "Intentional variant",
+                    "disposition": "keep",
+                }
+            ],
+        }
+        operation = {
+            "operation_key": "change-event",
+            "source_references": [],
+            "source_runs": ["configuration_correctness"],
+            "creations": [],
+            "additions": [],
+            "changes": [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].parameter[0].value",
+                    "before": "purchase",
+                    "after": "generate_lead",
+                }
+            ],
+            "remaps": [],
+            "renames": [],
+            "deletions": [],
+        }
+        errors = validate_cross_run_reconciliation(
+            {"findings": []}, architecture, [operation]
+        )
+        self.assertTrue(any("changes behavior" in error for error in errors))
+
+        uncovered_errors = validate_cross_run_reconciliation(
+            {"findings": []}, {"comparisons": [], "families": []}, [operation]
+        )
+        self.assertTrue(
+            any("without an aligned business-architecture" in error for error in uncovered_errors)
+        )
+
+        aligned = copy.deepcopy(operation)
+        aligned["source_runs"].append("business_architecture")
+        self.assertEqual(
+            [],
+            validate_cross_run_reconciliation(
+                {"findings": []}, {"comparisons": [], "families": []}, [aligned]
+            ),
+        )
+
+        metadata = copy.deepcopy(operation)
+        metadata["operation_key"] = "update-notes"
+        metadata["changes"][0].update(
+            {
+                "json_path": "$.containerVersion.tag[0].notes",
+                "before": "old owner note",
+                "after": "current owner note",
+            }
+        )
+        metadata_errors = validate_cross_run_reconciliation(
+            {"findings": []}, architecture, [metadata]
+        )
+        self.assertEqual([], metadata_errors)
+
+        creation = copy.deepcopy(operation)
+        creation["operation_key"] = "create-helper"
+        creation["changes"] = []
+        creation["creations"] = [
+            {
+                "layer": "variable",
+                "object": {"variableId": "999", "name": "Constant - EUR", "type": "c"},
+            }
+        ]
+        creation_errors = validate_cross_run_reconciliation(
+            {"findings": []}, architecture, [creation]
+        )
+        self.assertTrue(any("without an aligned" in error for error in creation_errors))
 
     def test_future_state_does_not_hide_a_worsened_numeric_finding(self) -> None:
         before = {

@@ -66,19 +66,22 @@ def object_key(layer: str, obj: dict[str, Any]) -> str:
 
 
 def object_type(layer: str, obj: dict[str, Any]) -> str:
-    return str(obj.get("type") or ("customTemplate" if layer == "customTemplate" else ""))
+    fallback = layer if layer in {"customTemplate", "zone", "gtagConfig"} else ""
+    return str(obj.get("type") or fallback)
 
 
 def object_hash(obj: dict[str, Any]) -> str:
     return stable_hash(comparable(obj, {"path", "fingerprint", "accountId", "containerId"}))
 
 
-def build_consumers(cv: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+def build_consumers(
+    cv: dict[str, Any], root_path: str = "$.containerVersion"
+) -> dict[str, list[dict[str, str]]]:
     consumers: dict[str, list[dict[str, str]]] = defaultdict(list)
     for layer, index, obj in layer_objects(cv):
         key = object_key(layer, obj)
         name = str(obj.get("name") or "")
-        for fact in walk_json_fields(obj, f"$.containerVersion.{layer}[{index}]"):
+        for fact in walk_json_fields(obj, f"{root_path}.{layer}[{index}]"):
             for reference in fact["referenced_variables"]:
                 consumers[f"variable-name:{reference}"].append(
                     {
@@ -99,11 +102,13 @@ def build_consumers(cv: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
                         "consumer_key": tag_key,
                         "consumer_name": tag_name,
                         "relation": relation,
-                        "source_json_path": f"$.containerVersion.tag[{tag_index}].{relation}",
+                        "source_json_path": f"{root_path}.tag[{tag_index}].{relation}",
                     }
                 )
         for relation in ("setupTag", "teardownTag"):
             for reference_index, reference in enumerate(as_list(tag.get(relation))):
+                if not isinstance(reference, dict):
+                    continue
                 referenced_name = str(reference.get("tagName") or "")
                 if referenced_name:
                     consumers[f"tag-name:{referenced_name}"].append(
@@ -112,7 +117,7 @@ def build_consumers(cv: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
                             "consumer_name": tag_name,
                             "relation": relation,
                             "source_json_path": (
-                                f"$.containerVersion.tag[{tag_index}].{relation}"
+                                f"{root_path}.tag[{tag_index}].{relation}"
                                 f"[{reference_index}].tagName"
                             ),
                         }
@@ -132,7 +137,22 @@ def build_consumers(cv: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
                     "consumer_key": group_key,
                     "consumer_name": str(trigger.get("name") or ""),
                     "relation": "trigger_group_member",
-                    "source_json_path": (f"$.containerVersion.trigger[{trigger_index}].parameter"),
+                    "source_json_path": (f"{root_path}.trigger[{trigger_index}].parameter"),
+                }
+            )
+
+    for zone_index, zone in enumerate(as_list(cv.get("zone"))):
+        boundary = zone.get("boundary") if isinstance(zone.get("boundary"), dict) else {}
+        zone_key = object_key("zone", zone)
+        for trigger_id in as_list(boundary.get("customEvaluationTriggerId")):
+            consumers[f"trigger-id:{trigger_id}"].append(
+                {
+                    "consumer_key": zone_key,
+                    "consumer_name": str(zone.get("name") or ""),
+                    "relation": "zone_boundary_trigger",
+                    "source_json_path": (
+                        f"{root_path}.zone[{zone_index}].boundary.customEvaluationTriggerId"
+                    ),
                 }
             )
 
@@ -144,11 +164,11 @@ def build_consumers(cv: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
                     "consumer_key": object_key(layer, obj),
                     "consumer_name": str(obj.get("name") or ""),
                     "relation": "parent_folder",
-                    "source_json_path": (f"$.containerVersion.{layer}[{index}].parentFolderId"),
+                    "source_json_path": (f"{root_path}.{layer}[{index}].parentFolderId"),
                 }
             )
 
-    for layer in ("tag", "variable", "client", "transformation"):
+    for layer in ("tag", "variable", "client", "gtagConfig", "transformation"):
         for index, obj in enumerate(as_list(cv.get(layer))):
             template_id = custom_template_id(obj)
             if template_id:
@@ -157,7 +177,7 @@ def build_consumers(cv: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
                         "consumer_key": object_key(layer, obj),
                         "consumer_name": str(obj.get("name") or ""),
                         "relation": "custom_template",
-                        "source_json_path": f"$.containerVersion.{layer}[{index}].type",
+                        "source_json_path": f"{root_path}.{layer}[{index}].type",
                     }
                 )
     return dict(consumers)
@@ -203,13 +223,19 @@ def logic_anchors(facts: list[dict[str, Any]]) -> list[str]:
     ignored_suffixes = (
         ".accountId",
         ".containerId",
+        ".workspaceId",
         ".fingerprint",
         ".path",
+        ".tagManagerUrl",
+        ".notes",
+        ".parentFolderId",
         ".tagId",
         ".triggerId",
         ".variableId",
         ".templateId",
         ".clientId",
+        ".zoneId",
+        ".gtagConfigId",
         ".transformationId",
         ".name",
     )
@@ -231,16 +257,14 @@ def static_reference_values(
     """Resolve source-visible scalar outcomes without inventing runtime values."""
     if reference in active:
         return []
-    variable = next(
-        (
-            item
-            for item in as_list(cv.get("variable"))
-            if str(item.get("name") or "") == reference
-        ),
-        None,
-    )
-    if not variable:
+    matches = [
+        item
+        for item in as_list(cv.get("variable"))
+        if str(item.get("name") or "") == reference
+    ]
+    if len(matches) != 1:
         return []
+    variable = matches[0]
     variable_type = str(variable.get("type") or "")
     if variable_type == "c":
         value = parameter_value(variable, "value").strip()
@@ -296,24 +320,117 @@ def code_body(layer: str, obj: dict[str, Any]) -> str:
     return ""
 
 
+def code_segment_behavior_signals(segment: str) -> list[dict[str, Any]]:
+    """Return conservative source-visible behavior that segment prose must preserve."""
+    lowered = segment.lower()
+    signals: list[dict[str, Any]] = []
+
+    def add(signal: str, *term_groups: tuple[str, ...]) -> None:
+        signals.append(
+            {
+                "signal": signal,
+                "required_term_groups": [list(group) for group in term_groups],
+            }
+        )
+
+    if re.search(r"createelement\s*\(\s*['\"]script", lowered):
+        add("dynamic_script_creation", ("create", "creates", "createelement"), ("script",))
+    if re.search(r"(?:\.src\s*=|setattribute\s*\(\s*['\"]src)", lowered):
+        add(
+            "script_source_assignment",
+            ("assign", "set", "load", "source", "src"),
+            ("script", "url", "endpoint", "src"),
+        )
+    if re.search(r"(?:appendchild|\.append\s*\(|insertbefore)", lowered):
+        add(
+            "dom_append",
+            ("append", "appendchild", "insert", "add"),
+            ("dom", "document", "head", "body", "element", "script"),
+        )
+    if re.search(r"\b(?:fetch|xmlhttprequest|sendbeacon)\b", lowered):
+        add(
+            "network_request",
+            ("request", "network", "fetch", "send", "beacon", "xmlhttprequest"),
+        )
+    if re.search(r"\bdatalayer\s*\.\s*push\s*\(", lowered):
+        add("data_layer_write", ("datalayer",), ("push", "write", "send"))
+    vendor_patterns = (
+        ("meta", r"\bfbq\s*\(\s*['\"](?:track|trackcustom)['\"]\s*,\s*['\"]([^'\"]+)", ("fbq", "meta")),
+        ("tiktok", r"\bttq\s*\.\s*track\s*\(\s*['\"]([^'\"]+)", ("ttq", "tiktok")),
+        ("snapchat", r"\bsnaptr\s*\(\s*['\"]track['\"]\s*,\s*['\"]([^'\"]+)", ("snaptr", "snapchat")),
+        ("pinterest", r"\bpintrk\s*\(\s*['\"]track['\"]\s*,\s*['\"]([^'\"]+)", ("pintrk", "pinterest")),
+    )
+    for vendor, pattern, vendor_terms in vendor_patterns:
+        match = re.search(pattern, segment, re.I)
+        if match:
+            add(
+                f"{vendor}_event_send",
+                vendor_terms,
+                ("track", "send", "emit", "output", "event"),
+                (match.group(1).lower(),),
+            )
+    if re.search(r"\b(?:localstorage|sessionstorage|document\.cookie)\b", lowered):
+        add(
+            "browser_storage_access",
+            ("storage", "cookie", "localstorage", "sessionstorage"),
+            ("read", "write", "set", "get", "access", "remove"),
+        )
+    if re.search(r"\baddeventlistener\s*\(", lowered):
+        add(
+            "event_listener_registration",
+            ("listener", "event", "addeventlistener"),
+            ("register", "add", "listen", "attach", "addeventlistener"),
+        )
+    if re.search(r"\b(?:queryselector|getelementbyid|getelementsby)", lowered):
+        add(
+            "dom_read",
+            ("dom", "document", "element", "selector"),
+            ("read", "query", "select", "get", "find"),
+        )
+    if re.search(r"\breturn\b", lowered):
+        add("return_value", ("return", "returns", "output", "produce"))
+    return signals
+
+
 def code_line_facts(layer: str, obj: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "line_number": line_number,
-            "line_hash": stable_hash({"line_number": line_number, "line": line.strip()}),
-            "line_preview": safe_scalar_preview(line.strip(), 120),
-        }
-        for line_number, line in enumerate(code_body(layer, obj).splitlines(), start=1)
-        if line.strip()
-    ]
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(code_body(layer, obj).splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        segments = [
+            stripped[position : position + 120]
+            for position in range(0, len(stripped), 120)
+        ]
+        for segment_index, segment in enumerate(segments, start=1):
+            rows.append(
+                {
+                    "line_number": line_number,
+                    "segment_index": segment_index,
+                    "segment_count": len(segments),
+                    "line_hash": stable_hash(
+                        {
+                            "line_number": line_number,
+                            "segment_index": segment_index,
+                            "segment": segment,
+                        }
+                    ),
+                    "line_preview": safe_scalar_preview(segment, 120),
+                    "required_behavior_signals": code_segment_behavior_signals(segment),
+                }
+            )
+    return rows
 
 
-def reference_trace_requirements(cv: dict[str, Any], obj: dict[str, Any]) -> list[dict[str, Any]]:
-    variables = {
-        str(variable.get("name") or ""): (index, variable)
-        for index, variable in enumerate(as_list(cv.get("variable")))
-        if variable.get("name")
-    }
+def reference_trace_requirements(
+    cv: dict[str, Any],
+    obj: dict[str, Any],
+    root_path: str = "$.containerVersion",
+) -> list[dict[str, Any]]:
+    variables: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+    for index, variable in enumerate(as_list(cv.get("variable"))):
+        if variable.get("name"):
+            variables[str(variable.get("name") or "")].append((index, variable))
     builtins = {
         str(variable.get("name") or "")
         for variable in as_list(cv.get("builtInVariable"))
@@ -342,7 +459,69 @@ def reference_trace_requirements(cv: dict[str, Any], obj: dict[str, Any]) -> lis
                 "configured_source": f"GTM system variable {reference}",
             }
             return
-        if reference in builtins:
+        targets = variables.get(reference, [])
+        builtin_match = reference in builtins
+        if len(targets) + int(builtin_match) > 1:
+            candidate_keys: list[str] = []
+            for index, variable in targets:
+                current_key = object_key("variable", variable)
+                candidate_keys.append(current_key)
+                object_keys.add(current_key)
+                facts = walk_json_fields(variable, f"{root_path}.variable[{index}]")
+                variable_anchors = logic_anchors(facts)
+                anchors.update(variable_anchors)
+                children = sorted(
+                    child
+                    for child in refs(variable)
+                    if not is_system_variable_reference(child)
+                )
+                nodes[current_key] = {
+                    "object_key": current_key,
+                    "object_name": str(variable.get("name") or ""),
+                    "object_type": object_type("variable", variable),
+                    "config_hash": object_hash(variable),
+                    "source_json_path": f"{root_path}.variable[{index}]",
+                    "required_evidence_anchors": variable_anchors,
+                    "referenced_variables": children,
+                    "specificity_tokens": specific_tokens(variable),
+                    "configured_parameters": [
+                        {
+                            "key": str(parameter.get("key") or ""),
+                            "type": str(parameter.get("type") or ""),
+                            "value_preview": safe_scalar_preview(
+                                parameter.get("value"), 160
+                            ),
+                        }
+                        for parameter in as_list(variable.get("parameter"))
+                    ],
+                    "semantic_role": {
+                        "v": "data_layer_read",
+                        "c": "constant_value",
+                        "jsm": "custom_javascript_computation",
+                        "smm": "lookup_or_mapping",
+                    }.get(
+                        object_type("variable", variable),
+                        "configured_variable_transformation",
+                    ),
+                }
+                if parent_key:
+                    edges.add((parent_key, current_key, reference))
+            if builtin_match:
+                candidate_keys.append(f"builtInVariable:{reference}")
+            terminal_states.add("ambiguous")
+            terminal_key = f"ambiguous:{reference}"
+            terminals[terminal_key] = {
+                "terminal_key": terminal_key,
+                "state": "ambiguous",
+                "reference": reference,
+                "source_object_key": parent_key,
+                "configured_source": (
+                    f"Variable name {reference} resolves to "
+                    + ", ".join(sorted(candidate_keys))
+                ),
+            }
+            return
+        if builtin_match:
             terminal_states.add("built_in")
             terminal_key = f"built_in:{reference}"
             terminals[terminal_key] = {
@@ -364,8 +543,7 @@ def reference_trace_requirements(cv: dict[str, Any], obj: dict[str, Any]) -> lis
                 "configured_source": " -> ".join((*active, reference)),
             }
             return
-        target = variables.get(reference)
-        if not target:
+        if not targets:
             terminal_states.add("missing")
             terminal_key = f"missing:{reference}"
             terminals[terminal_key] = {
@@ -376,10 +554,10 @@ def reference_trace_requirements(cv: dict[str, Any], obj: dict[str, Any]) -> lis
                 "configured_source": f"Missing GTM variable named {reference}",
             }
             return
-        index, variable = target
+        index, variable = targets[0]
         current_key = object_key("variable", variable)
         object_keys.add(current_key)
-        facts = walk_json_fields(variable, f"$.containerVersion.variable[{index}]")
+        facts = walk_json_fields(variable, f"{root_path}.variable[{index}]")
         variable_anchors = logic_anchors(facts)
         anchors.update(variable_anchors)
         children = sorted(
@@ -390,7 +568,7 @@ def reference_trace_requirements(cv: dict[str, Any], obj: dict[str, Any]) -> lis
             "object_name": str(variable.get("name") or ""),
             "object_type": object_type("variable", variable),
             "config_hash": object_hash(variable),
-            "source_json_path": f"$.containerVersion.variable[{index}]",
+            "source_json_path": f"{root_path}.variable[{index}]",
             "required_evidence_anchors": variable_anchors,
             "referenced_variables": children,
             "specificity_tokens": specific_tokens(variable),
@@ -584,12 +762,23 @@ def validate_trace_nodes(
         str(node.get("object_key") or ""): node
         for node in as_list(requirement.get("required_nodes"))
     }
+    raw_supplied_rows = as_list(trace.get("node_reviews"))
+    supplied_rows = [
+        node
+        for node in raw_supplied_rows
+        if isinstance(node, dict)
+    ]
     supplied = {
         str(node.get("object_key") or ""): node
-        for node in as_list(trace.get("node_reviews"))
-        if isinstance(node, dict)
+        for node in supplied_rows
     }
     errors: list[str] = []
+    if len(supplied_rows) != len(raw_supplied_rows):
+        errors.append(f"{label}: trace for {reference!r} has malformed variable nodes")
+    if len(supplied) != len(supplied_rows) or "" in supplied:
+        errors.append(
+            f"{label}: trace for {reference!r} has duplicate or blank variable node keys"
+        )
     if set(supplied) != set(required):
         errors.append(
             f"{label}: trace for {reference!r} must review every variable node exactly once"
@@ -613,12 +802,23 @@ def validate_trace_edges(
 ) -> list[str]:
     reference = str(requirement.get("reference") or "")
     required = {trace_edge_key(edge) for edge in as_list(requirement.get("required_edges"))}
+    raw_supplied_rows = as_list(trace.get("edge_reviews"))
+    supplied_rows = [
+        edge
+        for edge in raw_supplied_rows
+        if isinstance(edge, dict)
+    ]
     supplied = {
         trace_edge_key(edge): edge
-        for edge in as_list(trace.get("edge_reviews"))
-        if isinstance(edge, dict)
+        for edge in supplied_rows
     }
     errors: list[str] = []
+    if len(supplied_rows) != len(raw_supplied_rows):
+        errors.append(f"{label}: trace for {reference!r} has malformed variable hops")
+    if len(supplied) != len(supplied_rows) or ("", "", "") in supplied:
+        errors.append(
+            f"{label}: trace for {reference!r} has duplicate or blank variable hops"
+        )
     if set(supplied) != required:
         errors.append(
             f"{label}: trace for {reference!r} must explain every variable hop exactly once"
@@ -661,12 +861,23 @@ def validate_trace_terminals(
         str(item.get("terminal_key") or ""): item
         for item in as_list(requirement.get("terminal_requirements"))
     }
+    raw_supplied_rows = as_list(trace.get("terminal_reviews"))
+    supplied_rows = [
+        item
+        for item in raw_supplied_rows
+        if isinstance(item, dict)
+    ]
     supplied = {
         str(item.get("terminal_key") or ""): item
-        for item in as_list(trace.get("terminal_reviews"))
-        if isinstance(item, dict)
+        for item in supplied_rows
     }
     errors: list[str] = []
+    if len(supplied_rows) != len(raw_supplied_rows):
+        errors.append(f"{label}: trace for {reference!r} has malformed terminals")
+    if len(supplied) != len(supplied_rows) or "" in supplied:
+        errors.append(
+            f"{label}: trace for {reference!r} has duplicate or blank terminal keys"
+        )
     if set(supplied) != set(required):
         errors.append(
             f"{label}: trace for {reference!r} must assess every terminal exactly once"
@@ -682,14 +893,23 @@ def validate_trace_terminals(
 def validate_reference_traces(
     row: dict[str, Any], expected: dict[str, Any], label: str
 ) -> list[str]:
+    raw_trace_rows = as_list(row.get("reference_traces"))
+    trace_rows = [
+        trace
+        for trace in raw_trace_rows
+        if isinstance(trace, dict)
+    ]
     traces = {
         str(trace.get("reference") or ""): trace
-        for trace in as_list(row.get("reference_traces"))
-        if isinstance(trace, dict)
+        for trace in trace_rows
     }
     requirements = as_list(expected.get("reference_trace_requirements"))
     required_references = {str(item.get("reference") or "") for item in requirements}
     errors: list[str] = []
+    if len(trace_rows) != len(raw_trace_rows):
+        errors.append(f"{label}: recursive traces contain malformed rows")
+    if len(traces) != len(trace_rows) or "" in traces:
+        errors.append(f"{label}: recursive trace references must be unique and nonblank")
     if set(traces) != required_references:
         errors.append(f"{label}: recursive traces must cover every reference exactly once")
     for requirement in requirements:
@@ -701,4 +921,18 @@ def validate_reference_traces(
         errors.extend(validate_trace_nodes(trace, requirement, label))
         errors.extend(validate_trace_edges(trace, requirement, label))
         errors.extend(validate_trace_terminals(trace, requirement, label))
+    terminal_states = {
+        str(state)
+        for requirement in requirements
+        for state in as_list(requirement.get("terminal_states"))
+    }
+    if terminal_states & {"missing", "cycle"} and row.get("correctness_verdict") != "Issue":
+        errors.append(f"{label}: missing or cyclic variable trace requires an Issue verdict")
+    if "ambiguous" in terminal_states and row.get("correctness_verdict") not in {
+        "Issue",
+        "Owner decision needed",
+    }:
+        errors.append(
+            f"{label}: ambiguous variable identity requires an Issue or owner decision"
+        )
     return errors

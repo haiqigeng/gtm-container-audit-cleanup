@@ -11,7 +11,15 @@ from pathlib import Path
 from typing import Any
 
 from gtm_future_state_check import apply_operations
-from gtm_lib import ID_KEYS, apply_patch, comparable, load_container_version, object_id, sort_ids
+from gtm_lib import (
+    ID_KEYS,
+    apply_patch,
+    comparable,
+    load_container_version,
+    object_id,
+    sort_ids,
+    source_integrity_findings,
+)
 from gtm_privacy import redact_text, spreadsheet_safe_text
 
 LAYER_LABELS = {
@@ -21,7 +29,9 @@ LAYER_LABELS = {
     "folder": "Folder",
     "customTemplate": "Template",
     "builtInVariable": "Built-in variable",
+    "zone": "Zone",
     "client": "Server client",
+    "gtagConfig": "Google tag configuration",
     "transformation": "Server transformation",
 }
 
@@ -331,6 +341,20 @@ def operations(
     approved_operations: dict[str, Any] | None = None,
     execution_mode: str = "planned",
 ) -> list[dict[str, Any]]:
+    for label, cv in (("before", before_cv), ("after", after_cv)):
+        blocking_integrity = [
+            row for row in source_integrity_findings(cv) if row.get("blocking")
+        ]
+        if blocking_integrity:
+            raise ValueError(
+                f"{label} change-log source fails integrity: "
+                + ", ".join(
+                    sorted(
+                        str(row.get("finding_type") or "source_integrity_error")
+                        for row in blocking_integrity
+                    )
+                )
+            )
     rows: list[dict[str, Any]] = []
     change_number = 1
     approved_lookup = approved_field_lookup(before_cv, approved_operations)
