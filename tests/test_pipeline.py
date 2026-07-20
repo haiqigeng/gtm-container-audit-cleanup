@@ -17,7 +17,12 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from build_skill_package import build as build_skill_bundle  # noqa: E402
-from check_release import check_repository_layout, git_ls_files  # noqa: E402
+from check_release import (  # noqa: E402
+    check_project_version,
+    check_release_tag,
+    check_repository_layout,
+    git_ls_files,
+)
 from gtm_architecture_review import (  # noqa: E402
     scaffold_review as scaffold_architecture,
 )
@@ -5046,6 +5051,16 @@ event_replacements = ["DifferentEvent=>NewEvent", "broken"]
             side_effect=subprocess.CalledProcessError(1, ["git", "ls-files"]),
         ), self.assertRaisesRegex(RuntimeError, "tracked release resources"):
             git_ls_files(self.root)
+
+    def test_release_tag_uses_semver_and_matches_project_version(self) -> None:
+        self.assertEqual([], check_release_tag("v1.0.0"))
+        self.assertEqual([], check_release_tag("v1.1.0-rc.1"))
+        self.assertEqual([], check_release_tag("v1.1.0+build.7"))
+        self.assertTrue(check_release_tag("v2026.07.20.1"))
+        self.assertTrue(check_release_tag("v01.0.0"))
+        self.assertTrue(check_release_tag("1.0.0"))
+        self.assertEqual([], check_project_version(ROOT, "v1.0.0"))
+        self.assertTrue(check_project_version(ROOT, "v1.0.1"))
 
     def test_runtime_bundle_is_self_installable_and_excludes_repo_only_files(self) -> None:
         bundle = self.root / "runtime-bundle"

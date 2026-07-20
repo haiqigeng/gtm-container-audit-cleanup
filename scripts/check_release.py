@@ -7,6 +7,7 @@ import argparse
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 MAX_SKILL_LINES = 500
@@ -17,7 +18,13 @@ REFERENCE_BRANCHES = (
     "references/02-commands",
     "references/03-rules",
 )
-CALVER_TAG_PATTERN = re.compile(r"^v\d{4}\.\d{2}\.\d{2}(?:\.\d+)?$")
+SEMVER_TAG_PATTERN = re.compile(
+    r"^v"
+    r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
+    r"(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 RELEASE_NOTE_HEADINGS = (
     "why this release matters",
     "what changed",
@@ -286,9 +293,24 @@ def check_py_compile(root: Path) -> list[str]:
 def check_release_tag(tag: str | None) -> list[str]:
     if not tag:
         return []
-    if CALVER_TAG_PATTERN.fullmatch(tag):
+    if SEMVER_TAG_PATTERN.fullmatch(tag):
         return []
-    return [f"Release tag must use vYYYY.MM.DD or vYYYY.MM.DD.N, found {tag!r}"]
+    return [f"Release tag must use vMAJOR.MINOR.PATCH semantic versioning, found {tag!r}"]
+
+
+def check_project_version(root: Path, tag: str | None) -> list[str]:
+    if not tag or not SEMVER_TAG_PATTERN.fullmatch(tag):
+        return []
+    path = root / "pyproject.toml"
+    try:
+        project = tomllib.loads(path.read_text(encoding="utf-8")).get("project", {})
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        return [f"Unable to read project version from {path}: {exc}"]
+    version = project.get("version")
+    expected = tag[1:]
+    if version != expected:
+        return [f"pyproject.toml project.version must match {expected!r}, found {version!r}"]
+    return []
 
 
 def check_release_notes(path: Path | None) -> list[str]:
@@ -326,7 +348,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--tag",
-        help="Validate a proposed release tag against the public CalVer policy.",
+        help="Validate a proposed vMAJOR.MINOR.PATCH tag and project-version match.",
     )
     parser.add_argument(
         "--release-notes",
@@ -367,6 +389,7 @@ def main() -> int:
     errors.extend(check_patterns(root, "blocklist", release_blocklist(root)))
     errors.extend(check_py_compile(root))
     errors.extend(check_release_tag(args.tag))
+    errors.extend(check_project_version(root, args.tag))
     errors.extend(check_release_notes(args.release_notes))
 
     if errors:

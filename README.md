@@ -205,7 +205,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag vYYYY.MM.DD.N
+python -B scripts/check_release.py --tag v1.0.0
 git diff --check
 ```
 
@@ -213,6 +213,9 @@ Never commit client exports, generated audits, domains, IDs, credentials,
 emails, screenshots, workbooks, or local paths. Release bundles are built with
 `scripts/build_skill_package.py`.
 
-Releases use `vYYYY.MM.DD` and `vYYYY.MM.DD.N` for same-day follow-ups.
+Releases use `vMAJOR.MINOR.PATCH` semantic version tags. Pre-release and build
+metadata suffixes are accepted when needed, for example `v1.1.0-rc.1` or
+`v1.1.0+build.7`; the tag must match the normalized project version for a
+versioned release check.
 
 Licensed under the MIT License.
