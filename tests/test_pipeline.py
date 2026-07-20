@@ -3870,7 +3870,12 @@ class PipelineTests(unittest.TestCase):
         )
         export = self.root / "semantic-code-reversal.json"
         export.write_text(json.dumps(data), encoding="utf-8")
-        review = complete_configuration(export)
+
+        def complete_without_parser() -> dict:
+            with patch.dict(sys.modules, {"esprima": None}):
+                return complete_configuration(export)
+
+        review = complete_without_parser()
         code_row = next(
             row for row in review["rows"] if row["object_key"] == "tag:2"
         )
@@ -3909,7 +3914,7 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(
             any("cannot be dismissed as a false positive" in error for error in errors)
         )
-        dead_path_review = complete_configuration(export)
+        dead_path_review = complete_without_parser()
         dead_path_row = next(
             row
             for row in dead_path_review["rows"]
@@ -3942,7 +3947,7 @@ class PipelineTests(unittest.TestCase):
         }
         for verdict, expected_error in alias_expectations.items():
             with self.subTest(verdict=verdict):
-                alias_review = complete_configuration(export)
+                alias_review = complete_without_parser()
                 alias_row = next(
                     row
                     for row in alias_review["rows"]
@@ -3977,7 +3982,7 @@ class PipelineTests(unittest.TestCase):
                     any(expected_error in error for error in alias_errors), alias_errors
                 )
 
-        confirmed_review = complete_configuration(export)
+        confirmed_review = complete_without_parser()
         confirmed_row = next(
             row
             for row in confirmed_review["rows"]
@@ -5059,8 +5064,8 @@ event_replacements = ["DifferentEvent=>NewEvent", "broken"]
         self.assertTrue(check_release_tag("v2026.07.20.1"))
         self.assertTrue(check_release_tag("v01.0.0"))
         self.assertTrue(check_release_tag("1.0.0"))
-        self.assertEqual([], check_project_version(ROOT, "v1.0.0"))
-        self.assertTrue(check_project_version(ROOT, "v1.0.1"))
+        self.assertEqual([], check_project_version(ROOT, "v1.0.1"))
+        self.assertTrue(check_project_version(ROOT, "v1.0.2"))
 
     def test_runtime_bundle_is_self_installable_and_excludes_repo_only_files(self) -> None:
         bundle = self.root / "runtime-bundle"

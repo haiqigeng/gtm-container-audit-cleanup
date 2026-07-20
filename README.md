@@ -205,7 +205,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.0.0
+python -B scripts/check_release.py --tag v1.0.1
 git diff --check
 ```
 
