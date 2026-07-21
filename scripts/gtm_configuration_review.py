@@ -64,6 +64,15 @@ VALID_VERDICTS = {
     "Container evidence limit",
     "Not applicable",
 }
+VENDOR_CONTRACT_LAYERS = {
+    "tag",
+    "variable",
+    "zone",
+    "customTemplate",
+    "client",
+    "gtagConfig",
+    "transformation",
+}
 VALID_DISPOSITIONS = {
     "keep",
     "cleanup_operation",
@@ -520,6 +529,17 @@ def logic_cross_check_requirements(
         )
     rows = []
     for check_key, question, fields in definitions:
+        allowed_anchors = list(
+            dict.fromkeys(path for field in fields for path in paths.get(field, []))
+        )
+        if check_key == "vendor_contract_alignment":
+            own_facts = [
+                *as_list(shared.get("source_leaf_facts")),
+                *as_list(shared.get("source_absence_facts")),
+            ]
+            allowed_anchors = list(
+                dict.fromkeys([*allowed_anchors, *logic_anchors(own_facts)])
+            )
         rows.append(
             {
                 "check_key": check_key,
@@ -528,11 +548,7 @@ def logic_cross_check_requirements(
                     [value for field in fields for value in requirements.get(field, [])],
                     20,
                 ),
-                "allowed_evidence_anchors": list(
-                    dict.fromkeys(
-                        path for field in fields for path in paths.get(field, [])
-                    )
-                )[:160],
+                "allowed_evidence_anchors": allowed_anchors[:160],
                 "object_key": str(shared.get("object_key") or ""),
             }
         )
@@ -697,6 +713,15 @@ def vendor_contexts_for_objects(
                 }
             )
         own_vendors[key] = vendors
+    research_owners: dict[str, str] = {}
+    for object_key_value in sorted(own_vendors):
+        if object_key_value.split(":", 1)[0] not in VENDOR_CONTRACT_LAYERS:
+            continue
+        for vendor in own_vendors[object_key_value]:
+            if str(vendor.get("category") or "") != "unknown_vendor":
+                continue
+            name = str(vendor.get("name") or "Unclassified")
+            research_owners.setdefault(name, object_key_value)
     result: dict[str, list[dict[str, Any]]] = {}
     for source_key in objects:
         queue = [source_key]
@@ -709,11 +734,27 @@ def vendor_contexts_for_objects(
             seen.add(current)
             for vendor in own_vendors.get(current, []):
                 name = str(vendor.get("name") or "Unclassified")
+                category = str(vendor.get("category") or "unclassified")
+                if current != source_key and category == "unknown_vendor":
+                    # Research the integration once where its host/template cue is
+                    # configured. Downstream variables still retain their consumer
+                    # and destination-peer contract facts without cloning the same
+                    # vendor-identification task into every dependency.
+                    continue
+                research_key = (
+                    f"vendor-research:{name}" if category == "unknown_vendor" else ""
+                )
+                research_owner = research_owners.get(name, "")
                 contexts[name] = {
                     "vendor": name,
-                    "category": str(vendor.get("category") or "unclassified"),
+                    "category": category,
                     "official_docs": list(vendor.get("official_docs") or []),
-                    "research_required": not bool(vendor.get("official_docs")),
+                    "research_required": (
+                        not bool(vendor.get("official_docs"))
+                        and (not research_owner or source_key == research_owner)
+                    ),
+                    "research_dependency_key": research_key,
+                    "research_owner_object_key": research_owner,
                     "detection_evidence": list(vendor.get("detection_evidence") or []),
                     "unsupported_standard_events": list(
                         vendor.get("unsupported_standard_events") or []
@@ -788,15 +829,7 @@ def required_contract_topics(
     contexts: list[dict[str, Any]],
     effective_consent_route: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    if layer not in {
-        "tag",
-        "variable",
-        "zone",
-        "customTemplate",
-        "client",
-        "gtagConfig",
-        "transformation",
-    }:
+    if layer not in VENDOR_CONTRACT_LAYERS:
         return []
     event_names = {
         value.strip().lower()
@@ -916,7 +949,9 @@ def required_contract_topics(
                 unsupported_events and topic in {"event_name", "action_or_event_name"}
             ):
                 deterministic_state = "known_noncompliant"
-            elif (
+            elif context.get("research_dependency_key") and not context.get(
+                "official_docs"
+            ) or (
                 topic in runtime_topics
                 and (
                     refs(obj)
@@ -949,7 +984,14 @@ def required_contract_topics(
                         [part for part in topic.split("_") if part not in {"and", "or"}],
                     ),
                     "official_doc_candidates": list(context.get("official_docs") or []),
-                    "research_required": bool(context.get("research_required")),
+                    "research_required": bool(context.get("research_required"))
+                    and topic == "vendor_identity_and_official_setup",
+                    "research_dependency_key": (
+                        str(context.get("research_dependency_key") or "")
+                    ),
+                    "research_owner_object_key": str(
+                        context.get("research_owner_object_key") or ""
+                    ),
                     "detection_evidence": list(context.get("detection_evidence") or []),
                     "required_configuration_terms": required_configuration_terms,
                     "configuration_presence_state": presence_state,
@@ -1551,18 +1593,28 @@ def scaffold_review(
             *(as_list(shared.get("source_leaf_facts")) or walk_json_fields(obj, base_path)),
             *as_list(shared.get("source_absence_facts")),
         ]
+        # Branch ownership is local to the source object. Cross-object execution,
+        # consumer, and destination facts remain available below as D3/contract
+        # context, but must not be re-attested as this object's own source leaves.
         facts = list(
             {
                 (str(fact.get("json_path") or ""), str(fact.get("value_hash") or "")): fact
+                for fact in own_facts
+            }.values()
+        )
+        facts.sort(key=lambda fact: (fact["json_path"], fact["value_hash"]))
+        evidence_facts = list(
+            {
+                (str(fact.get("json_path") or ""), str(fact.get("value_hash") or "")): fact
                 for fact in [
-                    *own_facts,
+                    *facts,
                     *as_list(shared.get("execution_dependency_facts")),
                     *as_list(shared.get("consumer_dependency_facts")),
                     *as_list(shared.get("destination_peer_facts")),
                 ]
             }.values()
         )
-        facts.sort(key=lambda fact: (fact["json_path"], fact["value_hash"]))
+        evidence_facts.sort(key=lambda fact: (fact["json_path"], fact["value_hash"]))
         required_paths = logic_anchors(facts)
         required_path_set = set(required_paths)
         lines = code_line_facts(layer, obj)
@@ -1639,7 +1691,7 @@ def scaffold_review(
             obj,
             shared,
             technical,
-            facts,
+            evidence_facts,
         )
         logic_requirements = logic_cross_check_requirements(
             shared,
@@ -1674,7 +1726,9 @@ def scaffold_review(
                 "config_hash": str(shared.get("configuration_hash") or object_hash(obj)),
                 "source_json_path": str(shared.get("source_json_path") or base_path),
                 "source_facts": facts,
-                "available_evidence_anchors": [item["json_path"] for item in facts],
+                "available_evidence_anchors": [
+                    item["json_path"] for item in evidence_facts
+                ],
                 "required_logic_anchors": required_paths,
                 "required_branch_reviews": [
                     fact for fact in facts if fact["json_path"] in required_path_set
@@ -1974,6 +2028,13 @@ def validate_contract_source(
         if str(url).startswith("https://")
     }
     errors: list[str] = []
+    if (
+        topic.get("research_dependency_key")
+        and not topic.get("research_required")
+        and not source_url
+        and check.get("verdict") == "Unproven"
+    ):
+        return errors
     if topic.get("research_required"):
         hostname = (urlparse(source_url).hostname or "").lower()
         reserved_bases = {
@@ -2448,7 +2509,7 @@ def validate_required_configuration_obligations(
                 errors.append(
                     f"{label}: deterministic obligation {key} requires overall Issue verdict"
                 )
-            for anchor in sorted(anchors):
+            for anchor in sorted(anchors & set(branch_reviews)):
                 if branch_reviews.get(anchor) != "Issue":
                     errors.append(
                         f"{label}: deterministic obligation {key} requires Issue at {anchor}"
@@ -2467,7 +2528,7 @@ def validate_required_configuration_obligations(
                 errors.append(
                     f"{label}: deterministic obligation {key} requires an unresolved overall verdict"
                 )
-            for anchor in sorted(anchors):
+            for anchor in sorted(anchors & set(branch_reviews)):
                 if branch_reviews.get(anchor) not in {"Unclear", "Issue"}:
                     errors.append(
                         f"{label}: deterministic obligation {key} requires Unclear or Issue "

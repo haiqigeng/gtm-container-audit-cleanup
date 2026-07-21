@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import copy
 import json
 import tempfile
@@ -15,11 +16,14 @@ from tests.test_pipeline import (
 
 from gtm_architecture_review import validate_review as validate_architecture
 from gtm_audit_package_build import build_package
-from gtm_baseline_audit import audit_export
+from gtm_baseline_audit import audit_export, ua_style_signals
 from gtm_configuration_facts import code_line_facts
 from gtm_configuration_review import scaffold_review as scaffold_configuration
 from gtm_configuration_review import validate_review as validate_configuration
+from gtm_consent_model import server_route_hosts
+from gtm_context_model import build_context_model
 from gtm_future_state_check import prior_finding_covers
+from gtm_lib import refs
 from gtm_operation_compile import (
     decision_ledger,
     validate_cross_run_reconciliation,
@@ -54,7 +58,7 @@ class AdversarialAuditTests(unittest.TestCase):
             )
         )
         case_ids = {row["id"] for row in manifest["cases"]}
-        self.assertEqual(51, len(case_ids))
+        self.assertEqual(58, len(case_ids))
         self.assertIn("single_member_trigger_group", case_ids)
         self.assertIn("dynamic_ga4_purchase_contract", case_ids)
         self.assertIn("worsened_future_finding", case_ids)
@@ -68,6 +72,10 @@ class AdversarialAuditTests(unittest.TestCase):
         self.assertIn("javascript_parser_fallback_visibility", case_ids)
         self.assertIn("mixed_vendor_unknown_host", case_ids)
         self.assertIn("export_metadata_duplicate_resilience", case_ids)
+        self.assertIn("exact_once_branch_ownership", case_ids)
+        self.assertIn("custom_template_section_separation", case_ids)
+        self.assertIn("vendor_research_single_owner", case_ids)
+        self.assertIn("vendor_aware_ua_detection", case_ids)
         self.assertIn("consent_control_evidence_boundaries", case_ids)
         self.assertIn("dependency_trace_cross_object_coverage", case_ids)
         self.assertIn("reachability_context_and_gateway_separation", case_ids)
@@ -340,11 +348,188 @@ class AdversarialAuditTests(unittest.TestCase):
             if item["category"] == "unknown_vendor"
         ]
         self.assertTrue(unknown_topics)
-        self.assertTrue(all(item["research_required"] for item in unknown_topics))
+        self.assertEqual(
+            ["vendor_identity_and_official_setup"],
+            [item["topic"] for item in unknown_topics if item["research_required"]],
+        )
+        self.assertEqual(
+            1,
+            len({item["research_dependency_key"] for item in unknown_topics}),
+        )
         self.assertEqual(
             {"Meta", "TikTok"},
             {item["name"] for item in vendor_records(html_parameter["value"])},
         )
+
+    def test_unknown_host_research_has_one_owner_and_reusable_dependencies(self) -> None:
+        data = sample_export()
+        for tag_id, name in (("91", "Partner one"), ("92", "Partner two")):
+            data["containerVersion"]["tag"].append(
+                {
+                    "tagId": tag_id,
+                    "name": name,
+                    "type": "html",
+                    "parameter": [
+                        {
+                            "key": "html",
+                            "value": (
+                                "<script src='https://shared-vendor.example.test/sdk.js'>"
+                                "</script>"
+                            ),
+                        }
+                    ],
+                    "firingTriggerId": ["10"],
+                }
+            )
+        scaffold = scaffold_configuration(self.write_json("shared-host.json", data))
+        topics = [
+            topic
+            for row in scaffold["rows"]
+            for topic in row["required_contract_topics"]
+            if topic.get("research_dependency_key")
+            == "vendor-research:Unclassified external integration (shared-vendor.example.test)"
+        ]
+        self.assertTrue(topics)
+        self.assertEqual(1, sum(bool(topic["research_required"]) for topic in topics))
+        self.assertEqual(1, len({topic["research_owner_object_key"] for topic in topics}))
+
+    def test_branch_ownership_is_exact_once_while_dependency_context_survives(self) -> None:
+        scaffold = scaffold_configuration(self.export)
+        branch_paths = [
+            branch["json_path"]
+            for row in scaffold["rows"]
+            for branch in row["required_branch_reviews"]
+        ]
+        self.assertTrue(branch_paths)
+        self.assertTrue(
+            all(count == 1 for count in collections.Counter(branch_paths).values())
+        )
+        value_row = next(
+            row for row in scaffold["rows"] if row["object_key"] == "variable:24"
+        )
+        dependency_paths = {
+            fact["json_path"] for fact in value_row["consumer_dependency_facts"]
+        }
+        self.assertTrue(dependency_paths)
+        self.assertTrue(
+            dependency_paths.isdisjoint(
+                {fact["json_path"] for fact in value_row["required_branch_reviews"]}
+            )
+        )
+        self.assertTrue(
+            dependency_paths.issubset(set(value_row["available_evidence_anchors"]))
+        )
+
+    def test_context_uses_exported_domain_and_rejects_acronym_cmp_publisher_noise(self) -> None:
+        data = sample_export()
+        data["containerVersion"]["container"].update(
+            {"name": "FR - Example - Web", "domainName": ["https://www.example.fr"]}
+        )
+        data["containerVersion"]["tag"][1]["name"] = "AW - DC - ID"
+        data["containerVersion"]["tag"][1]["parameter"][0]["value"] += (
+            "<!-- advertising cookieconsent documentation -->"
+            "<script>window.OptanonActiveGroups = ',C0002,';</script>"
+        )
+        export = self.write_json("context-noise.json", data)
+        context = build_context_model(export)["context"]
+        self.assertEqual("https://www.example.fr", context["website_url"])
+        self.assertEqual(["FR"], context["markets"])
+        self.assertEqual(["OneTrust"], context["cmp"])
+        self.assertNotIn("publisher", context["business_model"])
+
+    def test_server_routes_are_extracted_only_from_route_fields(self) -> None:
+        obj = {
+            "name": "Tracking endpoint helper",
+            "parameter": [
+                {
+                    "key": "endpoint",
+                    "value": "https://tracking.example.test/collect",
+                },
+                {
+                    "key": "server_container_url",
+                    "value": "https://collect.example.test",
+                },
+                {
+                    "key": "help",
+                    "value": (
+                        "Set transport_url if needed; see "
+                        "https://docs.example.test/server-routing"
+                    ),
+                },
+                {
+                    "key": "settingsTable",
+                    "map": [
+                        {"key": "parameter", "value": "transport_url"},
+                        {
+                            "key": "parameterValue",
+                            "value": "https://table-route.example.test",
+                        },
+                    ],
+                },
+            ],
+        }
+        self.assertEqual(
+            ["collect.example.test", "table-route.example.test"],
+            server_route_hosts(obj),
+        )
+
+    def test_custom_template_reviews_only_executable_sections(self) -> None:
+        template = {
+            "templateId": "900",
+            "name": "Sectioned template",
+            "templateData": (
+                "___INFO___\n{\"description\":\"https://github.com/vendor/docs\"}\n"
+                "___SANDBOXED_JS_FOR_WEB_TEMPLATE___\n"
+                "const send = require('sendPixel');\n"
+                "send('https://collect.vendor.test/' + data.id, data.gtmOnSuccess);\n"
+                "___TESTS___\n[{\"name\":\"{{init: pixel.init, send: pixel.send}}\"}]\n"
+            ),
+        }
+        lines = code_line_facts("customTemplate", template)
+        previews = " ".join(line["line_preview"] for line in lines)
+        self.assertIn("sendPixel", previews)
+        self.assertNotIn("github.com", previews)
+        self.assertNotIn("pixel.init", previews)
+        self.assertEqual(set(), refs(template))
+        data = sample_export()
+        data["containerVersion"]["customTemplate"] = [template]
+        export = self.write_json("sectioned-template.json", data)
+        row = next(
+            item
+            for item in scaffold_configuration(export)["rows"]
+            if item["object_key"] == "customTemplate:900"
+        )
+        self.assertNotIn(
+            "Unclassified external integration (github.com)",
+            {context["vendor"] for context in row["vendor_contexts"]},
+        )
+
+    def test_media_events_and_false_enhanced_ecommerce_do_not_imply_ua(self) -> None:
+        media_tag = {
+            "tagId": "900",
+            "name": "Meta - AddToCart - All",
+            "type": "cvt_123_456",
+            "parameter": [
+                {"key": "eventName", "value": "AddToCart"},
+                {"key": "enhancedEcommerce", "value": "false"},
+            ],
+        }
+        self.assertEqual([], ua_style_signals("tag", media_tag))
+
+    def test_unconfirmed_naming_policy_is_one_batched_owner_decision(self) -> None:
+        data = sample_export()
+        for index, tag in enumerate(data["containerVersion"]["tag"], start=1):
+            tag["name"] = f"ArbitraryTag{index}"
+        export = self.write_json("unconfirmed-naming.json", data)
+        scan = audit_export(export)
+        naming = [
+            row
+            for row in scan["findings"]
+            if row["module_name"] == "naming_architecture_standardization"
+            and row["finding_type"] != "zero_findings"
+        ]
+        self.assertEqual(1, len(naming))
+        self.assertEqual("naming_policy_confirmation_required", naming[0]["finding_type"])
 
     def test_exact_duplicate_cannot_be_silently_kept(self) -> None:
         architecture = complete_architecture(self.export)

@@ -53,7 +53,9 @@ by the vendor's registered official source; a replacement is a review cue, not
 permission to mutate automatically.
 
 An unrecognized external host, loaded script, or custom template is not a
-reason to skip vendor validation. Record the detection cue, identify the vendor
+reason to skip vendor validation. Assign one canonical research owner per
+unknown host/template identity and link every other applicable object/topic to
+that task. Record the detection cue, identify the vendor
 or integration, find a current official HTTPS setup/reference page, add its
 verified ownership/domain to the registry, validate, rebuild, and then complete
 the generated contract topics. Before rebuild, the unknown-vendor topic remains
@@ -67,8 +69,9 @@ also contains a recognized vendor; a primary-vendor label must never hide the
 second integration.
 
 Only behavior-bearing fields can prove an integration host. Ignore GTM
-UI/export URLs, paths, notes, fingerprints, workspace IDs, and folder placement
-for vendor inference. An explicit server-transport endpoint in a recognized
+UI/export URLs, paths, notes, fingerprints, workspace IDs, folder placement,
+template terms/help/tests/licenses, and code comments for vendor inference. An
+explicit server-transport endpoint in a recognized
 vendor or Google tag configuration belongs to its server-routing contract; do
 not duplicate it as an unknown vendor unless separate request/script evidence
 shows another integration role.

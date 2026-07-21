@@ -101,11 +101,16 @@ group deletion.
 
 Naming proposals remain provisional until behavior, canonical objects, and
 business-specific prefixes are understood.
+When neither an approved policy nor a reliable dominant local convention
+exists, create one visible naming-policy owner decision instead of declaring
+every object nonconforming to an invented default. Generate the complete rename
+set only after that decision and after consolidation/remaps are settled.
 
 ## Legacy And Destination Inventory
 
-- Universal Analytics tag types, property IDs, parameters, event names, and old
-  ecommerce paths;
+- Universal Analytics tag types, property IDs, active UA parameters, corroborated
+  event names, and old ecommerce paths; a media event such as `AddToCart` or an
+  unrelated false-valued `enhancedEcommerce` field is not UA evidence alone;
 - fixed product positions and old product-array assumptions;
 - vendor, destination/account/pixel IDs, endpoints, and external script hosts;
 - export/UI metadata URLs excluded from destination and vendor inference, and

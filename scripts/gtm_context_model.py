@@ -25,7 +25,7 @@ from gtm_lib import (
 CMP_PATTERNS = {
     "Didomi": re.compile(r"\bdidomi\b", re.I),
     "OneTrust": re.compile(r"\bone ?trust\b|optanon", re.I),
-    "Cookiebot": re.compile(r"\bcookiebot\b|cookieconsent", re.I),
+    "Cookiebot": re.compile(r"\bcookiebot\b|consent\.cookiebot\.com|cbid", re.I),
     "Consentmanager": re.compile(r"\bconsentmanager\b|cmpbox", re.I),
     "Axeptio": re.compile(r"\baxeptio\b", re.I),
 }
@@ -38,11 +38,18 @@ LEAD_RE = re.compile(
     r"\b(?:generate_lead|lead|quote|devis|form_submit|application|contact)\b",
     re.I,
 )
-PUBLISHER_RE = re.compile(r"\b(?:gam|adunit|ad_unit|prebid|page.display|advertising)\b", re.I)
+PUBLISHER_RE = re.compile(
+    r"\b(?:google ad manager|doubleclick for publishers|dfp|prebid|"
+    r"adunit|ad_unit|page\.display|publisher)\b",
+    re.I,
+)
 FUNNEL_RE = re.compile(r"\b(?:funnel|question|step|etape|checkout|form)\b", re.I)
 COUNTRY_TOKEN_RE = re.compile(r"(?:^|[\s_\-/])([A-Z]{2})(?:$|[\s_\-/])")
 ACRONYM_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,7}\b")
 URL_RE = re.compile(r"https?://[^\s\"'<>\\)]+", re.I)
+ISO_ALPHA2 = frozenset(
+    ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "YE", "YT", "ZA", "ZM", "ZW"]
+)
 
 
 def as_list(value: Any) -> list[Any]:
@@ -100,6 +107,50 @@ def hostnames(text: str) -> list[str]:
         if host:
             values.add(host.lower())
     return sorted(values)
+
+
+def inferred_website_url(cv: dict[str, Any]) -> str:
+    container = cv.get("container") if isinstance(cv.get("container"), dict) else {}
+    raw_values = [container.get("domainName"), cv.get("domainName")]
+    for value in [
+        item
+        for raw in raw_values
+        for item in (raw if isinstance(raw, list) else [raw])
+    ]:
+        candidate = str(value or "").strip()
+        if not candidate:
+            continue
+        if not re.match(r"^[a-z][a-z0-9+.-]*://", candidate, re.I):
+            candidate = f"https://{candidate}"
+        try:
+            if urlsplit(candidate).hostname:
+                return candidate
+        except ValueError:
+            continue
+    return ""
+
+
+def inferred_markets(cv: dict[str, Any], website_url: str) -> list[str]:
+    """Return only high-confidence market evidence, not arbitrary two-letter acronyms."""
+    markets: set[str] = set()
+    container = cv.get("container") if isinstance(cv.get("container"), dict) else {}
+    container_name = str(container.get("name") or cv.get("name") or "")
+    container_prefix = re.match(r"^\s*([A-Z]{2})\s*[-_/]", container_name)
+    if container_prefix and container_prefix.group(1) in ISO_ALPHA2:
+        markets.add(container_prefix.group(1))
+    for layer in ("zone",):
+        for obj in as_list(cv.get(layer)):
+            for match in COUNTRY_TOKEN_RE.finditer(str(obj.get("name") or "")):
+                if match.group(1) in ISO_ALPHA2:
+                    markets.add(match.group(1))
+    try:
+        host = urlsplit(website_url).hostname or ""
+    except ValueError:
+        host = ""
+    suffix = host.rsplit(".", 1)[-1].upper() if "." in host else ""
+    if suffix in ISO_ALPHA2:
+        markets.add(suffix)
+    return sorted(markets)
 
 
 def context_content_hash(
@@ -178,8 +229,9 @@ def build_context_model(
         if explicit_gateway
         else "not_visible_in_container_export"
     )
+    website_url = inferred_website_url(cv)
     inferred = {
-        "website_url": "",
+        "website_url": website_url,
         "business_model": inferred_business_model(active_text),
         "container_type": container_type(cv),
         "cmp": sorted(
@@ -195,13 +247,7 @@ def build_context_model(
                 "confirm an active domain in Google tag gateway settings when material."
             ),
         },
-        "markets": sorted(
-            {
-                match.group(1)
-                for name in names
-                for match in COUNTRY_TOKEN_RE.finditer(name)
-            }
-        ),
+        "markets": inferred_markets(cv, website_url),
         "naming_acronyms": sorted(
             {
                 token

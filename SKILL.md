@@ -32,6 +32,10 @@ Ask concise questions before starting when material context is missing. Infer
 safe facts from the export and website context. Ask about unexplained prefixes,
 country/product variants, unclear event families, or legal/business ownership;
 do not ask for account/container names already present in the export.
+Read exported domain fields whether scalar or list-valued. Treat market codes,
+CMPs, publisher models, and server routes as confirmed only from specific
+behavior/scope evidence; arbitrary acronyms, generic consent words, advertising
+labels, or unrelated endpoint URLs remain candidates rather than facts.
 
 Persist provided and inferred answers in `context.json`, including unresolved
 questions and the evidence basis for inference. Context may guide grouping and
@@ -159,7 +163,10 @@ terminal-source candidates in recursive traces.
 - Cite the generated source paths allowed for each semantic statement. A valid
   path citation does not rescue generic prose; the statement must also name the
   source-derived event, path, trigger, variable, value, destination, or output.
-- Review every exported logic leaf exactly once by source path and value hash.
+- Review every source-owned exported logic leaf exactly once globally by source
+  path and value hash. Cross-object execution, consumer, and destination-peer
+  leaves remain citeable D3/contract context under their owning object; never
+  clone them into each consumer's local branch ledger.
   Review rows, branch paths, D3 keys, contract topics, technical findings, and
   recursive trace identities are also exact-once sets: duplicate, blank, or
   malformed entries fail instead of being overwritten during indexing.
@@ -179,7 +186,11 @@ terminal-source candidates in recursive traces.
   and execution controls—so a source object is judged against the route that
   consumes it, not merely against its own local fields. A shared destination
   creates an inheritance-review obligation; it does not prove inheritance.
-- Review every nonblank custom-code line in concrete behavior blocks. Resolve
+- Review every nonblank executable custom-code line in concrete behavior blocks.
+  For community templates, extract sandboxed JavaScript sections separately;
+  do not count terms, metadata, parameter help, permissions, tests, licenses, or
+  comments as executable lines. Review permissions through the template/vendor
+  contract instead. Resolve
   every parser, security, side-effect, and maintainability signal.
   If the optional AST parser is unavailable or cannot parse the code, record a
   mandatory parser-coverage limit. It may be bounded only by an explicit
@@ -205,7 +216,10 @@ terminal-source candidates in recursive traces.
 - For vendor objects, use the bundled official source first. When absent or
   stale, search the internet for current official vendor documentation, add the
   verified vendor/domain/source to the versioned registry, validate it, and
-  rebuild the review before certification. An unregistered source is not
+  rebuild the review before certification. Create one canonical identification
+  task per unknown host/template identity and link its other objects and
+  contract topics through the generated research dependency key. An
+  unregistered source is not
   self-authenticating because its hostname resembles an analyst-entered vendor
   name. Until registry validation and rebuild, the topic remains `Unproven`. An
   unknown external host, script, or template creates a mandatory vendor-

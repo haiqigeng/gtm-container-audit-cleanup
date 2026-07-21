@@ -11,7 +11,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from gtm_lib import container_version, refs, source_descriptor, source_integrity_findings
+from gtm_lib import (
+    container_version,
+    custom_template_executable_code,
+    refs,
+    source_descriptor,
+    source_integrity_findings,
+)
 from gtm_privacy import sanitize_url
 
 URL_RE = re.compile(r"https?://[^\s\"'<>\\)]+", re.I)
@@ -109,7 +115,7 @@ def code_for(layer: str, obj: dict[str, Any]) -> str:
         return str(param_value(obj, "html") or "")
     if layer == "variable":
         return str(param_value(obj, "javascript") or "")
-    return str(obj.get("templateData") or "")
+    return custom_template_executable_code(obj.get("templateData"))
 
 
 def code_hash(code: str) -> str:
@@ -356,18 +362,7 @@ def custom_template_visibility(layer: str, code: str) -> str:
         return "not_applicable"
     if not code.strip():
         return "opaque"
-    try:
-        payload = json.loads(code)
-    except (json.JSONDecodeError, TypeError):
-        return "partial"
-    if not isinstance(payload, dict):
-        return "partial"
-    behavior_keys = {
-        key
-        for key in payload
-        if re.search(r"sandbox|code|script|execute|templateSource", str(key), re.I)
-    }
-    return "partial" if behavior_keys else "opaque"
+    return "partial"
 
 
 def container_evidence_limits(code: str, effects: list[str]) -> list[str]:

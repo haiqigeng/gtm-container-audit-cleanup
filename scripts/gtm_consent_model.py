@@ -37,7 +37,7 @@ MANUAL_CONSENT_STATUSES = {
     "NEEDED": "NEEDED",
 }
 SERVER_ROUTE_KEY_RE = re.compile(
-    r"transport_url|server_container_url|endpoint|first.party|server.side",
+    r"^(?:transporturl|servercontainerurl|taggingserverurl|firstpartyurl|serverurl)$",
     re.I,
 )
 CONSENT_SIGNAL_RE = re.compile(
@@ -99,10 +99,54 @@ def consent_values(obj: dict[str, Any], source_path: str = "$") -> list[dict[str
 
 
 def server_route_hosts(obj: dict[str, Any]) -> list[str]:
-    text = json.dumps(obj, ensure_ascii=False)
-    if not SERVER_ROUTE_KEY_RE.search(text):
-        return []
+    """Extract hosts only from explicit GTM server-routing fields and values."""
+    route_values: list[Any] = []
+
+    def normalized_key(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            parameter_key = normalized_key(value.get("key"))
+            if SERVER_ROUTE_KEY_RE.fullmatch(parameter_key):
+                route_values.extend(
+                    value[field]
+                    for field in ("value", "list", "map")
+                    if field in value
+                )
+            for key, child in value.items():
+                if SERVER_ROUTE_KEY_RE.fullmatch(normalized_key(key)):
+                    route_values.append(child)
+                elif key != "key":
+                    visit(child)
+        elif isinstance(value, list):
+            pair_values = {
+                normalized_key(item.get("key")): item.get("value")
+                for item in value
+                if isinstance(item, dict) and "key" in item and "value" in item
+            }
+            routed_parameter = pair_values.get("parameter") or pair_values.get(
+                "parametername"
+            )
+            if SERVER_ROUTE_KEY_RE.fullmatch(normalized_key(routed_parameter)):
+                for paired_key in ("parametervalue", "configuredvalue"):
+                    if paired_key in pair_values:
+                        route_values.append(pair_values[paired_key])
+            for item in value:
+                visit(item)
+
+    visit(obj)
+    if SERVER_ROUTE_KEY_RE.fullmatch(normalized_key(obj.get("name"))):
+        route_values.extend(
+            parameter[field]
+            for parameter in as_list(obj.get("parameter"))
+            if isinstance(parameter, dict)
+            for field in ("value", "list", "map")
+            if field in parameter
+        )
+
     hosts = set()
+    text = json.dumps(route_values, ensure_ascii=False)
     for match in URL_RE.finditer(text):
         try:
             host = urlsplit(match.group(0).rstrip(".,);\"")).hostname

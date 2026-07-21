@@ -58,7 +58,8 @@ cannot be converted to Correct through generic prose.
 
 ## Branch Coverage
 
-Every non-metadata exported leaf must be covered exactly once with:
+Every non-metadata leaf owned by the source object must be covered exactly once
+globally with:
 
 - JSON path and source value hash;
 - logic role: Input, Condition, Transformation, Output, Routing, Consent, or
@@ -83,6 +84,9 @@ trigger/group conditions and missing/ambiguous/cyclic states, setup/teardown
 target status and controls, Zone boundary targets, and downstream consumer
 fields needed for the consumer contract. An object-local D3 conclusion is
 insufficient when the route's meaning lives in another object.
+Those dependency/consumer/peer leaves remain evidence under their source owner.
+Use them in D3, contract, and defect reasoning without creating a second branch
+review for the consuming object.
 Carry exact consumer event/destination/reference contexts onto dependency rows,
 and carry same-destination tag/Google-tag-configuration peer facts onto each
 route, including type or required-field absence, server endpoint, consent state,
@@ -177,8 +181,11 @@ parameter table is not an audit.
 
 ## Custom Code
 
-Review all exported nonblank lines in source-bound behavior blocks of at most 30
-lines. Every line hash appears exactly once. Each block states:
+Review all exported executable nonblank lines in source-bound behavior blocks
+of at most 30 lines. Every line hash appears exactly once. For community
+templates, line coverage applies only to exported sandboxed JavaScript sections;
+terms, metadata, parameter help, permissions, tests, licenses, and comments are
+not executable. Review visible permissions in the template contract. Each block states:
 
 - purpose and control flow;
 - inputs and GTM references;
@@ -243,7 +250,9 @@ proof. Registry event replacements identify the current candidate event but do
 not authorize an automatic mutation.
 
 When no registry entry matches an external host, script, or custom template,
-create an unknown-vendor research obligation. Identify the integration, locate
+create one canonical unknown-vendor research obligation per host/template
+identity. Link every other object and topic for that identity through the
+generated research dependency key. Identify the integration, locate
 its current official source, add the verified official domain/source to the
 versioned registry, validate the registry, and rebuild the review before
 certifying it. Until then, leave the contract `Unproven` with its research
@@ -259,8 +268,9 @@ One object may contain several vendors. Preserve every registry match and
 create a separate unknown-vendor research context for every external host that
 matches none; a known first integration must not hide a second script or route.
 Extract those hosts from behavior-bearing configuration only. GTM UI/export
-metadata such as `tagManagerUrl`, path, notes, fingerprint, workspace ID, or
-folder placement is not vendor evidence. When a recognized vendor or Google tag
+metadata such as `tagManagerUrl`, path, notes, fingerprint, workspace ID, folder
+placement, template terms/help/tests/licenses, or code comments is not vendor
+evidence. When a recognized vendor or Google tag
 configuration explicitly names a server transport endpoint, review that host
 under the server-routing contract instead of creating a second unknown-vendor
 identity; other unmatched script/request hosts remain mandatory research.

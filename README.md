@@ -56,7 +56,9 @@ copied or stale hash is not enough to pass.
 2. **Configuration correctness** reviews every tag, trigger, variable,
    Zone, template, client, Google tag configuration, and transformation. It
    follows every referenced variable to every possible terminal source, checks
-   every configuration branch, inspects every exported custom-code line, and
+   every source-owned configuration branch exactly once, keeps cross-object
+   leaves as D3/contract context, inspects every exported executable custom-code
+   line, and
    tests all matched and unknown-host vendor contracts. UI/export metadata is
    excluded from host inference, and recognized transport endpoints stay in the
    server-routing contract. Cross-object trigger/sequence conditions, empty
@@ -67,7 +69,9 @@ copied or stale hash is not enough to pass.
    contracts, defects, and the overall verdict; duplicate review identities
    fail rather than overwrite. GA4 purchase/refund reviews include
    explicit transaction-ID obligations. Opaque custom templates and incomplete
-   parser coverage cannot be certified as Correct; parser fallback describes
+   parser coverage cannot be certified as Correct. Community-template terms,
+   help, tests, licenses, permissions, and comments are not miscounted as
+   executable lines; permissions remain contract evidence. Parser fallback describes
    every individual code segment, not merely its hashes, and cannot invert a
    source-proven send, request, DOM/script effect, dataLayer/storage action, or
    return while citing the right tokens. Source-proven health/security signals
@@ -119,6 +123,9 @@ interpret the configuration.
 Business inference uses only behavior reachable from active/configured roots.
 Orphan logic remains an audit target but cannot redefine the business model,
 and a server transport URL is not treated as proof of Google tag gateway.
+Exported list-valued domains are normalized, while technical acronyms, generic
+consent terms, and advertising labels cannot silently become market, CMP, or
+publisher facts. Server-route hosts come only from explicit routing fields.
 
 A web container can be reviewed for the browser-to-server routing visible in
 its export. Transport tags do not need separate client-side blockers when the
@@ -205,7 +212,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.0.1
+python -B scripts/check_release.py --tag v1.1.0
 git diff --check
 ```
 

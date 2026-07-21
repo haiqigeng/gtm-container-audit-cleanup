@@ -76,8 +76,10 @@ An audit and cleanup plan is complete only when all criteria below pass.
   purpose/output, execution/scope, input/output/consumer, consent/sequence, and,
   when applicable, custom-code behavior and official-vendor-contract alignment.
   Every failed check links to a concrete defect.
-- Every exported logic leaf is covered exactly once by path, value hash, logic
-  role, configured effect, and correctness verdict.
+- Every source-owned exported logic leaf is covered exactly once globally by
+  path, value hash, logic role, configured effect, and correctness verdict.
+  Cross-object execution, consumer, and destination-peer leaves stay available
+  as D3/contract evidence but are not copied into another object's branch set.
 - Object rows, branch paths, D3 keys, contract topics, technical findings,
   recursive trace identities, and parser segment hashes are unique, nonblank,
   well-formed, and covered exactly once; duplicate rows cannot overwrite.
@@ -97,8 +99,11 @@ An audit and cleanup plan is complete only when all criteria below pass.
   availability/fallback, and consumer compatibility.
 - Duplicate custom-variable names and custom/built-in name collisions retain
   every candidate and terminate as `ambiguous`; a Correct verdict cannot pass.
-- Every custom-code nonblank line is covered exactly once in concrete behavior
-  blocks. Static parser/security findings are each resolved explicitly.
+- Every executable custom-code nonblank line is covered exactly once in
+  concrete behavior blocks. Community-template metadata, parameter help,
+  permissions, tests, terms, licenses, and comments are not executable line
+  obligations; permissions remain explicit template-contract evidence. Static
+  parser/security findings are each resolved explicitly.
 - Missing or failed optional JavaScript parsing creates a mandatory coverage
   limit that cannot be dismissed as a false positive. Any accepted exception
   identifies the substitute line-by-line review and does not claim AST coverage.
@@ -122,12 +127,15 @@ An audit and cleanup plan is complete only when all criteria below pass.
   replace missing proof. Versioned unsupported events and replacements are
   registry-validated review cues, never guessed automatic migrations.
 - Unclassified external scripts, hosts, and templates create mandatory
-  vendor-identification and official-source research obligations. A found
+  vendor-identification and official-source research obligations. One
+  canonical research owner is generated per unknown identity; other objects
+  and topics retain dependency links instead of duplicating the task. A found
   source/domain must be added to the versioned registry, validated, and the
   review rebuilt; the topic remains Unproven before that binding.
 - Mixed-integration objects retain every matched vendor context, and each
   unmatched external host creates its own research obligation.
-- Vendor and host inference excludes export/UI metadata, while explicit
+- Vendor and host inference excludes export/UI metadata, documentation/help,
+  licenses, tests, and code comments, while explicit
   recognized server-transport endpoints remain in the server-routing contract
   rather than becoming false unknown-vendor obligations.
 - The purpose is literal and object-specific. `Returns Date.now()` is acceptable;

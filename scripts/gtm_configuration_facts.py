@@ -11,6 +11,7 @@ from gtm_lib import (
     ID_KEYS,
     SEMANTIC_LAYERS,
     comparable,
+    custom_template_executable_code,
     custom_template_id,
     is_system_variable_reference,
     object_id,
@@ -316,7 +317,7 @@ def code_body(layer: str, obj: dict[str, Any]) -> str:
     if layer == "variable":
         return parameter_value(obj, "javascript")
     if layer == "customTemplate":
-        return str(obj.get("templateData") or "")
+        return custom_template_executable_code(obj.get("templateData"))
     return ""
 
 

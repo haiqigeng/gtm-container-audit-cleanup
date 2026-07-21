@@ -52,6 +52,15 @@ BEHAVIOR_NEUTRAL_FIELDS = frozenset(
 REF_RE = re.compile(r"\{\{([^{}]+)\}\}")
 CUSTOM_TEMPLATE_RE = re.compile(r"^cvt_\d+_(\d+)$")
 SYSTEM_TRIGGER_RE = re.compile(r"^2147479\d{3}$")
+CUSTOM_TEMPLATE_SECTION_RE = re.compile(r"(?m)^___([A-Z0-9_]+)___\s*$")
+CUSTOM_TEMPLATE_EXECUTABLE_SECTIONS = (
+    "SANDBOXED_JS_FOR_WEB_TEMPLATE",
+    "SANDBOXED_JS_FOR_SERVER_TEMPLATE",
+)
+CUSTOM_TEMPLATE_BEHAVIOR_SECTIONS = CUSTOM_TEMPLATE_EXECUTABLE_SECTIONS + (
+    "WEB_PERMISSIONS",
+    "SERVER_PERMISSIONS",
+)
 
 SYSTEM_VARIABLE_REFERENCES = {
     "_event": "GTM internal current event name used by Custom Event trigger filters",
@@ -76,14 +85,83 @@ def container_root_path(data: dict[str, Any]) -> str:
     return "$.containerVersion" if "containerVersion" in data else "$"
 
 
+def custom_template_sections(template_data: Any) -> dict[str, str]:
+    """Split GTM community-template data without treating documentation as code."""
+    text = str(template_data or "")
+    matches = list(CUSTOM_TEMPLATE_SECTION_RE.finditer(text))
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections[match.group(1)] = text[match.end() : end].strip()
+    return sections
+
+
+def custom_template_executable_code(template_data: Any) -> str:
+    sections = custom_template_sections(template_data)
+    if not sections:
+        raw = str(template_data or "").strip()
+        try:
+            payload = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return strip_nonbehavior_comments(raw)
+        if not isinstance(payload, dict):
+            return strip_nonbehavior_comments(raw)
+        behavior_values = [
+            value
+            for key, value in payload.items()
+            if re.search(r"sandbox|code|script|execute|templateSource", str(key), re.I)
+        ]
+        return strip_nonbehavior_comments(
+            "\n\n".join(str(value) for value in behavior_values if str(value).strip())
+        )
+    return strip_nonbehavior_comments(
+        "\n\n".join(
+            sections[name]
+            for name in CUSTOM_TEMPLATE_EXECUTABLE_SECTIONS
+            if sections.get(name)
+        )
+    )
+
+
+def custom_template_behavior_text(template_data: Any) -> str:
+    sections = custom_template_sections(template_data)
+    if not sections:
+        return strip_nonbehavior_comments(custom_template_executable_code(template_data))
+    return strip_nonbehavior_comments(
+        "\n\n".join(
+            sections[name]
+            for name in CUSTOM_TEMPLATE_BEHAVIOR_SECTIONS
+            if sections.get(name)
+        )
+    )
+
+
+def strip_nonbehavior_comments(text: str) -> str:
+    """Remove comment-only documentation while retaining executable statements."""
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"(?m)^\s*//.*$", "", text)
+
+
 def behavior_projection(value: Any) -> Any:
     """Remove export/UI metadata before behavior, vendor, or host inference."""
     if isinstance(value, dict):
-        return {
-            key: behavior_projection(item)
-            for key, item in value.items()
-            if key not in BEHAVIOR_NEUTRAL_FIELDS
+        projected = {}
+        is_custom_template = "templateId" in value and "templateData" in value
+        parameter_code_key = str(value.get("key") or "").lower() in {
+            "html",
+            "javascript",
         }
+        for key, item in value.items():
+            if key in BEHAVIOR_NEUTRAL_FIELDS:
+                continue
+            if is_custom_template and key == "templateData":
+                projected[key] = custom_template_behavior_text(item)
+            elif parameter_code_key and key == "value" and isinstance(item, str) or key in {"html", "javascript"} and isinstance(item, str):
+                projected[key] = strip_nonbehavior_comments(item)
+            else:
+                projected[key] = behavior_projection(item)
+        return projected
     if isinstance(value, list):
         return [behavior_projection(item) for item in value]
     return value
@@ -359,6 +437,11 @@ def apply_patch(original_cv: dict[str, Any], patch_cv: dict[str, Any]) -> dict[s
 
 
 def refs(obj: Any) -> set[str]:
+    if isinstance(obj, dict) and "templateId" in obj and "templateData" in obj:
+        obj = {
+            **obj,
+            "templateData": custom_template_executable_code(obj.get("templateData")),
+        }
     return set(REF_RE.findall(json.dumps(obj, ensure_ascii=False)))
 
 

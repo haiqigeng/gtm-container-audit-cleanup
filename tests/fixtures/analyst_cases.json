@@ -50,6 +50,13 @@
     {"id": "destination_peer_inheritance_boundary", "expected_engine": "configuration_correctness"},
     {"id": "architecture_operation_candidate_binding", "expected_engine": "business_architecture"},
     {"id": "discovered_unsafe_policy_attribution", "expected_engine": "business_architecture"},
-    {"id": "architecture_negative_runtime_claims", "expected_engine": "business_architecture"}
+    {"id": "architecture_negative_runtime_claims", "expected_engine": "business_architecture"},
+    {"id": "exact_once_branch_ownership", "expected_engine": "configuration_correctness"},
+    {"id": "domain_context_list_inference", "expected_engine": "shared_context"},
+    {"id": "explicit_server_route_field", "expected_engine": "configuration_correctness"},
+    {"id": "custom_template_section_separation", "expected_engine": "configuration_correctness"},
+    {"id": "vendor_research_single_owner", "expected_engine": "configuration_correctness"},
+    {"id": "unconfirmed_naming_policy_batch", "expected_engine": "operational_sanitation"},
+    {"id": "vendor_aware_ua_detection", "expected_engine": "operational_sanitation"}
   ]
 }

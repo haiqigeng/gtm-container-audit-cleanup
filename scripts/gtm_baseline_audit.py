@@ -549,10 +549,11 @@ def ua_style_signals(layer: str, obj: dict[str, Any]) -> list[str]:
     text = stable_payload(obj)
     name = object_name(obj)
     signals: list[str] = []
+    tag_type = str(obj.get("type") or "").lower()
 
-    if layer == "tag" and str(obj.get("type") or "").lower() == "ua":
+    if layer == "tag" and tag_type == "ua":
         signals.append("native Universal Analytics tag type")
-    if layer == "tag" and UA_TAG_PARAMETER_RE.search(text):
+    if layer == "tag" and tag_type == "ua" and UA_TAG_PARAMETER_RE.search(text):
         signals.append("Universal Analytics tag parameters")
     if UA_PROPERTY_RE.search(text):
         signals.append("UA property ID")
@@ -568,7 +569,7 @@ def ua_style_signals(layer: str, obj: dict[str, Any]) -> list[str]:
         signals.append("fixed product position path(s): " + ", ".join(fixed_indexes))
 
     legacy_events = short_matches(UA_STYLE_EVENT_RE, text)
-    if legacy_events:
+    if legacy_events and signals:
         signals.append("legacy checkout/product event name(s): " + ", ".join(legacy_events))
 
     return signals
@@ -2842,6 +2843,30 @@ def add_naming_architecture_findings(
 
     tag_order = str(naming_policy.get("tag_order") or "vendor_event_scope")
     selected = str(naming_policy.get("selected_policy") or "default-standardized")
+    if selected != "local-normalized":
+        builder.add_finding(
+            module_name,
+            "naming_policy_confirmation_required",
+            "container",
+            [],
+            "naming_policy:unconfirmed",
+            (
+                "The export has no dominant, reliable tag naming order. Per-object "
+                "conformance cannot be judged against an inferred default without imposing "
+                "a policy that the container does not prove."
+            ),
+            (
+                "Confirm the intended naming convention once, then generate the complete "
+                "rename set after behavior, canonical objects, remaps, and deletions are settled."
+            ),
+            extra={
+                "source_lens": "inferred_policy_candidate",
+                "policy_confirmation_required": True,
+                "selected_naming_policy": selected,
+                "target_naming_pattern": "Unresolved until owner confirmation",
+            },
+        )
+        return
     blocking_trigger_ids = {
         str(trigger_id) for tag in tags for trigger_id in as_list(tag.get("blockingTriggerId"))
     }
