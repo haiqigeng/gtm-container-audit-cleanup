@@ -57,6 +57,11 @@
     {"id": "custom_template_section_separation", "expected_engine": "configuration_correctness"},
     {"id": "vendor_research_single_owner", "expected_engine": "configuration_correctness"},
     {"id": "unconfirmed_naming_policy_batch", "expected_engine": "operational_sanitation"},
-    {"id": "vendor_aware_ua_detection", "expected_engine": "operational_sanitation"}
+    {"id": "vendor_aware_ua_detection", "expected_engine": "operational_sanitation"},
+    {"id": "material_context_preflight", "expected_engine": "intake_preflight"},
+    {"id": "independent_run_input_boundary", "expected_engine": "execution_contract"},
+    {"id": "incremental_shard_completion_check", "expected_engine": "review_sharding"},
+    {"id": "decision_first_human_output", "expected_engine": "human_output"},
+    {"id": "semantic_release_invariant", "expected_engine": "release_process"}
   ]
 }

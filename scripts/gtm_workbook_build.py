@@ -541,15 +541,46 @@ def build_workbook(
     sheets = {name: workbook.create_sheet(name) for name in CANONICAL_SHEETS}
     operation_count = len(as_list(operations.get("operations")))
     deferred_count = len(as_list(operations.get("deferred_operations")))
+    ledger = as_list(operations.get("decision_ledger"))
     owner_decisions = sum(
         1
-        for row in as_list(operations.get("decision_ledger"))
+        for row in ledger
         if row.get("disposition") == "owner_decision_needed"
     )
     evidence_limits = sum(
         1
-        for row in as_list(operations.get("decision_ledger"))
+        for row in ledger
         if row.get("disposition") == "container_evidence_limit"
+    )
+    retained_decisions = sum(1 for row in ledger if row.get("disposition") == "keep")
+    documented_exceptions = sum(
+        1 for row in ledger if row.get("disposition") == "documented_exception"
+    )
+    retained_families = [
+        str(row.get("title") or row.get("decision_id") or "")
+        for row in ledger
+        if row.get("source_run") == "business_architecture"
+        and str(row.get("decision_id") or "").startswith("FAM-")
+        and row.get("disposition") == "keep"
+    ]
+    retained_family_summary = join_text(retained_families[:6])
+    if len(retained_families) > 6:
+        retained_family_summary += f"; +{len(retained_families) - 6} more retained families"
+    priority_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+    highest_impact = sorted(
+        as_list(operations.get("operations")),
+        key=lambda row: (
+            priority_order.get(str(row.get("priority") or ""), 4),
+            str(row.get("operation_id") or ""),
+        ),
+    )[:5]
+    highest_impact_summary = join_text(
+        [
+            f"[{row.get('priority')}] {row.get('operation_id')}: "
+            f"{row.get('problem')} -> "
+            f"{row.get('exact_proposed_action')}"
+            for row in highest_impact
+        ]
     )
     if operations.get("aggressiveness") == "Undecided":
         overall_status = "Cleanup level decision required"
@@ -581,6 +612,19 @@ def build_workbook(
         {
             "Decision": "Business families reviewed",
             "Value": len(as_list(architecture.get("families"))),
+        },
+        {
+            "Decision": "Retained / no-change decisions",
+            "Value": retained_decisions,
+        },
+        {"Decision": "Documented owner exceptions", "Value": documented_exceptions},
+        {
+            "Decision": "Retained business-family architecture",
+            "Value": retained_family_summary or "No retained family decision recorded",
+        },
+        {
+            "Decision": "Highest-impact proposed actions",
+            "Value": highest_impact_summary or "No cleanup operation proposed",
         },
         {"Decision": "Proposed operations", "Value": operation_count},
         {"Decision": "Deferred operations", "Value": deferred_count},

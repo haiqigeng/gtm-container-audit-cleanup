@@ -12,14 +12,34 @@ from typing import Any
 from gtm_privacy import redact_text
 from gtm_taxonomy import AREAS, PROBLEM_TYPES
 
+PRIORITY_ORDER = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+LEVEL_ORDER = {
+    "Proposed": 0,
+    "Owner decision": 1,
+    "Evidence limit": 2,
+    "Deferred": 3,
+}
+
 
 def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
 def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]]:
-    rows: list[dict[str, str]] = []
+    staged_rows: list[tuple[tuple[int, int, str], dict[str, str]]] = []
     errors: list[str] = []
+
+    def stage_row(row: dict[str, str], level: str, priority: str, identifier: str) -> None:
+        staged_rows.append(
+            (
+                (
+                    LEVEL_ORDER.get(level, 99),
+                    PRIORITY_ORDER.get(priority, 4),
+                    identifier,
+                ),
+                row,
+            )
+        )
 
     def append_operation(operation: dict[str, Any], index: int, level: str) -> None:
         area = str(operation.get("area") or "")
@@ -35,19 +55,32 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
         action = redact_text(operation.get("exact_proposed_action"))
         qa = redact_text(operation.get("qa_steps"))
         blocker = redact_text(operation.get("blocker"))
-        rows.append(
+        operation_id = str(operation.get("operation_id") or f"OP-{index:04d}")
+        execution_order = operation.get("execution_order")
+        stage_row(
             {
-                "ID": str(operation.get("operation_id") or f"OP-{index:04d}"),
+                "ID": operation_id,
                 "Level": level,
                 "Area / problem type": f"{area} / {problem_type}",
                 "Affected object(s)": redact_text(operation.get("affected_objects")),
-                "Problem / evidence": f"{problem} Impact: {impact}".strip(),
+                "Problem / evidence": (
+                    f"Root problem: {problem} Business impact: {impact}"
+                ).strip(),
                 "Action / priority / QA": (
-                    f"{action} Priority: {operation.get('priority')}. "
-                    f"Readiness: {operation.get('execution_readiness')}. QA: {qa}"
+                    f"Target state / exact action: {action} "
+                    f"Priority: {operation.get('priority')}. "
+                    + (
+                        f"Execution order: {execution_order}. "
+                        if execution_order is not None
+                        else ""
+                    )
+                    + f"Readiness: {operation.get('execution_readiness')}. QA: {qa}"
                     + (f" Blocker: {blocker}" if blocker else "")
                 ).strip(),
-            }
+            },
+            level,
+            str(operation.get("priority") or ""),
+            operation_id,
         )
 
     active = as_list(payload.get("operations"))
@@ -81,17 +114,34 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
             if evidence_limit
             else redact_text(decision.get("owner_question"))
         )
-        rows.append(
+        decision_id = str(decision.get("decision_id") or "DECISION")
+        level = "Evidence limit" if evidence_limit else "Owner decision"
+        stage_row(
             {
-                "ID": str(decision.get("decision_id") or "DECISION"),
-                "Level": "Evidence limit" if evidence_limit else "Owner decision",
+                "ID": decision_id,
+                "Level": level,
                 "Area / problem type": f"{area} / {problem_type}",
                 "Affected object(s)": redact_text(decision.get("affected_objects")),
-                "Problem / evidence": redact_text(decision.get("summary")),
-                "Action / priority / QA": action,
-            }
+                "Problem / evidence": (
+                    "Evidence boundary: " if evidence_limit else "Decision required: "
+                )
+                + redact_text(decision.get("summary")),
+                "Action / priority / QA": (
+                    f"Required next action: {action} "
+                    + (
+                        "Readiness: blocked until the owner answers this question."
+                        if not evidence_limit
+                        else "Readiness: retain unchanged unless new evidence is supplied."
+                    )
+                ),
+            },
+            level,
+            "",
+            decision_id,
         )
-    return rows, errors
+    return [
+        row for _sort_key, row in sorted(staged_rows, key=lambda item: item[0])
+    ], errors
 
 
 def main() -> int:

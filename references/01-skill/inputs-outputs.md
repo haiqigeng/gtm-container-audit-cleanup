@@ -17,8 +17,13 @@ container scope.
 Persist context in a small JSON object when supplied explicitly. Typical keys
 are `website_url`, `business_model`, `container_type`, `cmp`, `markets`,
 `product_scopes`, `server_routing_hosts`, `known_owner_exceptions`, and
-`unresolved_questions`. The package merges this with deterministic inference
-and records a context hash.
+`unresolved_questions`, plus `requested_deliverable`. Run the deterministic
+context model before building the package. Its preflight labels each core field
+as analyst-provided, high-confidence inferred, or unresolved and identifies
+which questions materially affect interpretation. The package merges confirmed
+context with inference and records the complete intake state in the context
+hash. Supply `cmp`, `markets`, and `server_routing_hosts` as arrays; an explicit
+empty array means confirmed none rather than missing context.
 
 Live browser requests, Tag Assistant, CMP interaction, website dataLayer
 inspection, and vendor-platform results are not evidence for this skill.
@@ -48,7 +53,9 @@ remains concise.
 
 The visible plan includes proposed operations, operations deferred by the
 selected aggressiveness, unresolved owner questions, and documented container-
-evidence limits. Hidden proof remains unprotected and privacy-scanned.
+evidence limits. It leads with root problem and measurement impact, defines the
+exact target state/action, and summarizes retained business-family architecture
+as well as cleanup. Hidden proof remains unprotected and privacy-scanned.
 
 ## Lifecycle
 

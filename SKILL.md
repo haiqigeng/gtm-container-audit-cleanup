@@ -42,6 +42,17 @@ questions and the evidence basis for inference. Context may guide grouping and
 contract selection, but it may not replace container evidence or silently turn
 an assumption into a finding.
 
+Before building review scaffolds, run the context model as an intake preflight:
+
+```bash
+python -B scripts/gtm_context_model.py container.json --pretty
+```
+
+Present supplied, high-confidence inferred, and unresolved fields separately.
+Ask only the generated material questions, then rebuild with the confirmed
+context. Non-material questions remain visible but do not create a new audit
+gate. Do not start semantic review while a material intake question is pending.
+
 If the evidence is a compiled live script, partial UI screenshots, or any other
 incomplete representation, mark the audit blocked and request a complete export
 or equivalent complete read-only API/UI evidence. Do not create a reduced audit
@@ -66,6 +77,10 @@ Each run has its own obligations, completed decisions, validator, and failure
 status. Runs must not read or copy another run's judgments. Technical custom
 code is a specialized part of configuration correctness, not a fourth verdict
 engine. Reconcile only after all three runs pass.
+
+Prefer a fresh reasoning context for each run. When that is unavailable, treat
+the other runs' verdict artifacts as prohibited inputs: load only the raw
+export, locked context, shared facts, and the current run scaffold.
 
 Audit depth is always complete for the supplied container. Mutation
 aggressiveness changes what may be executed, never which problems are checked.
@@ -112,6 +127,12 @@ from different runs, shared-fact hashes, context hashes, or source hashes.
 Use `--max-obligations 30` or less for configuration reviews. The obligation
 manifest must recover every generated branch, trace, contract, technical
 finding, D3 cross-check, and custom-code line exactly once and in source order.
+Check each completed shard immediately against its base and manifest; this is
+early use of the existing locks, not a substitute for the final run validator:
+
+```bash
+python -B scripts/gtm_review_shards.py check audit-package/configuration_review.json configuration-shards completed-shard.json
+```
 
 ### 2. Run Operational Sanitation Independently
 
@@ -406,6 +427,10 @@ Show proposed and aggressiveness-deferred operations plus owner decisions and
 container-evidence limits. Never claim `Ready` while one of those decisions is
 unresolved. Keep each distinct actionable issue separate. Homogeneous duplicate,
 unused, naming, or folder batches may use one row. Do not include a change log.
+Order the visible plan by impact without changing canonical obligation or
+execution order. State the root problem, measurement impact, affected objects,
+retained behavior, exact target state/action, readiness, and QA. Summarize
+source-confirmed retained business families as well as cleanup operations.
 
 ### 7. Offer The Next Action
 

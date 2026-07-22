@@ -18,6 +18,16 @@ python -m pip install -e ".[analysis,dev]"
 
 ## Build The Source-Locked Package
 
+Run the intake preflight first:
+
+```powershell
+python -B scripts/gtm_context_model.py container.json --pretty
+```
+
+Present its provided, high-confidence inferred, and unresolved fields. Resolve
+material questions in a small context JSON before semantic review; non-material
+questions remain visible without adding a completion gate.
+
 ```powershell
 python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --pretty
 ```
@@ -55,6 +65,7 @@ Repeat for operational, configuration, and architecture review files as needed.
 
 ```powershell
 python -B scripts/gtm_review_shards.py split audit-package/configuration_review.json configuration-shards --max-items 40 --max-obligations 30
+python -B scripts/gtm_review_shards.py check audit-package/configuration_review.json configuration-shards configuration_review.rows.0001.json
 python -B scripts/gtm_review_shards.py merge audit-package/configuration_review.json configuration-shards completed-configuration-review.json
 ```
 
@@ -68,6 +79,12 @@ or configuration object still exceeds the reliable agent context.
 Architecture splitting also creates `*.open_discovery.0001.json`. Complete its
 analyst-added `DISC-*` comparisons and `open_discovery_attestation`; merge will
 not mark the architecture run complete while that file is pending.
+
+Run `check` immediately after completing each shard, using its exact manifest
+filename. It verifies source locks, declared IDs, original obligation content,
+and exact completion coverage; custom-code lines must also remain in source
+order. It is an early corruption check, not a replacement for the complete run
+validator after merge.
 
 ## Validate The Three Independent Runs
 
@@ -144,3 +161,8 @@ python -B scripts/gtm_vendor_registry.py --max-age-days 365
 python -B scripts/check_release.py
 git diff --check
 ```
+
+For every semantic correction, add a fixture that reproduces the failure and a
+paired assertion that nearby true positives and architecture candidates remain.
+Compare representative messy-container object, obligation, and relationship
+counts before release; unexplained growth or lost coverage is a release blocker.

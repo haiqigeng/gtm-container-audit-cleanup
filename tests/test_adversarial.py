@@ -31,7 +31,7 @@ from gtm_operation_compile import (
 )
 from gtm_operational_review import validate_review as validate_operational
 from gtm_relationships import relationship_candidates
-from gtm_review_shards import merge_review, split_review
+from gtm_review_shards import check_shard, merge_review, split_review
 from gtm_three_run_gate import run_gate
 from gtm_vendor_registry import vendor_records
 
@@ -58,7 +58,7 @@ class AdversarialAuditTests(unittest.TestCase):
             )
         )
         case_ids = {row["id"] for row in manifest["cases"]}
-        self.assertEqual(58, len(case_ids))
+        self.assertEqual(63, len(case_ids))
         self.assertIn("single_member_trigger_group", case_ids)
         self.assertIn("dynamic_ga4_purchase_contract", case_ids)
         self.assertIn("worsened_future_finding", case_ids)
@@ -101,6 +101,11 @@ class AdversarialAuditTests(unittest.TestCase):
         self.assertIn("architecture_operation_candidate_binding", case_ids)
         self.assertIn("discovered_unsafe_policy_attribution", case_ids)
         self.assertIn("architecture_negative_runtime_claims", case_ids)
+        self.assertIn("material_context_preflight", case_ids)
+        self.assertIn("independent_run_input_boundary", case_ids)
+        self.assertIn("incremental_shard_completion_check", case_ids)
+        self.assertIn("decision_first_human_output", case_ids)
+        self.assertIn("semantic_release_invariant", case_ids)
 
     def test_provided_context_is_reproducible_and_tamper_evident(self) -> None:
         context_path = self.write_json(
@@ -137,6 +142,83 @@ class AdversarialAuditTests(unittest.TestCase):
         report = run_gate(self.export, package, audit_only=True)
         self.assertEqual("fail", report["status"])
         self.assertTrue(any("context" in error for error in report["errors"]))
+
+    def test_intake_preflight_separates_evidence_without_adding_a_package_gate(self) -> None:
+        inferred = build_context_model(self.export)
+        self.assertEqual(
+            "high_confidence_inferred",
+            inferred["context_evidence"]["container_type"]["status"],
+        )
+        deliverable = next(
+            row
+            for row in inferred["intake_questions"]
+            if row["field"] == "requested_deliverable"
+        )
+        self.assertTrue(deliverable["material"])
+        self.assertEqual("confirmation_required", inferred["intake_status"])
+
+        package = self.root / "preflight-package"
+        manifest = build_package(self.export, package, pretty=True)
+        self.assertEqual("pass", manifest["status"])
+        self.assertEqual("confirmation_required", manifest["intake"]["status"])
+        self.assertIn("confirmed material audit context", manifest["required_next_artifacts"])
+
+        provided = self.write_json(
+            "complete-intake.json",
+            {
+                "website_url": "https://example.test/",
+                "business_model": "ecommerce",
+                "cmp": [],
+                "server_routing_hosts": inferred["context"]["server_routing_hosts"],
+                "requested_deliverable": "audit and cleanup plan",
+            },
+        )
+        confirmed = build_context_model(self.export, provided)
+        self.assertEqual("provided", confirmed["context_evidence"]["cmp"]["status"])
+        self.assertFalse(
+            any(row["material"] for row in confirmed["intake_questions"]),
+            confirmed["intake_questions"],
+        )
+        self.assertEqual("ready", confirmed["intake_status"])
+
+        no_consent = sample_export()
+        container = no_consent["containerVersion"]
+        for layer in ("tag", "trigger", "variable"):
+            container[layer] = []
+        no_consent_export = self.write_json("no-consent-context.json", no_consent)
+        non_blocking = build_context_model(
+            no_consent_export,
+            provided_context={
+                "website_url": "https://example.test/",
+                "business_model": "lead_generation",
+                "server_routing_hosts": [],
+                "requested_deliverable": "audit and cleanup plan",
+            },
+        )
+        cmp_question = next(
+            row for row in non_blocking["intake_questions"] if row["field"] == "cmp"
+        )
+        self.assertFalse(cmp_question["material"])
+        self.assertEqual([], non_blocking["unresolved_questions"])
+        self.assertEqual("ready", non_blocking["intake_status"])
+
+        malformed_cmp = build_context_model(
+            no_consent_export,
+            provided_context={
+                "website_url": "https://example.test/",
+                "business_model": "lead_generation",
+                "cmp": "none",
+                "server_routing_hosts": [],
+                "requested_deliverable": "audit and cleanup plan",
+            },
+        )
+        self.assertEqual([], malformed_cmp["context"]["cmp"])
+        self.assertEqual(
+            "unresolved", malformed_cmp["context_evidence"]["cmp"]["status"]
+        )
+        self.assertTrue(
+            any(row["field"] == "cmp" for row in malformed_cmp["intake_questions"])
+        )
 
     def test_repeated_custom_code_lines_keep_distinct_source_identity(self) -> None:
         variable = {
@@ -785,6 +867,59 @@ class AdversarialAuditTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(code_shards), 8)
         self.assertTrue(all(len(row["source_ids"]) <= 10 for row in code_shards))
+
+    def test_completed_shards_fail_early_on_pending_or_missing_obligations(self) -> None:
+        completed = complete_configuration(self.export)
+        review_path = self.write_json("completed-configuration.json", completed)
+        shard_dir = self.root / "checked-shards"
+        manifest = split_review(review_path, shard_dir, max_items=3, max_obligations=10)
+
+        primary_name = manifest["shards"][0]["filename"]
+        primary_report = check_shard(review_path, shard_dir, primary_name)
+        self.assertEqual("pass", primary_report["status"])
+
+        obligation_manifest = next(
+            row
+            for row in manifest["obligation_shards"]
+            if row["source_field"] != "code_line_facts" and len(row["source_ids"]) > 1
+        )
+        obligation_name = obligation_manifest["filename"]
+        obligation_report = check_shard(review_path, shard_dir, obligation_name)
+        self.assertEqual("pass", obligation_report["status"])
+
+        obligation_path = shard_dir / obligation_name
+        obligation = json.loads(obligation_path.read_text(encoding="utf-8"))
+        obligation["completed_items"].reverse()
+        obligation_path.write_text(json.dumps(obligation), encoding="utf-8")
+        reordered_report = check_shard(review_path, shard_dir, obligation_name)
+        self.assertEqual("pass", reordered_report["status"])
+        obligation["completed_items"] = obligation["completed_items"][:-1]
+        obligation_path.write_text(json.dumps(obligation), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "cover every source obligation"):
+            check_shard(review_path, shard_dir, obligation_name)
+
+        code_name = next(
+            row["filename"]
+            for row in manifest["obligation_shards"]
+            if row["source_field"] == "code_line_facts"
+        )
+        code_report = check_shard(review_path, shard_dir, code_name)
+        self.assertEqual("pass", code_report["status"])
+        code_path = shard_dir / code_name
+        code = json.loads(code_path.read_text(encoding="utf-8"))
+        code["completed_items"][0]["line_hashes"] = code["completed_items"][0][
+            "line_hashes"
+        ][:-1]
+        code_path.write_text(json.dumps(code), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "every source line"):
+            check_shard(review_path, shard_dir, code_name)
+
+        primary_path = shard_dir / primary_name
+        primary = json.loads(primary_path.read_text(encoding="utf-8"))
+        primary["items"][0]["review_status"] = "pending"
+        primary_path.write_text(json.dumps(primary), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "pending items"):
+            check_shard(review_path, shard_dir, primary_name)
 
     def test_shard_manifest_cannot_escape_its_directory(self) -> None:
         review = complete_operational(self.export)

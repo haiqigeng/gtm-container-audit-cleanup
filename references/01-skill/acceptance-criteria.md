@@ -16,14 +16,17 @@ An audit and cleanup plan is complete only when all criteria below pass.
   entity layer is an array, every object has a unique layer ID, and no unknown
   entity-like top-level layer is silently ignored. A failure blocks all three
   semantic reviews and mutation compilation.
-- Provided and inferred context is persisted with unresolved questions and a
-  stable context hash.
+- Provided, high-confidence inferred, and unresolved context is visibly
+  separated; material intake questions are presented before semantic review,
+  and the complete intake state is protected by a stable context hash.
 - Context and shared-fact content are deterministically reconstructed at the
   package gate; copied matching hash strings cannot hide changed content.
 - One judgment-free deterministic fact artifact contains object identity,
   references, consumers, raw leaves, terminal sources, trigger logic, formula
   signals, consent routes, and behavior signatures.
 - All three reviews bind to the same source, context, and shared-fact hashes.
+- Each run receives no prior-run verdict artifact. Prefer a fresh reasoning
+  context; sequential execution reloads only the permitted source/fact inputs.
 - Built-in/system references are distinguished from missing references.
 - Web, server, consent, ecommerce, and business scope are stated without
   claiming evidence from an unseen container or live website.
@@ -241,6 +244,9 @@ An audit and cleanup plan is complete only when all criteria below pass.
   every cleanup disposition to a compiled operation.
 - Projected before/after/delta counts exist for every GTM object layer and do
   not show unexplained broad deletion or recreation.
+- Every completed shard passes its existing manifest/source-lock and exact
+  completion check before merge; the merged artifact still passes the complete
+  authoritative run validator.
 
 ## Human Output
 
@@ -253,6 +259,9 @@ An audit and cleanup plan is complete only when all criteria below pass.
   visible, and Summary does not claim readiness while owner action is pending.
 - Visible text states problem, affected objects, impact, exact action, priority,
   readiness, and QA in web-analyst language without raw dumps or internal gates.
+- Visible rows are impact-led without changing operation IDs or execution order;
+  Summary counts retained/no-change decisions and names retained business-family
+  architecture so the target state is not represented only by defects.
 - Cleanup plan and change log remain separate.
 - Every change-log tab uses six or fewer columns and preserves one field-level
   row per actual difference without duplicating the same payload under aliases.
@@ -267,6 +276,17 @@ An audit and cleanup plan is complete only when all criteria below pass.
 - Import/readback and change-log sources pass the same unique-ID/entity-layer
   integrity checks, including Zones and Google tag configurations, before a
   field-level diff is trusted.
+
+## Skill Change Regression Safety
+
+- Every semantic change has a fixture reproducing the observed failure and
+  proves both the intended correction and preservation of neighboring true
+  positives.
+- Release validation preserves exact-once object/branch identities,
+  architecture candidate coverage, research ownership, and representative
+  messy-container metrics; unexplained obligation growth blocks release.
+- Prefer one coherent semantic subsystem per release. Workflow and presentation
+  changes remain projections of existing source facts, decisions, and gates.
 
 ## Automatic Failure
 

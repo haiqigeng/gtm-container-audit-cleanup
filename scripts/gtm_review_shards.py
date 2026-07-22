@@ -390,6 +390,176 @@ def validate_lock_fields(
             raise ValueError(f"{label} {field} differs from the base review")
 
 
+def manifest_entry(
+    manifest: dict[str, Any], filename: str
+) -> tuple[str, dict[str, Any]]:
+    matches: list[tuple[str, dict[str, Any]]] = []
+    for kind, field in (("review", "shards"), ("obligation", "obligation_shards")):
+        matches.extend(
+            (kind, row)
+            for row in as_list(manifest.get(field))
+            if str(row.get("filename") or "") == filename
+        )
+    if str(manifest.get("discovery_shard") or "") == filename:
+        matches.append(("discovery", {"filename": filename}))
+    if not matches:
+        raise ValueError(f"shard is not declared by the manifest: {filename}")
+    if len(matches) != 1:
+        raise ValueError(f"shard filename is declared more than once: {filename}")
+    return matches[0]
+
+
+def check_primary_shard(
+    base: dict[str, Any], manifest_row: dict[str, Any], shard: dict[str, Any], filename: str
+) -> int:
+    if shard.get("kind") != "gtm_review_shard":
+        raise ValueError(f"invalid review shard kind: {filename}")
+    validate_lock_fields(shard, base, filename)
+    collection = str(shard.get("collection") or "")
+    id_field = str(shard.get("id_field") or "")
+    if (collection, id_field) not in review_collections(base):
+        raise ValueError(f"invalid shard collection or ID field in {filename}")
+    for field in ("collection", "id_field"):
+        if shard.get(field) != manifest_row.get(field):
+            raise ValueError(f"{filename} {field} differs from the manifest")
+    items = as_list(shard.get("items"))
+    item_ids = [str(item.get(id_field) or "") for item in items]
+    expected_ids = [str(value) for value in as_list(manifest_row.get("item_ids"))]
+    if any(not value for value in item_ids) or len(item_ids) != len(set(item_ids)):
+        raise ValueError(f"{filename} contains blank or duplicate item IDs")
+    if item_ids != [str(value) for value in as_list(shard.get("item_ids"))]:
+        raise ValueError(f"{filename} item_ids do not match its items")
+    if item_ids != expected_ids:
+        raise ValueError(f"{filename} item_ids differ from the manifest")
+    base_ids = {
+        str(item.get(id_field) or "") for item in as_list(base.get(collection))
+    }
+    if not set(item_ids) <= base_ids:
+        raise ValueError(f"{filename} contains an item absent from the base review")
+    pending = [value for value, item in zip(item_ids, items, strict=True) if item.get("review_status") != "complete"]
+    if pending:
+        raise ValueError(f"{filename} contains pending items: {pending!r}")
+    return len(items)
+
+
+def obligation_identity_fields(source_field: str) -> tuple[str, str]:
+    if source_field == "code_line_facts":
+        return "line_hash", "line_hashes"
+    for source, _completion, source_id, completion_id in CONFIGURATION_OBLIGATION_SPECS:
+        if source == source_field:
+            return source_id, completion_id
+    raise ValueError(f"unsupported configuration obligation field: {source_field!r}")
+
+
+def check_obligation_shard(
+    base: dict[str, Any], manifest_row: dict[str, Any], shard: dict[str, Any], filename: str
+) -> int:
+    if shard.get("kind") != "gtm_configuration_obligation_shard":
+        raise ValueError(f"invalid configuration obligation shard: {filename}")
+    validate_lock_fields(shard, base, filename)
+    object_key = str(shard.get("object_key") or "")
+    source_field = str(shard.get("source_field") or "")
+    for field in ("object_key", "source_field", "completion_field"):
+        if shard.get(field) != manifest_row.get(field):
+            raise ValueError(f"{filename} {field} differs from the manifest")
+    source_id_field, completion_id_field = obligation_identity_fields(source_field)
+    if shard.get("source_id_field") != source_id_field:
+        raise ValueError(f"{filename} source identity field is invalid")
+    if shard.get("completion_id_field") != completion_id_field:
+        raise ValueError(f"{filename} completion identity field is invalid")
+    original_row = next(
+        (
+            row
+            for row in as_list(base.get("rows"))
+            if str(row.get("object_key") or "") == object_key
+        ),
+        None,
+    )
+    if not original_row:
+        raise ValueError(f"{filename} references unknown object {object_key!r}")
+    source_items = as_list(shard.get("source_items"))
+    source_ids = [str(item.get(source_id_field) or "") for item in source_items]
+    expected_ids = [str(value) for value in as_list(manifest_row.get("source_ids"))]
+    if any(not value for value in source_ids) or len(source_ids) != len(set(source_ids)):
+        raise ValueError(f"{filename} contains blank or duplicate source IDs")
+    if source_ids != [str(value) for value in as_list(shard.get("source_ids"))]:
+        raise ValueError(f"{filename} source IDs do not match its source items")
+    if source_ids != expected_ids:
+        raise ValueError(f"{filename} source IDs differ from the manifest")
+    original_by_id = {
+        str(item.get(source_id_field) or ""): item
+        for item in as_list(original_row.get(source_field))
+    }
+    if source_items != [original_by_id.get(value) for value in source_ids]:
+        raise ValueError(f"{filename} source obligations differ from the base review")
+    completed_items = as_list(shard.get("completed_items"))
+    if any(not isinstance(item, dict) for item in completed_items):
+        raise ValueError(f"{filename} contains a non-object completion")
+    if completion_id_field == "line_hashes":
+        if any(not as_list(item.get(completion_id_field)) for item in completed_items):
+            raise ValueError(f"{filename} contains an empty code completion block")
+        completed_ids = [
+            str(value)
+            for item in completed_items
+            for value in as_list(item.get(completion_id_field))
+        ]
+        if any(len(as_list(item.get(completion_id_field))) > 30 for item in completed_items):
+            raise ValueError(f"{filename} contains a code block above 30 lines")
+        if completed_ids != source_ids:
+            raise ValueError(
+                f"{filename} code completions must cover every source line "
+                "exactly once and in order"
+            )
+    else:
+        completed_ids = [
+            str(item.get(completion_id_field) or "") for item in completed_items
+        ]
+        if any(not value for value in completed_ids) or len(completed_ids) != len(
+            set(completed_ids)
+        ):
+            raise ValueError(f"{filename} contains blank or duplicate completion IDs")
+        if set(completed_ids) != set(source_ids):
+            raise ValueError(
+                f"{filename} completions must cover every source obligation exactly once"
+            )
+    return len(source_ids)
+
+
+def check_shard(
+    base_review_path: Path, shard_dir: Path, shard_filename: str
+) -> dict[str, Any]:
+    base = load_json(base_review_path)
+    review_collections(base)
+    manifest = load_json(shard_dir / "shard_manifest.json")
+    validate_lock_fields(manifest, base, "shard manifest")
+    filename = Path(shard_filename).name
+    if filename != shard_filename:
+        raise ValueError(f"unsafe shard filename: {shard_filename!r}")
+    shard_kind, row = manifest_entry(manifest, filename)
+    path = safe_shard_path(shard_dir, filename)
+    if not path.is_file():
+        raise ValueError(f"missing review shard: {filename}")
+    shard = load_json(path)
+    if shard_kind == "review":
+        completed_count = check_primary_shard(base, row, shard, filename)
+    elif shard_kind == "obligation":
+        completed_count = check_obligation_shard(base, row, shard, filename)
+    else:
+        copy_base = copy.deepcopy(base)
+        merge_architecture_discovery(copy_base, manifest, shard_dir)
+        completed_count = len(as_list(shard.get("discovered_comparisons"))) + 1
+    return {
+        "kind": "gtm_review_shard_check",
+        "status": "pass",
+        "shard": filename,
+        "shard_kind": shard_kind,
+        "completed_items": completed_count,
+        "source_sha256": base.get("source_sha256"),
+        "shared_facts_sha256": base.get("shared_facts_sha256"),
+        "context_sha256": base.get("context_sha256"),
+    }
+
+
 def merge_primary_shards(
     base: dict[str, Any],
     collections: tuple[tuple[str, str], ...],
@@ -646,6 +816,10 @@ def main() -> int:
     merge.add_argument("shard_dir", type=Path)
     merge.add_argument("output", type=Path)
     merge.add_argument("--compact", action="store_true")
+    check = subparsers.add_parser("check")
+    check.add_argument("base_review", type=Path)
+    check.add_argument("shard_dir", type=Path)
+    check.add_argument("shard", help="Completed shard filename declared in the manifest")
     args = parser.parse_args()
     try:
         if args.command == "split":
@@ -664,7 +838,7 @@ def main() -> int:
                     }
                 )
             )
-        else:
+        elif args.command == "merge":
             result = merge_review(
                 args.base_review,
                 args.shard_dir,
@@ -679,6 +853,9 @@ def main() -> int:
                     }
                 )
             )
+        else:
+            result = check_shard(args.base_review, args.shard_dir, args.shard)
+            print(json.dumps(result))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

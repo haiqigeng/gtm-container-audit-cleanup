@@ -129,6 +129,16 @@ def build_package(
         "shared_facts_coverage_gate": shared_facts.get("coverage_gate"),
         "shared_facts_sha256": shared_facts.get("shared_facts_sha256"),
         "context_sha256": context.get("context_sha256"),
+        "intake": {
+            "status": context.get("intake_status"),
+            "material_questions": sum(
+                1
+                for item in context.get("intake_questions", [])
+                if item.get("material")
+            ),
+            "unresolved_questions": len(context.get("intake_questions", [])),
+            "provided_fields": context.get("provided_fields", []),
+        },
         "counts": {
             "source_model_objects": sum(
                 len(source_model.get("objects", {}).get(key, []))
@@ -158,6 +168,11 @@ def build_package(
             "architecture_comparisons": len(architecture_review.get("comparisons", [])),
         },
         "required_next_artifacts": [
+            *(
+                ["confirmed material audit context"]
+                if context.get("intake_status") == "confirmation_required"
+                else []
+            ),
             "completed operational_review.json",
             "completed configuration_review.json",
             "completed architecture_review.json",
@@ -165,6 +180,12 @@ def build_package(
         "files": {key: path.name for key, path in files.items() if key != "manifest"},
         "notes": [
             "This package is evidence, not the user-facing cleanup plan.",
+            (
+                "Review scaffolds are generated, but material intake questions must be "
+                "confirmed before semantic review."
+                if context.get("intake_status") == "confirmation_required"
+                else "Intake has no unresolved material question; semantic review may start."
+            ),
             "The three review artifacts are independent and all are mandatory.",
             "All verdict engines use the same immutable shared facts and source hash.",
             "Unresolved references remain operational findings and do not stop other audit checks.",

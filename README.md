@@ -177,11 +177,14 @@ request the missing prerequisite; there is no reduced audit mode.
 ## Start An Audit
 
 ```powershell
+python -B scripts/gtm_context_model.py container.json --pretty
 python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --pretty
 ```
 
-Optional business context can be supplied in a small JSON file with
-`--context audit-context.json`.
+Present the preflight's provided, high-confidence inferred, and unresolved
+context. Resolve material questions in a small JSON file and pass it with
+`--context audit-context.json`; non-material questions remain visible without
+creating another audit gate.
 
 Complete the three generated review files independently, then validate them:
 
@@ -191,6 +194,10 @@ python -B scripts/gtm_configuration_review.py validate container.json audit-pack
 python -B scripts/gtm_architecture_review.py validate container.json audit-package/architecture_review.json
 python -B scripts/gtm_three_run_gate.py container.json audit-package --audit-only --pretty
 ```
+
+Prefer a fresh reasoning context per run and never provide another run's
+verdict artifact as input. For large reviews, run `gtm_review_shards.py check`
+after each completed shard, then merge and run the complete validator.
 
 The exact compilation, future-state, workbook, privacy, and change-log commands
 are in `references/02-commands/validation-commands.md`.
@@ -212,7 +219,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.1.0
+python -B scripts/check_release.py --tag v1.2.0
 git diff --check
 ```
 

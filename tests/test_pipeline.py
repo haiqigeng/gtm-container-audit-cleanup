@@ -2847,7 +2847,12 @@ class PipelineTests(unittest.TestCase):
         )
         human, human_errors = build_rows(conservative)
         self.assertEqual([], human_errors)
-        self.assertEqual("Deferred", human[0]["Level"])
+        deferred_rows = [row for row in human if row["Level"] == "Deferred"]
+        self.assertEqual(1, len(deferred_rows))
+        self.assertEqual(
+            conservative["deferred_operations"][0]["operation_id"],
+            deferred_rows[0]["ID"],
+        )
 
     def test_human_plan_exposes_owner_decisions_without_internal_proof_columns(self) -> None:
         payload = {
@@ -2962,10 +2967,17 @@ class PipelineTests(unittest.TestCase):
     def test_verdict_engines_share_only_neutral_review_helpers(self) -> None:
         configuration_source = (SCRIPTS / "gtm_configuration_review.py").read_text(encoding="utf-8")
         architecture_source = (SCRIPTS / "gtm_architecture_review.py").read_text(encoding="utf-8")
+        skill_source = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        execution_contract = (
+            ROOT / "references" / "03-rules" / "execution-contract.md"
+        ).read_text(encoding="utf-8")
         self.assertNotIn("from gtm_operational_review import", configuration_source)
         self.assertNotIn("from gtm_operational_review import", architecture_source)
         self.assertIn("from gtm_review_common import", configuration_source)
         self.assertIn("from gtm_review_common import", architecture_source)
+        self.assertIn("fresh reasoning context", skill_source)
+        self.assertIn("prohibited inputs", skill_source)
+        self.assertIn("exclude completed verdict artifacts", execution_contract)
 
     def test_large_review_shards_merge_only_with_complete_exact_coverage(self) -> None:
         completed = complete_configuration(self.export_path)
@@ -3078,6 +3090,8 @@ class PipelineTests(unittest.TestCase):
         human, human_errors = build_rows(payload)
         self.assertEqual([], human_errors)
         self.assertEqual(6, len(human[0]))
+        self.assertIn("Root problem:", human[0]["Problem / evidence"])
+        self.assertIn("Target state / exact action:", human[0]["Action / priority / QA"])
         workbook_path = self.root / "cleanup-plan.xlsx"
         manifest = {"source_file": self.export_path.name, "source_sha256": payload["source_sha256"]}
         source = build_model(self.export_path)
@@ -3097,6 +3111,13 @@ class PipelineTests(unittest.TestCase):
             ["01 Summary", "02 Cleanup Plan"],
             [s.title for s in workbook if s.sheet_state == "visible"],
         )
+        summary_decisions = {
+            str(row[0].value)
+            for row in workbook["01 Summary"].iter_rows(min_row=2, max_col=1)
+        }
+        self.assertIn("Retained / no-change decisions", summary_decisions)
+        self.assertIn("Retained business-family architecture", summary_decisions)
+        self.assertIn("Highest-impact proposed actions", summary_decisions)
         for sheet in workbook:
             self.assertLessEqual(sheet.max_column, 6)
             self.assertLessEqual(
@@ -3112,6 +3133,52 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual([], gate_errors)
         self.assertEqual([], gate_warnings)
+
+    def test_human_rows_present_high_impact_actions_first_without_rekeying(self) -> None:
+        def operation(
+            operation_id: str,
+            priority: str,
+            area: str,
+            problem_type: str,
+        ) -> dict:
+            return {
+                "operation_id": operation_id,
+                "area": area,
+                "problem_type": problem_type,
+                "problem": f"{priority} fixture problem",
+                "why_it_matters": f"{priority} fixture business impact",
+                "exact_proposed_action": f"Apply the {priority} fixture target state.",
+                "qa_steps": f"Verify the {priority} fixture outcome.",
+                "priority": priority,
+                "execution_readiness": "approval_required",
+                "execution_order": 2 if priority == "Critical" else 1,
+                "affected_objects": f"tag:{operation_id}",
+                "blocker": "",
+            }
+
+        rows, errors = build_rows(
+            {
+                "operations": [
+                    operation(
+                        "OP-LOW",
+                        "Low",
+                        "GTM hygiene",
+                        "Unnecessary complexity",
+                    ),
+                    operation(
+                        "OP-CRITICAL",
+                        "Critical",
+                        "Consent & compliance",
+                        "Consent mismatch",
+                    ),
+                ],
+                "deferred_operations": [],
+                "decision_ledger": [],
+            }
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(["OP-CRITICAL", "OP-LOW"], [row["ID"] for row in rows])
+        self.assertIn("Execution order: 2", rows[0]["Action / priority / QA"])
 
     def test_hidden_proof_is_split_losslessly_and_visible_text_is_not_truncated(self) -> None:
         try:
@@ -5092,7 +5159,7 @@ event_replacements = ["DifferentEvent=>NewEvent", "broken"]
         self.assertTrue(check_release_tag("v2026.07.20.1"))
         self.assertTrue(check_release_tag("v01.0.0"))
         self.assertTrue(check_release_tag("1.0.0"))
-        self.assertEqual([], check_project_version(ROOT, "v1.1.0"))
+        self.assertEqual([], check_project_version(ROOT, "v1.2.0"))
         self.assertTrue(check_project_version(ROOT, "v1.0.2"))
 
     def test_runtime_bundle_is_self_installable_and_excludes_repo_only_files(self) -> None:

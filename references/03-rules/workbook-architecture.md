@@ -51,6 +51,15 @@ questions, and container-evidence limits. The Summary status must reflect these
 states and must not say `Ready for human approval` while an owner decision is
 outstanding.
 
+Order visible rows by decision impact without changing operation IDs,
+dependency-aware execution order, or hidden proof order. Lead with Critical and
+High proposed actions and continue through lower-priority proposals before
+unresolved owner/evidence decisions and deferred work. For each action state
+the root problem, measurement or operational impact, exact target state/action,
+readiness, and QA. The Summary also counts retained/no-change decisions and
+names a concise set of retained business families so the target architecture is
+not described only through defects.
+
 ## Wording
 
 State the business or operational problem first, then enough technical detail to

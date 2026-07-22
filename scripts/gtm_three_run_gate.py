@@ -68,6 +68,9 @@ def context_integrity_errors(export: Path, context: dict[str, Any]) -> list[str]
         context.get("provided_context") or {},
         context.get("provided_fields") or [],
         context.get("unresolved_questions") or [],
+        context.get("context_evidence") or {},
+        context.get("intake_questions") or [],
+        str(context.get("intake_status") or ""),
     )
     if context.get("context_sha256") != recalculated:
         errors.append("context content does not match its recorded hash")
@@ -77,6 +80,9 @@ def context_integrity_errors(export: Path, context: dict[str, Any]) -> list[str]
         "inferred_context",
         "provided_context",
         "provided_fields",
+        "context_evidence",
+        "intake_questions",
+        "intake_status",
         "unresolved_questions",
         "context_sha256",
     ):

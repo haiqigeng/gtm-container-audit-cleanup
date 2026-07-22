@@ -44,12 +44,35 @@ PUBLISHER_RE = re.compile(
     re.I,
 )
 FUNNEL_RE = re.compile(r"\b(?:funnel|question|step|etape|checkout|form)\b", re.I)
+CONSENT_CONTEXT_RE = re.compile(
+    r"\b(?:consent|cmp|analytics_storage|ad_storage|ad_user_data|"
+    r"ad_personalization|optanon|didomi|cookiebot)\b",
+    re.I,
+)
 COUNTRY_TOKEN_RE = re.compile(r"(?:^|[\s_\-/])([A-Z]{2})(?:$|[\s_\-/])")
 ACRONYM_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,7}\b")
 URL_RE = re.compile(r"https?://[^\s\"'<>\\)]+", re.I)
 ISO_ALPHA2 = frozenset(
     ["AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "YE", "YT", "ZA", "ZM", "ZW"]
 )
+
+INTAKE_FIELDS = (
+    "website_url",
+    "business_model",
+    "container_type",
+    "cmp",
+    "markets",
+    "server_routing_hosts",
+    "requested_deliverable",
+)
+INFERENCE_EVIDENCE = {
+    "website_url": "container.domainName",
+    "business_model": "reachable active-object behavior",
+    "container_type": "container usageContext and exported entity layers",
+    "cmp": "reachable active-object CMP identifiers",
+    "markets": "domain ccTLD, container prefix, or Zone scope",
+    "server_routing_hosts": "recognized route fields on reachable tags and Google configurations",
+}
 
 
 def as_list(value: Any) -> list[Any]:
@@ -153,6 +176,65 @@ def inferred_markets(cv: dict[str, Any], website_url: str) -> list[str]:
     return sorted(markets)
 
 
+def context_value_present(field: str, value: Any, provided: bool = False) -> bool:
+    if provided and field in {"cmp", "markets", "server_routing_hosts"}:
+        return isinstance(value, list)
+    if provided and field == "container_type":
+        return isinstance(value, str) and value.strip().lower() in {"web", "server"}
+    if provided and field in {
+        "website_url",
+        "business_model",
+        "requested_deliverable",
+    }:
+        return isinstance(value, str) and value.strip().lower() not in {
+            "",
+            "unknown",
+            "undecided",
+        }
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return str(value or "").strip().lower() not in {"", "unknown", "undecided"}
+
+
+def build_context_evidence(
+    inferred: dict[str, Any], provided: dict[str, Any]
+) -> dict[str, dict[str, str]]:
+    evidence: dict[str, dict[str, str]] = {}
+    for field in INTAKE_FIELDS:
+        if field in provided and context_value_present(field, provided.get(field), True):
+            evidence[field] = {
+                "status": "provided",
+                "basis": "analyst-supplied intake context",
+            }
+        elif context_value_present(field, inferred.get(field)):
+            evidence[field] = {
+                "status": "high_confidence_inferred",
+                "basis": INFERENCE_EVIDENCE.get(field, "deterministic container evidence"),
+            }
+        else:
+            evidence[field] = {
+                "status": "unresolved",
+                "basis": "not proven by the export or supplied intake context",
+            }
+    return evidence
+
+
+def intake_question(
+    question_id: str,
+    field: str,
+    question: str,
+    material: bool,
+    affects: str,
+) -> dict[str, Any]:
+    return {
+        "question_id": question_id,
+        "field": field,
+        "question": question,
+        "material": material,
+        "affects": affects,
+    }
+
+
 def context_content_hash(
     source_sha256: str,
     context: dict[str, Any],
@@ -160,6 +242,9 @@ def context_content_hash(
     provided_context: dict[str, Any] | None = None,
     provided_fields: list[str] | None = None,
     unresolved_questions: list[str] | None = None,
+    context_evidence: dict[str, Any] | None = None,
+    intake_questions: list[dict[str, Any]] | None = None,
+    intake_status: str = "",
 ) -> str:
     return stable_hash(
         {
@@ -169,6 +254,9 @@ def context_content_hash(
             "provided_context": provided_context or {},
             "provided_fields": sorted(provided_fields or []),
             "unresolved_questions": unresolved_questions or [],
+            "context_evidence": context_evidence or {},
+            "intake_questions": intake_questions or [],
+            "intake_status": intake_status,
         },
         32,
     )
@@ -269,18 +357,112 @@ def build_context_model(
             }
         ),
     }
-    context = {**inferred, **provided}
-    questions = []
+    accepted_provided = {
+        field: value
+        for field, value in provided.items()
+        if field not in INTAKE_FIELDS
+        or context_value_present(field, value, provided=True)
+    }
+    if "container_type" in accepted_provided:
+        accepted_provided["container_type"] = str(
+            accepted_provided["container_type"]
+        ).strip().lower()
+    context = {**inferred, **accepted_provided}
+    evidence = build_context_evidence(inferred, provided)
+    intake_questions: list[dict[str, Any]] = []
     if not str(context.get("website_url") or "").strip():
-        questions.append("Confirm the website or application covered by this container.")
-    if context.get("business_model") in {None, "", "unknown"}:
-        questions.append("Confirm the business model and primary conversion journey.")
-    if not as_list(context.get("cmp")):
-        questions.append("Confirm whether a CMP is used and name it if present.")
-    if context.get("server_routing_hosts") and context.get("container_type") == "web":
-        questions.append(
-            "Confirm which detected first-party hosts route browser events to a server container."
+        intake_questions.append(
+            intake_question(
+                "INTAKE-WEBSITE",
+                "website_url",
+                "Confirm the website or application covered by this container.",
+                True,
+                "container scope, market interpretation, and target architecture",
+            )
         )
+    if context.get("business_model") in {None, "", "unknown"}:
+        intake_questions.append(
+            intake_question(
+                "INTAKE-BUSINESS",
+                "business_model",
+                "Confirm the business model and primary conversion journey.",
+                True,
+                "business-family necessity and measurement-value interpretation",
+            )
+        )
+    if context.get("container_type") in {None, "", "unknown"}:
+        intake_questions.append(
+            intake_question(
+                "INTAKE-CONTAINER-TYPE",
+                "container_type",
+                "Confirm whether this is a web or server GTM container.",
+                True,
+                "applicable object layers and domain contracts",
+            )
+        )
+    if evidence["cmp"]["status"] == "unresolved":
+        intake_questions.append(
+            intake_question(
+                "INTAKE-CMP",
+                "cmp",
+                "Confirm whether a CMP is used and name it if present.",
+                bool(CONSENT_CONTEXT_RE.search(active_text)),
+                "consent-purpose mapping and effective vendor gating",
+            )
+        )
+    if (
+        inferred.get("server_routing_hosts")
+        and context.get("container_type") == "web"
+        and evidence["server_routing_hosts"]["status"] != "provided"
+    ):
+        intake_questions.append(
+            intake_question(
+                "INTAKE-SERVER-ROUTING",
+                "server_routing_hosts",
+                "Confirm which detected first-party hosts route browser events to a server container.",
+                True,
+                "browser/server ownership, consent forwarding, and deduplication boundaries",
+            )
+        )
+    if not context_value_present(
+        "requested_deliverable", context.get("requested_deliverable")
+    ):
+        intake_questions.append(
+            intake_question(
+                "INTAKE-DELIVERABLE",
+                "requested_deliverable",
+                "Confirm the requested deliverable: audit, cleanup plan, execution, import JSON, or change log.",
+                True,
+                "workflow endpoint and required delivery artifacts",
+            )
+        )
+    for index, value in enumerate(as_list(provided.get("unresolved_questions")), start=1):
+        question = str(value or "").strip()
+        if question and question not in {
+            item["question"] for item in intake_questions
+        }:
+            intake_questions.append(
+                intake_question(
+                    f"INTAKE-PROVIDED-{index:03d}",
+                    "analyst_unresolved",
+                    question,
+                    True,
+                    "analyst-declared audit interpretation",
+                )
+            )
+    # The legacy unresolved list feeds owner-decision/readiness gates, so it must
+    # contain only material questions. The structured intake list keeps every
+    # unresolved question visible, including non-blocking context requests.
+    questions = [
+        str(item["question"])
+        for item in intake_questions
+        if bool(item.get("material"))
+    ]
+    intake_status = (
+        "confirmation_required"
+        if any(bool(item.get("material")) for item in intake_questions)
+        else "ready"
+    )
     payload = {
         **source_descriptor(export_path),
         "kind": "gtm_audit_context",
@@ -289,6 +471,9 @@ def build_context_model(
         "inferred_context": inferred,
         "provided_context": provided,
         "provided_fields": sorted(provided),
+        "context_evidence": evidence,
+        "intake_questions": intake_questions,
+        "intake_status": intake_status,
         "unresolved_questions": questions,
     }
     payload["context_sha256"] = context_content_hash(
@@ -298,6 +483,9 @@ def build_context_model(
         provided,
         payload["provided_fields"],
         questions,
+        evidence,
+        intake_questions,
+        intake_status,
     )
     return payload
 

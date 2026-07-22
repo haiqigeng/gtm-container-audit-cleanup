@@ -21,6 +21,11 @@ canonical deterministic fact artifact. Every generated review must carry the
 source, context, and shared-fact hashes. A changed export or material context
 change starts a new review package.
 
+Generate and present the context preflight before semantic review. Distinguish
+analyst-provided context, high-confidence deterministic inference, and
+unresolved fields. A material question pauses semantic review; a non-material
+question remains visible without creating a new package or completion gate.
+
 Validate ContainerVersion identity before semantic work. The wrapped/direct
 root, known entity-layer registry, layer arrays, required IDs, and unique IDs
 must be unambiguous. Unknown entity-like layers and invalid identity block all
@@ -59,6 +64,11 @@ verdicts. Each completes its own artifact and passes its own validator. Sharing
 facts removes extraction drift; keeping judgments separate preserves genuine
 independent challenge.
 
+Prefer a fresh reasoning context for each run. If only one context is
+available, exclude completed verdict artifacts from the next run's inputs and
+reload only the export, context, shared facts, and current scaffold. This is an
+input-discipline rule; it does not add another verdict or completion engine.
+
 Large runs may be processed in source-locked shards. Every shard remains part of
 one run and the merge must recover the exact source-generated obligation set.
 Chunking is an execution strategy, not a reduced-depth mode. Architecture uses
@@ -67,6 +77,9 @@ all-object attestation; the merged run cannot become complete while either is
 pending. Configuration obligation shards contain at most 30 obligations and
 must recover every generated branch, reference trace, contract, technical
 finding, D3 cross-check, and custom-code line exactly once and in source order.
+Check each completed shard against its source locks, manifest identities, and
+exact completion set before continuing. The check catches local corruption
+early; the merged run must still pass its authoritative run validator.
 
 ## Run 1: Operational Sanitation
 
