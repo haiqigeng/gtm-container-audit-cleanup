@@ -1,6 +1,6 @@
 # Authoritative Execution Contract
 
-This is the canonical full-audit contract. A different reference may add a
+This is the canonical full audit-and-cleanup contract. A different reference may add a
 domain rule but may not weaken this workflow.
 
 ## Contents
@@ -8,7 +8,7 @@ domain rule but may not weaken this workflow.
 - Evidence boundary and source-integrity gate
 - Required pipeline and the three independent runs
 - Reconciliation and future-state validation
-- Plan, execution levels, and completion states
+- Plan, operation approval, and completion states
 
 ## Evidence Boundary
 
@@ -46,10 +46,12 @@ raw container evidence
   -> independent Run 3: business architecture
   -> three-run completion gate
   -> contradiction-aware operation reconciliation
+  -> measurement-preservation and target-state projection
   -> future-state graph simulation
   -> human cleanup plan
-  -> explicit approval and route/aggressiveness selection
+  -> explicit operation approval and route selection
   -> optional execution or import JSON
+  -> complete readback certification
   -> separate post-execution change log
 ```
 
@@ -63,6 +65,12 @@ export and shared deterministic facts, but must not read or copy another run's
 verdicts. Each completes its own artifact and passes its own validator. Sharing
 facts removes extraction drift; keeping judgments separate preserves genuine
 independent challenge.
+
+The package manifest locks one input contract per run: required, optional, and
+prohibited artifact roles plus source, context, and shared-fact hashes. Each
+completed review attests its actual roles. A missing role, undeclared role,
+foreign verdict artifact, reconciled output, or repository test helper fails
+that run before reconciliation.
 
 Prefer a fresh reasoning context for each run. If only one context is
 available, exclude completed verdict artifacts from the next run's inputs and
@@ -89,9 +97,14 @@ Decision artifact: `operational_review.json`.
 
 Purpose: guarantee basic cleanup coverage even when business analysis is hard.
 Every nonzero finding receives `cleanup_operation`, `documented_exception`,
-or `owner_decision_needed`. A `documented_exception` is valid only when the
-locked intake context identifies that finding, signature, or object and gives a
-specific owner reason that the review preserves. `container_evidence_limit` and
+or `owner_decision_needed`. Action completeness rejects an owner state for a
+deterministic structural defect whose safe source-visible target is known. A
+source-proven lifecycle or organisation condition whose safe outcome depends on
+rollback retention, vendor ownership, or final folder taxonomy is instead a
+`business_decision`; it remains visible with one precise question and one
+recommended target. A `documented_exception` is valid only when the locked
+context identifies that finding, signature, or object and gives a specific
+owner reason that the review preserves. `container_evidence_limit` and
 `not_applicable` cannot erase a deterministic nonzero finding.
 Every zero module retains its source-counted proof row.
 The mandatory registry is fixed independently of the scan output. Reachability
@@ -171,6 +184,18 @@ Behavior-changing edits, additions, remaps, deletions, and creations cannot
 proceed through a family or comparison that Run 3 preserves or leaves
 unresolved. Metadata-only names, notes, export fields, and folder placement do
 not trigger that behavior rule, but still require exact approved mutations.
+Run-1-proven deletion of unused objects, objects reachable only through paused
+tags deleted in the same operation, and paused tags is inactive-lifecycle
+cleanup rather than a change to the active measurement graph. It does not need
+a fabricated Run 3 relationship, but complete reference validation and the
+future-state gate remain mandatory.
+
+An exact source-bound, non-destructive Run-1 or Run-2 repair may proceed with
+completed Run-3 family coverage rather than a duplicated architecture mutation.
+It cannot create, delete, or remap an object and remains subject to simulation.
+An explicit Run-3 cleanup decision resolves weaker candidate rows only for that
+same complete structured mutation; overlapping object IDs alone are never
+enough.
 
 - A configuration issue may produce a fix even when the object is structurally valid.
 - An exact operational duplicate may be deleted only when architecture confirms
@@ -190,19 +215,33 @@ updating and revalidating the originating review.
 Compilation creates a complete decision ledger. Every operational finding,
 configuration object, architecture family, and comparison must have one final
 disposition; every cleanup disposition must link to one compiled operation.
+Action completeness then rejects a source-proven configuration Issue without an
+operation and requires a concrete recommendation for every genuine owner or
+external-evidence decision.
+
+Compilation also creates a measurement-preservation projection for every
+source-confirmed architecture family. It states whether the family is retained,
+changed, owner-blocked, or limited by container evidence; links its operations;
+and records required behavior, consent/routing context, and target state.
 
 ## Future-State Gate
 
 Apply structured operations to a copy of the export before delivery. Update
 complete object creations, missing-field/list additions, variable references,
 trigger IDs, trigger-group members, setup/teardown tag names, folders, field
-values, names, and deletions. Re-run sanitation.
+values, names, and deletions. Re-run sanitation, regenerate deterministic
+configuration obligations, and regenerate business-architecture relationship
+candidates from the projected container.
 
 Block when the simulated state:
 
 - creates a missing reference or duplicate ID;
 - creates a new sanitation finding;
 - leaves an operational finding selected for cleanup unresolved;
+- retains a deterministic configuration Issue in a plan claiming completeness;
+- creates a relationship candidate outside an architecture-backed operation or,
+  for a non-unsafe discovery-only candidate, explicit Run-3 retention decisions
+  that cover every candidate pair;
 - remaps to an object that is also deleted;
 - applies conflicting values to one object field;
 - deletes an object while another operation changes it.
@@ -211,20 +250,21 @@ The gate also reports projected before/after/delta counts by GTM layer. An
 unexpected broad count change is a review blocker even when references remain
 technically valid.
 
-## Plan And Execution Levels
+## Plan And Operation Approval
 
-Audit depth is always full. Before approval, route and aggressiveness may remain
-`Pending user selection` and `Undecided`.
+Audit and recommendation depth are always full. Before approval, the route may
+remain `Pending user selection`.
 
 After plan approval, ask for:
 
-1. route: direct GTM/API/MCP or import JSON;
-2. aggressiveness: Conservative, Standard, Deep, or Transformational.
+1. exact operation IDs: approve all or an explicit subset;
+2. route: direct GTM/API/MCP or import JSON.
 
-Aggressiveness controls execution risk and owner approvals, not what the audit
-checks or reports. Each operation declares a minimum safe level. Operations
-above the selected level remain visible as deferred and are excluded from the
-simulated execution state.
+Do not ask for an aggressiveness mode. Recommend the best safe future state once.
+Approval controls which exact operations may be executed; rejected or amended
+operations stay visible in the analyst's decision record and require the future
+state to be regenerated before mutation. A subset is a staged, incomplete
+cleanup and cannot inherit the full plan's completion claim.
 
 ## Completion States
 
@@ -237,11 +277,17 @@ simulated execution state.
 - complete architecture open-discovery attestation and decision ledger;
 - no review validator error;
 - no reconciliation contradiction;
+- action completeness `pass`;
 - future-state gate `pass`;
 - cleanup workbook and privacy gate `pass`.
 - no formula cell or unscanned hidden proof tab in a delivered workbook;
 - a separate completed change log, when requested, links only exact
   field-level mutations to approved operation IDs.
+
+For executed work, `Complete` additionally requires a complete workspace/export
+readback that exactly equals the approved simulated future state and contains
+no unlinked field change. A successful API response or partial object check is
+not execution certification.
 
 Otherwise report `Incomplete / blocked` with the exact missing artifact or
 source-bound reason. Do not claim completion because the container is large or

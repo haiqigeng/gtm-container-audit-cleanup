@@ -26,6 +26,7 @@ LOCK_FIELDS = (
     "source_sha256",
     "shared_facts_sha256",
     "context_sha256",
+    "input_contract_sha256",
 )
 CONFIGURATION_OBLIGATION_SPECS = (
     ("required_branch_reviews", "configuration_branch_reviews", "json_path", "json_path"),
@@ -284,6 +285,9 @@ def split_review(
             "source_sha256": review.get("source_sha256"),
             "shared_facts_sha256": review.get("shared_facts_sha256"),
             "context_sha256": review.get("context_sha256"),
+            "input_contract_sha256": (review.get("input_contract") or {}).get(
+                "contract_sha256"
+            ),
         }
         obligation_manifest_rows = configuration_obligation_shards(
             review_path,
@@ -320,6 +324,9 @@ def split_review(
                 "source_sha256": review.get("source_sha256"),
                 "shared_facts_sha256": review.get("shared_facts_sha256"),
                 "context_sha256": review.get("context_sha256"),
+                "input_contract_sha256": (review.get("input_contract") or {}).get(
+                    "contract_sha256"
+                ),
                 "collection": collection,
                 "id_field": id_field,
                 "shard_index": shard_index,
@@ -346,6 +353,9 @@ def split_review(
             "source_sha256": review.get("source_sha256"),
             "shared_facts_sha256": review.get("shared_facts_sha256"),
             "context_sha256": review.get("context_sha256"),
+            "input_contract_sha256": (review.get("input_contract") or {}).get(
+                "contract_sha256"
+            ),
             "base_comparison_ids": [
                 str(item.get("comparison_id") or "")
                 for item in as_list(review.get("comparisons"))
@@ -364,6 +374,9 @@ def split_review(
         "source_sha256": review.get("source_sha256"),
         "shared_facts_sha256": review.get("shared_facts_sha256"),
         "context_sha256": review.get("context_sha256"),
+        "input_contract_sha256": (review.get("input_contract") or {}).get(
+            "contract_sha256"
+        ),
         "base_review_file": review_path.name,
         "max_items": max_items,
         "max_obligations": max_obligations,
@@ -379,7 +392,11 @@ def split_review(
 
 
 def lock_value(review: dict[str, Any], field: str) -> Any:
-    return review.get("kind") if field == "review_kind" else review.get(field)
+    if field == "review_kind":
+        return review.get("kind")
+    if field == "input_contract_sha256":
+        return (review.get("input_contract") or {}).get("contract_sha256")
+    return review.get(field)
 
 
 def validate_lock_fields(

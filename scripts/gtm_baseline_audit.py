@@ -25,7 +25,8 @@ from gtm_lib import (
     behavior_projection,
     container_root_path,
     container_version,
-    custom_template_id,
+    custom_template_ids,
+    custom_template_type_index,
     is_system_trigger_reference,
     is_system_variable_reference,
     refs,
@@ -64,6 +65,45 @@ DESTINATION_KEY_RE = re.compile(
 )
 URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.I)
 ALWAYS_TRUE_REGEX = {".*", "^.*$", ".+", "^.+$"}
+
+# These rows are deterministic review obligations, not deterministic defects.
+# A source-specific retained verdict is valid when the review proves that the
+# visible distinction is intentional.
+REVIEW_CANDIDATE_FINDING_TYPES = {
+    "complex_trigger_candidate",
+    "complex_zone_boundary_candidate",
+    "duplicate_variable_path",
+    "media_consent_route_requires_review",
+    "normalized_duplicate_tag_signature",
+    "same_contract_different_consent_control_candidate",
+    "singleton_folder",
+    "universally_permissive_condition",
+    "universally_permissive_zone_boundary",
+}
+
+# These findings depend on ownership or policy evidence that the export cannot
+# decide. They may remain visible owner decisions with a concrete recommendation.
+BUSINESS_DECISION_FINDING_TYPES = {
+    "naming_policy_confirmation_required",
+    "nested_trigger_groups",
+    "paused_objects_for_lifecycle_review",
+    # The export proves the condition, but not whether a paused implementation
+    # is a retained rollback asset or how the analyst wants to organise the
+    # surviving architecture. These must remain explicit, decision-ready work
+    # rather than forcing an invented deletion or folder map.
+    "used_only_by_paused_tags",
+    "unfiled_objects",
+    "overloaded_folder",
+    "unbounded_zone_scope_review",
+}
+
+
+def operational_finding_class(finding_type: str) -> str:
+    if finding_type in REVIEW_CANDIDATE_FINDING_TYPES:
+        return "review_candidate"
+    if finding_type in BUSINESS_DECISION_FINDING_TYPES:
+        return "business_decision"
+    return "deterministic_defect"
 CONDITION_OPERATORS = {
     "EQUALS",
     "NOT_EQUALS",
@@ -658,6 +698,11 @@ class BaselineBuilder:
         module = self.modules[module_name]
         module["findings_count"] += 1
         module["module_status"] = "findings"
+        finding_class = operational_finding_class(finding_type)
+        if finding_class == "review_candidate" and "keep" not in {
+            value.strip() for value in required_resolution.split("|")
+        }:
+            required_resolution = required_resolution + " | keep"
         row = {
             "module_name": module_name,
             "module_status": "findings",
@@ -671,6 +716,7 @@ class BaselineBuilder:
             "deterministic_evidence": deterministic_evidence,
             "default_action": default_action,
             "source_lens": "deterministic",
+            "finding_class": finding_class,
             "deterministic_action_candidate": deterministic_action_candidate(
                 finding_type, default_action
             ),
@@ -706,6 +752,7 @@ class BaselineBuilder:
                     ),
                     "default_action": "No cleanup action from this module.",
                     "source_lens": "deterministic",
+                    "finding_class": "zero_result",
                     "deterministic_action_candidate": "not_applicable",
                     "object_identities": [],
                     "operation_packet_required": False,
@@ -835,6 +882,7 @@ def build_execution_reachability(cv: dict[str, Any]) -> dict[str, Any]:
     tag_keys: dict[str, list[str]] = collections.defaultdict(list)
     template_keys: dict[str, list[str]] = collections.defaultdict(list)
     paused_tag_keys: set[str] = set()
+    template_type_index = custom_template_type_index(records["customTemplate"])
 
     for layer, items in records.items():
         for obj in items:
@@ -875,8 +923,7 @@ def build_execution_reachability(cv: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(boundary, dict):
                     for trigger_id in as_list(boundary.get("customEvaluationTriggerId")):
                         dependencies[source_key].update(trigger_keys.get(str(trigger_id), []))
-            template_id = custom_template_id(obj)
-            if template_id:
+            for template_id in custom_template_ids(obj, template_type_index):
                 dependencies[source_key].update(template_keys.get(template_id, []))
 
     configured_roots = {
@@ -955,13 +1002,15 @@ def build_lifecycle_matrix(
     active_keys = set(as_list(reachability.get("active_object_keys")))
     paused_only_keys = set(as_list(reachability.get("paused_only_object_keys")))
     active_roots = set(as_list(reachability.get("active_root_keys")))
+    template_type_index = custom_template_type_index(
+        as_list(cv.get("customTemplate"))
+    )
     for layer, items in layer_items:
         if layer in {"customTemplate", "folder"}:
             continue
         for obj in items:
             summary = object_summary(obj, layer)
-            template_id = custom_template_id(obj)
-            if template_id:
+            for template_id in custom_template_ids(obj, template_type_index):
                 template_consumers[template_id].append(summary)
             folder_id = obj.get("parentFolderId")
             if folder_id:
@@ -1465,6 +1514,7 @@ def add_missing_reference_findings(
     clients = as_list(cv.get("client"))
     gtag_configs = as_list(cv.get("gtagConfig"))
     transformations = as_list(cv.get("transformation"))
+    template_type_index = custom_template_type_index(templates)
 
     builder.add_module(
         "missing_references",
@@ -1572,8 +1622,9 @@ def add_missing_reference_findings(
         ("transformation", transformations),
     ):
         for item in items:
-            template_id = custom_template_id(item)
-            if template_id and template_id not in template_ids:
+            for template_id in custom_template_ids(item, template_type_index):
+                if template_id in template_ids:
+                    continue
                 builder.add_finding(
                     "missing_references",
                     "missing_custom_template_reference",
@@ -1705,10 +1756,11 @@ def add_unused_findings(
         )
 
     builder.add_module("unused_custom_templates", len(templates))
+    template_type_index = custom_template_type_index(templates)
     used_template_ids = {
-        custom_template_id(item)
+        template_id
         for item in tags + variables + clients + gtag_configs + transformations
-        if custom_template_id(item)
+        for template_id in custom_template_ids(item, template_type_index)
     }
     for template in templates:
         template_id = str(template.get("templateId"))

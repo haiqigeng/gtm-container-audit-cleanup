@@ -17,7 +17,9 @@ container scope.
 Persist context in a small JSON object when supplied explicitly. Typical keys
 are `website_url`, `business_model`, `container_type`, `cmp`, `markets`,
 `product_scopes`, `server_routing_hosts`, `known_owner_exceptions`, and
-`unresolved_questions`, plus `requested_deliverable`. Run the deterministic
+`unresolved_questions`. A full run defaults `requested_deliverable` to
+`audit_and_cleanup_plan`; do not ask the analyst to choose between the audit and
+the plan. Run the deterministic
 context model before building the package. Its preflight labels each core field
 as analyst-provided, high-confidence inferred, or unresolved and identifies
 which questions materially affect interpretation. The package merges confirmed
@@ -36,10 +38,15 @@ visible findings and do not reduce the remaining scan scope.
 
 ## Deliverables
 
-Depending on the request:
+Every full run produces:
 
-- audit summary;
-- cleanup plan as a dedicated XLSX workbook;
+- a complete audit summary;
+- an exact cleanup plan as a dedicated XLSX workbook;
+- a simulated future-state quality result across sanitation, configuration, and
+  business architecture.
+
+When requested and authorised, it may additionally produce:
+
 - planned change preview;
 - validated importable GTM JSON;
 - approved direct GTM workspace changes;
@@ -47,21 +54,25 @@ Depending on the request:
 
 The audit evidence package contains `context.json`, `source_model.json`,
 `shared_facts.json`, three independent review artifacts, technical code facts,
-reconciled operations with a decision ledger, projected object counts, and the
-future-state gate. These are working/proof artifacts; the visible workbook
-remains concise.
+run-specific input contracts and completion attestations, reconciled operations
+with a decision ledger, projected object counts, measurement-family
+preservation and target-state mapping, and the future-state gate. These are
+working/proof artifacts; the visible workbook remains concise.
 
-The visible plan includes proposed operations, operations deferred by the
-selected aggressiveness, unresolved owner questions, and documented container-
-evidence limits. It leads with root problem and measurement impact, defines the
-exact target state/action, and summarizes retained business-family architecture
-as well as cleanup. Hidden proof remains unprotected and privacy-scanned.
+The visible plan includes every proposed operation and genuine unresolved owner
+question with a concrete recommendation. Nonblocking container-evidence limits
+are summarized once as a scope boundary, while each exact per-object next action
+remains in hidden proof and the audit package. It leads with root problem and measurement
+impact, defines the exact target state/action, and summarizes retained
+business-family architecture as well as cleanup. Hidden workbook proof is
+decision-oriented and privacy-scanned; exhaustive leaf, trace, contract, and
+code-line evidence remains in the machine-readable audit package.
 
 ## Lifecycle
 
 1. **Audit and cleanup plan:** proposed decisions only.
-2. **Approval and route selection:** direct GTM/API/MCP or import JSON, plus
-   mutation aggressiveness.
+2. **Approval and route selection:** approve the full set or named operation
+   IDs, then choose direct GTM/API/MCP or import JSON.
 3. **Execution:** only after explicit approval.
 4. **Change log:** what actually changed, produced only after execution or
    generated cleanup artifact creation.
@@ -81,3 +92,6 @@ configurations. A before/after source with ambiguous IDs or an unmodelled entity
 layer is rejected instead of being partially diffed.
 Link an approved operation only when its simulated field mutation exactly
 matches the observed layer, object ID, path, before value, and after value.
+An executed result is certified only when the complete readback equals the
+approved simulated future state and every observed field change has exactly one
+approved operation link.

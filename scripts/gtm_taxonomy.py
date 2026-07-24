@@ -45,6 +45,7 @@ PROBLEM_TYPES = {
     "Performance overhead",
     "Naming or ownership unclear",
     "Generic hygiene batch",
+    "Container-only evidence boundary",
 }
 
 

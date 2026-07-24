@@ -14,19 +14,12 @@ from typing import Any
 
 from gtm_configuration_facts import build_consumers, object_consumers
 from gtm_context_model import build_context_model
-from gtm_lib import ID_KEYS, container_root_path, container_version
+from gtm_lib import ID_KEYS, container_root_path, container_version, stable_hash
 from gtm_shared_facts import build_shared_facts
 
 VALID_PRIORITIES = {"Critical", "High", "Medium", "Low"}
 VALID_CONFIDENCE = {"High", "Medium", "Low"}
 VALID_READINESS = {"approval_required", "owner_blocked", "not_actionable"}
-VALID_MUTATION_LEVELS = {"Conservative", "Standard", "Deep", "Transformational"}
-MUTATION_LEVEL_RANK = {
-    "Conservative": 1,
-    "Standard": 2,
-    "Deep": 3,
-    "Transformational": 4,
-}
 MUTATION_FIELDS = (
     "creations",
     "additions",
@@ -36,6 +29,65 @@ MUTATION_FIELDS = (
     "deletions",
 )
 SUPPORTED_REMAP_LAYERS = {"trigger", "variable", "tag", "folder"}
+REVIEW_INPUT_ROLES = {
+    "operational_sanitation": {
+        "required": (
+            "raw_export",
+            "audit_context",
+            "shared_facts",
+            "operational_scan",
+            "operational_review_scaffold",
+        ),
+        "optional": (),
+        "prohibited": (
+            "configuration_review",
+            "architecture_review",
+            "reconciled_operations",
+            "future_state",
+            "workbook",
+            "test_fixture",
+            "test_helper",
+        ),
+    },
+    "configuration_correctness": {
+        "required": (
+            "raw_export",
+            "audit_context",
+            "shared_facts",
+            "technical_code_facts",
+            "configuration_review_scaffold",
+            "vendor_registry",
+        ),
+        "optional": ("official_documentation",),
+        "prohibited": (
+            "operational_review",
+            "architecture_review",
+            "reconciled_operations",
+            "future_state",
+            "workbook",
+            "test_fixture",
+            "test_helper",
+        ),
+    },
+    "business_architecture": {
+        "required": (
+            "raw_export",
+            "audit_context",
+            "shared_facts",
+            "architecture_review_scaffold",
+        ),
+        "optional": (),
+        "prohibited": (
+            "operational_review",
+            "configuration_review",
+            "reconciled_operations",
+            "future_state",
+            "workbook",
+            "test_fixture",
+            "test_helper",
+        ),
+    },
+}
 
 GENERIC_PHRASES = {
     "review configuration",
@@ -75,6 +127,131 @@ def canonical_review_facts(
         provided = {}
     context = build_context_model(export_path, provided_context=provided)
     return context, build_shared_facts(export_path, context=context)
+
+
+def review_input_contract(
+    review_run: str,
+    source_sha256: str,
+    context_sha256: str,
+    shared_facts_sha256: str,
+) -> dict[str, Any]:
+    """Build the immutable allowed-input contract for one independent review."""
+    roles = REVIEW_INPUT_ROLES[review_run]
+    contract = {
+        "review_run": review_run,
+        "source_sha256": source_sha256,
+        "context_sha256": context_sha256,
+        "shared_facts_sha256": shared_facts_sha256,
+        "required_artifact_roles": list(roles["required"]),
+        "optional_artifact_roles": list(roles["optional"]),
+        "prohibited_artifact_roles": list(roles["prohibited"]),
+        "verdict_isolation": (
+            "Do not read or reuse another review's verdicts, findings, operations, "
+            "completion helpers, or reconciled output before reconciliation."
+        ),
+    }
+    contract["contract_sha256"] = stable_hash(contract, 64)
+    return contract
+
+
+def pending_completion_attestation(contract: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "pending",
+        "input_contract_sha256": contract.get("contract_sha256"),
+        "used_artifact_roles": [],
+        "foreign_verdict_artifacts_used": [],
+        "helper_modules": [],
+    }
+
+
+def complete_review_attestation(
+    review: dict[str, Any],
+    *,
+    optional_artifact_roles: list[str] | None = None,
+    helper_modules: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create the neutral completion attestation used by agents and test fixtures."""
+    contract = review.get("input_contract") or {}
+    return {
+        "status": "complete",
+        "input_contract_sha256": contract.get("contract_sha256"),
+        "used_artifact_roles": [
+            *as_list(contract.get("required_artifact_roles")),
+            *(optional_artifact_roles or []),
+        ],
+        "foreign_verdict_artifacts_used": [],
+        "helper_modules": helper_modules or [],
+    }
+
+
+def validate_review_provenance(
+    supplied: dict[str, Any],
+    expected: dict[str, Any],
+    label: str,
+) -> list[str]:
+    """Reject accidental cross-run leakage and repository-test completion paths."""
+    expected_contract = expected.get("input_contract")
+    if not isinstance(expected_contract, dict):
+        return [f"{label}: source-locked input contract is missing"]
+    review_run = str(expected_contract.get("review_run") or "")
+    if review_run not in REVIEW_INPUT_ROLES:
+        return [f"{label}: input contract has an invalid review run"]
+    canonical_contract = review_input_contract(
+        review_run,
+        str(expected.get("source_sha256") or ""),
+        str(expected.get("context_sha256") or ""),
+        str(expected.get("shared_facts_sha256") or ""),
+    )
+    if expected_contract != canonical_contract:
+        return [f"{label}: input contract differs from the canonical run contract"]
+    if supplied.get("input_contract") != expected_contract:
+        return [f"{label}: input contract differs from the source-locked scaffold"]
+
+    attestation = supplied.get("completion_attestation")
+    if not isinstance(attestation, dict):
+        return [f"{label}: completion attestation is missing"]
+
+    errors: list[str] = []
+    if attestation.get("status") != "complete":
+        errors.append(f"{label}: completion attestation must be complete")
+    if attestation.get("input_contract_sha256") != expected_contract.get(
+        "contract_sha256"
+    ):
+        errors.append(f"{label}: completion attestation uses another input contract")
+
+    raw_roles = as_list(attestation.get("used_artifact_roles"))
+    roles = [str(value) for value in raw_roles]
+    if any(not role for role in roles) or len(roles) != len(set(roles)):
+        errors.append(f"{label}: used artifact roles must be unique and nonblank")
+    required = set(as_list(expected_contract.get("required_artifact_roles")))
+    optional = set(as_list(expected_contract.get("optional_artifact_roles")))
+    prohibited = set(as_list(expected_contract.get("prohibited_artifact_roles")))
+    used = set(roles)
+    if missing := sorted(required - used):
+        errors.append(f"{label}: completion omitted required input roles: {', '.join(missing)}")
+    if unknown := sorted(used - required - optional):
+        errors.append(f"{label}: completion used undeclared input roles: {', '.join(unknown)}")
+    if blocked := sorted(used & prohibited):
+        errors.append(f"{label}: completion used prohibited input roles: {', '.join(blocked)}")
+
+    foreign = [str(value) for value in as_list(attestation.get("foreign_verdict_artifacts_used"))]
+    if foreign:
+        errors.append(
+            f"{label}: completion used foreign verdict artifacts before reconciliation: "
+            + ", ".join(foreign)
+        )
+    helpers = [str(value) for value in as_list(attestation.get("helper_modules"))]
+    prohibited_helpers = sorted(
+        helper
+        for helper in helpers
+        if re.search(r"(^|[./\\])tests?([./\\]|$)|test_pipeline|test_adversarial", helper, re.I)
+    )
+    if prohibited_helpers:
+        errors.append(
+            f"{label}: real review completion cannot use repository test helpers: "
+            + ", ".join(prohibited_helpers)
+        )
+    return errors
 
 
 def words(value: Any) -> int:
@@ -496,53 +673,11 @@ def validate_structured_actions(
         )
     )
 
-    declared_level = row.get("minimum_aggressiveness")
-    if declared_level not in VALID_MUTATION_LEVELS:
-        errors.append(f"{label}: minimum_aggressiveness is invalid")
-    else:
-        required_rank = 1
-        if as_list(row.get("creations")) or as_list(row.get("additions")):
-            required_rank = max(required_rank, 2)
-        if as_list(row.get("remaps")):
-            required_rank = max(required_rank, 2)
-        sensitive_path = re.compile(
-            r"(?:html|javascript|templateData|eventName|measurement|destination|"
-            r"consent|storage|user_data|ecommerce|currency|value)",
-            re.I,
+    if row.get("minimum_aggressiveness") not in {None, ""}:
+        errors.append(
+            f"{label}: minimum_aggressiveness is deprecated; propose the best safe action "
+            "and control execution through explicit operation approval"
         )
-        if any(
-            sensitive_path.search(str(change.get("json_path") or ""))
-            for change in as_list(row.get("changes"))
-        ):
-            required_rank = max(required_rank, 3)
-        if expected_consumers is not None and any(
-            expected_consumers.get(str(deletion.get("object_key") or ""), set())
-            for deletion in as_list(row.get("deletions"))
-        ):
-            required_rank = max(required_rank, 3)
-        if str(row.get("problem_type") or "") in {
-            "Functional overlap",
-            "Wrong trigger timing",
-            "Over-firing",
-            "Under-firing",
-            "Duplicate firing",
-            "Wrong product, market, or page scope",
-            "Incomplete payload",
-            "Wrong data format",
-            "Wrong value or formula logic",
-            "Consent mismatch",
-            "Custom code risk",
-        }:
-            required_rank = max(required_rank, 3)
-        declared_rank = MUTATION_LEVEL_RANK[str(declared_level)]
-        if declared_rank < required_rank:
-            required_level = next(
-                level for level, rank in MUTATION_LEVEL_RANK.items() if rank == required_rank
-            )
-            errors.append(
-                f"{label}: minimum_aggressiveness must be at least {required_level} "
-                "for the proposed mutation risk"
-            )
 
     canonical = str(row.get("canonical_object_key") or "")
     if canonical and canonical not in allowed_keys:
@@ -551,8 +686,17 @@ def validate_structured_actions(
     if canonical and canonical in deleted_keys:
         errors.append(f"{label}: canonical object cannot also be deleted")
     if row.get("deterministic_action_candidate") == "consolidate_candidate":
-        if not canonical:
-            errors.append(f"{label}: consolidation requires an explicit canonical object")
+        source_keys = {
+            str(value)
+            for value in as_list(row.get("shared_fact_object_keys"))
+            if str(value)
+        }
+        all_candidates_deleted = bool(source_keys) and source_keys <= deleted_keys
+        if not canonical and not all_candidates_deleted:
+            errors.append(
+                f"{label}: consolidation requires an explicit canonical object unless every "
+                "candidate is removed as inactive lifecycle cleanup"
+            )
         if not as_list(row.get("deletions")):
             errors.append(f"{label}: consolidation requires deletion of non-canonical objects")
     return errors

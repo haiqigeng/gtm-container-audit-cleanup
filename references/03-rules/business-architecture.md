@@ -126,8 +126,9 @@ Exact duplicate, Functional overlap, Consolidation candidate, and Conflict
 require cleanup operations. Intentional variant, Complementary, and Unrelated
 require `keep` plus a source-visible distinction for every member. Owner
 decision and Container evidence limit require matching dispositions, and an
-owner decision requires one precise interrogative question. `not_applicable` is not a valid
-escape from a generated cross-object relationship.
+owner decision requires one precise interrogative question plus the analyst's
+concrete recommended action. `not_applicable` is not a valid escape from a
+generated cross-object relationship.
 
 Same-payload/different-route, shared-Zone-child, cyclic trigger-group, and
 browser/server consent/deduplication candidates are unsafe retention classes:

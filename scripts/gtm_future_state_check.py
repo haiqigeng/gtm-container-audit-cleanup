@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import itertools
 import json
 import re
 import sys
@@ -12,11 +13,27 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from gtm_architecture_review import scaffold_review as scaffold_architecture_review
 from gtm_baseline_audit import audit_export
+from gtm_configuration_review import scaffold_review as scaffold_configuration_review
+from gtm_custom_code_extract import extract_export
 from gtm_lib import ID_KEYS, container_version, source_descriptor, source_integrity_findings
+from gtm_shared_facts import build_shared_facts
 from gtm_validate_artifact import duplicate_ids, missing_references
 
 PATH_TOKEN_RE = re.compile(r"\.([^.[\]]+)|\[(\d+)\]")
+
+# A planned source repair can reveal a benign semantic grouping that was
+# already exhaustively retained pair by pair in Run 3. These discovery-only
+# candidate types do not need a fictive mutation merely to make the future
+# state pass. Unsafe route, consent, Zone, cycle, and deduplication candidates
+# remain subject to an explicit architecture-backed operation.
+RETENTION_COVERABLE_COMPARISON_TYPES = {
+    "shared_business_scope",
+    "shared_execution_trigger",
+    "shared_input_variable_logic",
+}
+RETENTION_VERDICTS = {"Intentional variant", "Complementary", "Unrelated"}
 
 
 def as_list(value: Any) -> list[Any]:
@@ -523,6 +540,233 @@ def count_deltas(
     }
 
 
+def deterministic_quality_scaffolds(export_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Regenerate the two semantic-lens fact queues for a projected container."""
+
+    technical = extract_export(export_path)
+    shared = build_shared_facts(export_path, technical=technical)
+    return (
+        scaffold_configuration_review(export_path, technical, shared),
+        scaffold_architecture_review(export_path, shared),
+    )
+
+
+def configuration_signals(review: dict[str, Any], outcome: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in as_list(review.get("rows")):
+        for obligation in as_list(item.get("required_configuration_obligations")):
+            if obligation.get("required_outcome") != outcome:
+                continue
+            rows.append(
+                {
+                    "object_key": str(item.get("object_key") or ""),
+                    "obligation_key": str(obligation.get("obligation_key") or ""),
+                    "statement": str(obligation.get("statement") or ""),
+                }
+            )
+    return sorted(rows, key=lambda row: (row["object_key"], row["obligation_key"]))
+
+
+def configuration_signal_key(row: dict[str, Any]) -> tuple[str, str]:
+    return str(row.get("object_key") or ""), str(row.get("obligation_key") or "")
+
+
+def architecture_candidate_atoms(row: dict[str, Any]) -> set[tuple[tuple[str, ...], str]]:
+    members = tuple(
+        sorted(str(value) for value in as_list(row.get("candidate_object_keys")))
+    )
+    return {
+        (members, str(comparison_type))
+        for comparison_type in as_list(row.get("comparison_types"))
+        if str(comparison_type)
+    }
+
+
+def architecture_candidate_summary(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "candidate_object_keys": sorted(
+            str(value) for value in as_list(row.get("candidate_object_keys"))
+        ),
+        "comparison_types": sorted(
+            str(value) for value in as_list(row.get("comparison_types"))
+        ),
+        "candidate_basis": as_list(row.get("candidate_basis")),
+    }
+
+
+def retained_architecture_pairs(operations: dict[str, Any]) -> set[tuple[str, str]]:
+    """Return Run-3 comparison pairs explicitly retained as distinct.
+
+    Only comparison decisions, rather than broad family membership, qualify.
+    The review validator already requires source-specific distinguishing proof
+    for these retention verdicts.
+    """
+    pairs: set[tuple[str, str]] = set()
+    for decision in as_list(operations.get("decision_ledger")):
+        if decision.get("source_run") != "business_architecture":
+            continue
+        if not as_list(decision.get("comparison_types")):
+            continue
+        if decision.get("disposition") != "keep":
+            continue
+        if decision.get("verdict") not in RETENTION_VERDICTS:
+            continue
+        keys = sorted(
+            {
+                str(value)
+                for value in as_list(decision.get("source_object_keys"))
+                if str(value)
+            }
+        )
+        pairs.update(itertools.combinations(keys, 2))
+    return pairs
+
+
+def candidate_has_retention_coverage(
+    row: dict[str, Any], retained_pairs: set[tuple[str, str]]
+) -> bool:
+    """Whether a new benign candidate is fully covered by Run-3 retention.
+
+    Every pair must have an explicit source-bound comparison decision. A single
+    overlapping family or unrelated comparison cannot mask a new relationship.
+    """
+    comparison_types = {
+        str(value) for value in as_list(row.get("comparison_types")) if str(value)
+    }
+    if not comparison_types or not comparison_types <= RETENTION_COVERABLE_COMPARISON_TYPES:
+        return False
+    keys = sorted(
+        {
+            str(value) for value in as_list(row.get("candidate_object_keys")) if str(value)
+        }
+    )
+    return len(keys) >= 2 and all(
+        pair in retained_pairs for pair in itertools.combinations(keys, 2)
+    )
+
+
+def projected_quality_review(
+    export_path: Path,
+    future: dict[str, Any],
+    operations: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Check the projected state through configuration and architecture lenses.
+
+    This reuses the deterministic obligation/candidate generators. It does not
+    invent semantic verdicts: exact mutations retain their reviewed rationale,
+    while new relationships must be attributable to an architecture-backed
+    operation and every deterministic configuration Issue must be gone from a
+    plan that claims action completeness.
+    """
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        future_path = Path(temporary_directory) / "future-quality-state.json"
+        future_path.write_text(json.dumps(future, ensure_ascii=False), encoding="utf-8")
+        before_configuration, before_architecture = deterministic_quality_scaffolds(
+            export_path
+        )
+        after_configuration, after_architecture = deterministic_quality_scaffolds(future_path)
+
+    before_issues = configuration_signals(before_configuration, "Issue")
+    after_issues = configuration_signals(after_configuration, "Issue")
+    before_issue_keys = {configuration_signal_key(row) for row in before_issues}
+    new_configuration_issues = [
+        row for row in after_issues if configuration_signal_key(row) not in before_issue_keys
+    ]
+
+    before_unclear = configuration_signals(before_configuration, "Unclear")
+    after_unclear = configuration_signals(after_configuration, "Unclear")
+
+    before_candidate_rows = as_list(before_architecture.get("comparisons"))
+    before_candidate_atoms = {
+        atom for row in before_candidate_rows for atom in architecture_candidate_atoms(row)
+    }
+    new_candidate_rows = []
+    for row in as_list(after_architecture.get("comparisons")):
+        new_types = sorted(
+            comparison_type
+            for members, comparison_type in architecture_candidate_atoms(row)
+            if (members, comparison_type) not in before_candidate_atoms
+        )
+        if new_types:
+            new_row = copy.deepcopy(row)
+            new_row["comparison_types"] = new_types
+            new_candidate_rows.append(new_row)
+    architecture_backed_keys = {
+        str(key)
+        for operation in as_list(operations.get("operations"))
+        if "business_architecture" in as_list(operation.get("source_runs"))
+        for field in ("affected_object_keys", "source_object_keys")
+        for key in as_list(operation.get(field))
+        if str(key)
+    }
+    retention_pairs = retained_architecture_pairs(operations)
+    covered_new_candidates = []
+    unexpected_new_candidates = []
+    for row in new_candidate_rows:
+        candidate_keys = {
+            str(value) for value in as_list(row.get("candidate_object_keys")) if str(value)
+        }
+        summary = architecture_candidate_summary(row)
+        if candidate_keys & architecture_backed_keys:
+            summary["coverage"] = "architecture_operation"
+            covered_new_candidates.append(summary)
+        elif candidate_has_retention_coverage(row, retention_pairs):
+            summary["coverage"] = "source_bound_retention_comparisons"
+            covered_new_candidates.append(summary)
+        else:
+            unexpected_new_candidates.append(summary)
+
+    errors: list[str] = []
+    if operations.get("plan_status") == "complete" and after_issues:
+        errors.append(
+            "projected state retains deterministic configuration Issues: "
+            + ", ".join(
+                f"{row['object_key']}:{row['obligation_key']}" for row in after_issues
+            )
+        )
+    if operations.get("plan_status") == "complete" and unexpected_new_candidates:
+        errors.append(
+            "projected state creates architecture candidates outside architecture-backed "
+            "operations: "
+            + ", ".join(
+                "/".join(row["candidate_object_keys"])
+                for row in unexpected_new_candidates
+            )
+        )
+
+    return {
+        "status": "pass" if not errors else "fail",
+        "configuration": {
+            "before_issue_count": len(before_issues),
+            "after_issue_count": len(after_issues),
+            "new_issues": new_configuration_issues,
+            "remaining_issues": after_issues,
+            "before_unclear_count": len(before_unclear),
+            "after_unclear_count": len(after_unclear),
+        },
+        "architecture": {
+            "before_candidate_count": len(before_candidate_rows),
+            "after_candidate_count": len(as_list(after_architecture.get("comparisons"))),
+            "new_architecture_backed_candidates": covered_new_candidates,
+            "unexpected_new_candidates": unexpected_new_candidates,
+        },
+        "errors": errors,
+    }, errors
+
+
+def blocking_new_operational_findings(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return projected findings that prove a defect rather than invite review."""
+    return [
+        row
+        for row in rows
+        if str(row.get("finding_class") or "deterministic_defect")
+        not in {"review_candidate", "business_decision"}
+    ]
+
+
 def check_future_state(
     export_path: Path, operations: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
@@ -544,7 +788,7 @@ def check_future_state(
             {
                 **source_descriptor(export_path),
                 "kind": "gtm_future_state_validation",
-                "schema_version": 1,
+                "schema_version": 2,
                 "status": "blocked_source_integrity",
                 "operation_count": len(as_list(operations.get("operations"))),
                 "source_integrity_findings": blocking_integrity,
@@ -554,6 +798,7 @@ def check_future_state(
         )
     before_cv = container_version(source)
     future, errors = apply_operations(source, operations)
+    apply_errors = list(errors)
     future_cv = container_version(future)
     after_missing_report, new_missing, integrity_errors = future_integrity_results(
         before_cv, future_cv
@@ -565,10 +810,16 @@ def check_future_state(
     after_rows = nonzero_findings(after_scan)
     after_signatures = {finding_signature(row) for row in after_rows}
     new_findings = newly_created_findings(before_rows, after_rows)
-    if new_findings:
+    blocking_new_findings = blocking_new_operational_findings(new_findings)
+    if blocking_new_findings:
         errors.append(
             "future state creates new operational findings: "
-            + ", ".join(sorted(str(row.get("finding_type") or "") for row in new_findings))
+            + ", ".join(
+                sorted(
+                    str(row.get("finding_type") or "")
+                    for row in blocking_new_findings
+                )
+            )
         )
     operational_cleanup_ids = requested_operational_cleanup_ids(operations)
     unresolved = unresolved_cleanup_ids(before_rows, after_rows, operational_cleanup_ids)
@@ -577,10 +828,21 @@ def check_future_state(
             "future state does not resolve operational cleanup findings: "
             + ", ".join(sorted(unresolved))
         )
+    if apply_errors:
+        projected_quality = {
+            "status": "not_run",
+            "reason": "structured operations did not apply cleanly",
+            "errors": [],
+        }
+    else:
+        projected_quality, quality_errors = projected_quality_review(
+            export_path, future, operations
+        )
+        errors.extend(quality_errors)
     report = {
         **source_descriptor(export_path),
         "kind": "gtm_future_state_validation",
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "pass" if not errors else "fail",
         "operation_count": len(as_list(operations.get("operations"))),
         "object_counts": count_deltas(before_cv, future_cv),
@@ -589,6 +851,11 @@ def check_future_state(
         "resolved_operational_cleanup_ids": sorted(operational_cleanup_ids - set(unresolved)),
         "unresolved_operational_cleanup_ids": sorted(unresolved),
         "new_operational_findings": new_findings,
+        "new_blocking_operational_findings": blocking_new_findings,
+        "new_review_candidates": [
+            row for row in new_findings if row not in blocking_new_findings
+        ],
+        "projected_quality": projected_quality,
         "new_missing_references": new_missing,
         "after_missing_references": after_missing_report,
         "errors": errors,

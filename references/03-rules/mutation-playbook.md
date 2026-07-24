@@ -16,15 +16,13 @@ Never mutate or publish from an audit request alone.
 
 1. Deliver audit and cleanup plan.
 2. Ask for route: direct GTM/API/MCP or import JSON.
-3. Ask for aggressiveness.
-4. Confirm approved operation IDs, rollback export, and blockers.
-5. Execute only approved operations.
+3. Confirm whether all operations or an explicit list of operation IDs is approved.
+4. Confirm rollback export and blockers.
+5. Regenerate the selected future state and execute only approved operations.
 
-Audit depth is independent of this choice.
-
-Each approved operation carries a minimum safe aggressiveness. Operations above
-the selected level stay visible as deferred and must not be sent to GTM or the
-generated import container.
+Audit and recommendation depth are independent of this choice. Do not use
+aggressiveness modes; approval is operation-specific. Treat a subset as staged
+work, not as completion of the full cleanup plan.
 
 ## Direct GTM/API/MCP
 
@@ -38,6 +36,8 @@ Preferred when human-readable GTM View Changes matters.
   this includes first-class Zone and Google tag configuration entities when an
   approved target design requires them.
 - Batch changes by dependency-safe operation, then read back and validate.
+- Human approval may be grouped for readability, but execution remains atomic
+  by operation ID so one failed mutation can stop without obscuring attribution.
 - Delete only after every consumer is remapped and read back.
 - Never work in or publish the default/live workspace without explicit request.
 
@@ -51,6 +51,13 @@ Recommended dependency order:
 6. apply final naming and folders;
 7. delete obsolete objects;
 8. full readback and future-state validation.
+
+After final readback, regenerate sanitation, deterministic configuration
+obligations, and business-architecture candidates. Reconcile any unexpected
+result before requesting publication approval. Compare the complete readback
+with the approved simulated future state; execution is not certified if any
+expected field is missing, any unexpected field changed, or any difference
+lacks one exact approved operation link.
 
 ## Import JSON
 

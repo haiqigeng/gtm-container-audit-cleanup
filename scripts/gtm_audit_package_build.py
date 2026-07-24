@@ -129,6 +129,11 @@ def build_package(
         "shared_facts_coverage_gate": shared_facts.get("coverage_gate"),
         "shared_facts_sha256": shared_facts.get("shared_facts_sha256"),
         "context_sha256": context.get("context_sha256"),
+        "run_input_contracts": {
+            "operational_sanitation": operational_review.get("input_contract"),
+            "configuration_correctness": configuration_review.get("input_contract"),
+            "business_architecture": architecture_review.get("input_contract"),
+        },
         "intake": {
             "status": context.get("intake_status"),
             "material_questions": sum(

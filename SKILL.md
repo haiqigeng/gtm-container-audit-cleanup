@@ -1,14 +1,17 @@
 ---
 name: gtm-container-audit-cleanup
-description: Audit and clean Google Tag Manager as a container-only web analyst from a complete JSON export or equivalent complete read-only GTM API/UI evidence. Use for mandatory operational sanitation, recursive configuration and custom-code correctness, business-family architecture, GA4/ecommerce/media/CMP/server-routing contracts, naming, consolidation, cleanup plans, approved direct mutations, import JSON, or post-execution change logs. Compatible with Codex, Claude Code, Gemini, and similar agents. Do not use for GTM Preview, Tag Assistant, live browser/network/dataLayer/CMP/vendor QA, legal decisions, website implementation, unseen server containers, unapproved mutation, or publication.
+description: Perform heavy operational Google Tag Manager cleanup as a container-only expert web analyst. Start from a complete JSON export or equivalent read-only GTM evidence, exhaustively audit sanitation, recursive configuration and custom code, consent and routing, and business architecture; turn every substantiated finding into the simplest exact cleanup plan; and, when explicitly approved, execute through GTM/API/MCP or produce a validated import JSON and change log. Use for naming, consolidation, migration, repair, deletion, and target-state redesign. Do not use for GTM Preview, live browser/network/dataLayer/CMP/vendor QA, legal decisions, website implementation, unseen server containers, unapproved mutation, or publication.
 ---
 
 # GTM Web Analyst Audit And Cleanup
 
-Act as an experienced web analyst, not a mechanical duplicate finder. Use only
-complete container configuration and exported code as audit evidence. Determine
-whether the container is operationally clean, logically correct, and organized
-around necessary business measurement.
+Act as an experienced web analyst, not a mechanical duplicate finder. Use only complete container configuration and exported code as audit evidence.
+
+## North Star
+
+> Do the heavy operational work needed to leave an existing GTM container as clean, simple, well-organised and logically correct as its real measurement needs allow. Exhaustively identify every container-visible cleanup and optimisation opportunity, decide the exact safe disposition and target state for each, and, when authorised, execute and verify the approved changes without regressing necessary measurement, consent behaviour, routing or integrations.
+
+The audit is the evidence foundation; the actionable cleanup plan and verified resulting container are the product. Keep machinery only when it improves discovery completeness, decision quality, execution safety, or regression prevention.
 
 Read these before every full execution:
 
@@ -26,21 +29,12 @@ Collect or infer:
 - complete GTM export/API evidence and container type;
 - website/domain and business model;
 - ecommerce, lead, publisher, media, market, CMP, and server-routing context;
-- requested deliverable: audit, cleanup plan, execution, JSON, or change log.
+- whether approved execution or import JSON is wanted after the mandatory audit and cleanup plan.
 
-Ask concise questions before starting when material context is missing. Infer
-safe facts from the export and website context. Ask about unexplained prefixes,
-country/product variants, unclear event families, or legal/business ownership;
-do not ask for account/container names already present in the export.
-Read exported domain fields whether scalar or list-valued. Treat market codes,
-CMPs, publisher models, and server routes as confirmed only from specific
-behavior/scope evidence; arbitrary acronyms, generic consent words, advertising
-labels, or unrelated endpoint URLs remain candidates rather than facts.
+Ask concise questions before starting when material context is missing. Infer safe facts from the export and website context. Ask about unexplained prefixes, country/product variants, unclear event families, or legal/business ownership; do not ask for account/container names already present in the export.
+Read exported domain fields whether scalar or list-valued. Treat market codes, CMPs, publisher models, and server routes as confirmed only from specific behavior/scope evidence; arbitrary acronyms, generic consent words, advertising labels, or unrelated endpoint URLs remain candidates rather than facts.
 
-Persist provided and inferred answers in `context.json`, including unresolved
-questions and the evidence basis for inference. Context may guide grouping and
-contract selection, but it may not replace container evidence or silently turn
-an assumption into a finding.
+Persist provided and inferred answers in `context.json`, including unresolved questions and the evidence basis for inference. Context may guide grouping and contract selection, but it may not replace container evidence or silently turn an assumption into a finding.
 
 Before building review scaffolds, run the context model as an intake preflight:
 
@@ -48,10 +42,7 @@ Before building review scaffolds, run the context model as an intake preflight:
 python -B scripts/gtm_context_model.py container.json --pretty
 ```
 
-Present supplied, high-confidence inferred, and unresolved fields separately.
-Ask only the generated material questions, then rebuild with the confirmed
-context. Non-material questions remain visible but do not create a new audit
-gate. Do not start semantic review while a material intake question is pending.
+Present supplied, high-confidence inferred, and unresolved fields separately. Ask only the generated material questions, then rebuild with the confirmed context. Non-material questions remain visible but do not create a new audit gate. Do not start semantic review while a material intake question is pending.
 
 If the evidence is a compiled live script, partial UI screenshots, or any other
 incomplete representation, mark the audit blocked and request a complete export
@@ -78,12 +69,12 @@ status. Runs must not read or copy another run's judgments. Technical custom
 code is a specialized part of configuration correctness, not a fourth verdict
 engine. Reconcile only after all three runs pass.
 
-Prefer a fresh reasoning context for each run. When that is unavailable, treat
-the other runs' verdict artifacts as prohibited inputs: load only the raw
-export, locked context, shared facts, and the current run scaffold.
+Prefer a fresh reasoning context for each run. Otherwise load only the raw
+export, locked context, shared facts, and current scaffold. Each scaffold has an
+immutable input contract; foreign verdicts, reconciled output, and test helpers
+are prohibited inputs that invalidate its attestation.
 
-Audit depth is always complete for the supplied container. Mutation
-aggressiveness changes what may be executed, never which problems are checked.
+Audit depth is always complete. Approval changes execution, never what is checked or recommended.
 
 ## Workflow
 
@@ -101,6 +92,7 @@ aggressiveness changes what may be executed, never which problems are checked.
   that Google tag gateway is enabled; only an explicit gateway signal may set
   that status.
 - Build `shared_facts.json` once and require every run to bind to its hash.
+- Lock each run's permitted input roles in the manifest; never edit its generated contract.
 - Recompute both context and shared-fact content at the package gate; matching a
   copied hash without matching canonical content is a failure.
 - Treat GTM system references such as `{{_event}}` and high-range system trigger
@@ -127,13 +119,14 @@ from different runs, shared-fact hashes, context hashes, or source hashes.
 Use `--max-obligations 30` or less for configuration reviews. The obligation
 manifest must recover every generated branch, trace, contract, technical
 finding, D3 cross-check, and custom-code line exactly once and in source order.
+Keep exhaustive proof in the machine-readable artifacts. The human workbook summarizes each object,
+defect, decision, and action instead of repeating every passing leaf, trace node, or code line.
 Check each completed shard immediately against its base and manifest; this is
 early use of the existing locks, not a substitute for the final run validator:
 
 ```bash
 python -B scripts/gtm_review_shards.py check audit-package/configuration_review.json configuration-shards completed-shard.json
 ```
-
 ### 2. Run Operational Sanitation Independently
 
 Complete every finding in `audit-package/operational_review.json` through five
@@ -165,12 +158,16 @@ exception. Remaps stay within one supported GTM layer, cannot target a deleted
 object, and cannot create a dependency cycle. The complete accepted operation
 set must also leave every object name unique within its layer.
 
-A deterministic nonzero finding cannot be dismissed as `not_applicable` or a
-container-evidence limit. Resolve it with an operation, a visible owner
-decision, or a `documented_exception` already declared in the locked intake
-context for that finding/signature/object. The review rationale must preserve
-the owner's stated reason.
-
+A deterministic structural defect whose safe target is established by the export cannot be dismissed as
+`not_applicable`, `keep`, an owner question, or a container-evidence limit. Convert it into an exact
+operation, or preserve a `documented_exception` already declared in the locked intake context for that
+finding/signature/object. A source-proven lifecycle or organisation condition whose safe outcome depends
+on rollback retention, vendor ownership, or the final folder taxonomy is a `business_decision`: preserve
+its exact condition, owner question, and recommended target rather than inventing a deletion or folder map.
+A generated review candidate is not yet a defect: retain it only with the locked `review_candidate` class,
+source-specific proof of the intentional distinction, and a concrete recommendation. Use
+  `owner_decision_needed` only for a locked review candidate or true business choice, never instead of
+  proposing the source-visible fix. Preserve the owner's reason.
 ### 3. Run Configuration Correctness Independently
 
 Complete every object in `audit-package/configuration_review.json`.
@@ -225,9 +222,9 @@ terminal-source candidates in recursive traces.
   confirm them, document an evidence-bound accepted exception, or leave an
   owner decision. A cleanup opportunity requires `proposed_action`, a
   documented exception requires `exception_basis`, and an owner decision
-  requires a source-specific interrogative `owner_question`; a verdict alias
-  alone fails. A confirmed issue links by `technical_finding_keys` to exactly
-  one concrete defect.
+  requires a source-specific interrogative `owner_question` plus the analyst's concrete
+  `recommended_action`; a verdict alias alone fails. A confirmed issue links by
+  `technical_finding_keys` to exactly one concrete defect and an exact cleanup operation.
   A parser may normalize `{{GTM variable}}` substitutions solely to recover a
   structural parse, but it must disclose that normalization and must not infer
   the substituted value's runtime type.
@@ -246,6 +243,8 @@ terminal-source candidates in recursive traces.
   unknown external host, script, or template creates a mandatory vendor-
   identification and official-source research contract; never silently leave
   it unclassified.
+  Record the current official-source search in `research_status` before an
+  owner/evidence fallback; `not visible in the export` is not a research attempt.
   Preserve all vendor matches for mixed Custom HTML and create a separate
   research obligation for each unmatched external host.
   Derive host/vendor obligations only from behavior-bearing configuration:
@@ -297,7 +296,6 @@ defect.
 Do not stop at a variable name or parameter list. Prove the configured value,
 type, timing, and consumer meaning. Do not write generic summaries such as
 `outputs a value`, `configuration reviewed`, or `custom code inspected`.
-
 ### 4. Run Business Architecture Independently
 
 Complete every family and comparison in
@@ -331,7 +329,8 @@ Complete every family and comparison in
 - Keep is valid only for intentional variants, complementary implementations,
   or unrelated objects and must cite a source-visible distinction for every
   retained member. Owner-decision and container-limit verdicts require their
-  matching dispositions; an owner decision also requires one precise question.
+  matching dispositions; an owner decision also requires one precise question and one concrete
+  recommended action.
 - Same payload/different route, shared-Zone-child, cyclic trigger-group, and
   browser/server consent/deduplication candidates cannot be retained by a
   generic `Keep`. A source-visible deterministic relationship also cannot be
@@ -376,41 +375,53 @@ name every locked discovery method and source-specific object facts.
 Generated candidates are a minimum obligation set, not a closed world. Names
 and similarity scores create review obligations, never findings; consolidation
 requires configuration and business-equivalence proof.
-
 ### 5. Validate, Reconcile, And Simulate
 
 ```bash
 python -B scripts/gtm_operational_review.py validate container.json audit-package/operational_review.json
 python -B scripts/gtm_configuration_review.py validate container.json audit-package/configuration_review.json
 python -B scripts/gtm_architecture_review.py validate container.json audit-package/architecture_review.json
-python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json reconciled_operations.json --route "Pending user selection" --aggressiveness Undecided --pretty
+python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json reconciled_operations.json --route "Pending user selection" --pretty
 python -B scripts/gtm_future_state_check.py container.json reconciled_operations.json --output future_state_gate.json --pretty
 python -B scripts/gtm_three_run_gate.py container.json audit-package --operations reconciled_operations.json --pretty
 ```
 
-Block delivery when a run is incomplete, runs contradict, one operation key
-contains different mutations, a consolidation lacks architecture agreement, or
-the simulated future state creates a broken reference or new sanitation finding.
+Block delivery when a run is incomplete, runs contradict, one operation key contains different
+mutations, a consolidation lacks architecture agreement, or simulation creates a broken reference,
+new sanitation/configuration issue, or relationship not covered by an architecture-backed operation.
+For a non-unsafe discovery-only relationship revealed by an approved source repair, an explicit Run-3
+retention decision covering every candidate pair is equivalent evidence; do not invent a no-op mutation.
 Also block behavior-changing additions, edits, remaps, or deletions when the
 affected architecture family/comparison is preserved or unresolved. Metadata-
 only names, notes, export URLs, and folder moves remain outside that behavior
-rule but still require their own approved operation.
+rule but still require their own approved operation. Deleting an object that
+Run 1 proves is unused, reachable only through paused tags deleted in the same
+operation, or itself paused is outside the active-behavior alignment rule;
+reference coverage and future-state simulation still apply.
+An exact, source-bound non-destructive repair from Run 1 or Run 2 may use
+completed Run-3 family coverage instead of duplicating the same field mutation
+inside an architecture row. It may not create, delete, or remap objects, and
+must still pass the future-state gate. A Run-3 cleanup operation takes
+precedence over weaker candidate rows only when its complete structured
+mutation is the same; no unrelated operation can borrow that cover.
 Merge independently worded operations only when their structured mutations are
-identical; retain each lens's rationale and source reference in the packet.
+identical; deletion rationale and a displayed canonical label are explanatory,
+while endpoints and field mutations remain structural. Retain each lens's
+rationale and source reference in the packet.
 
-Structured operations can create complete objects, add missing fields or list
-members, change existing values, remap consumers, rename, and delete. Every
-operation declares the minimum safe aggressiveness. Selecting a lower level
-keeps it visible as deferred instead of silently dropping it.
+Structured operations create, add, change, remap, rename, or delete. Recommend the best safe future
+state once; explicit operation approval controls execution, so never weaken or defer recommendations.
 
-The compiled packet must contain one decision-ledger entry for every source
-finding, object review, family, and comparison. Every cleanup disposition must
-survive into one exact operation. Report projected before/after object counts by
-GTM layer so accidental broad deletion or recreation is visible before work.
+The compiled packet has one decision-ledger entry per finding, object, family,
+and comparison; every cleanup disposition becomes one exact operation. Report
+projected object counts and every measurement family's target state, operation
+links, preserved behavior, consent/routing, and unresolved evidence boundary.
+Action completeness fails when a deterministic operational defect or source-proven configuration
+issue is left as an owner question. Only locked review candidates and true business choices may
+remain owner decisions; every genuine owner/evidence decision retains one recommended action.
 
 Use the shard manifest to resume large runs. A missing, duplicated, pending, or
 source-mismatched shard makes the corresponding run incomplete.
-
 ### 6. Build The Cleanup Plan
 
 ```bash
@@ -420,18 +431,16 @@ python -B scripts/gtm_audit_gate_check.py cleanup_plan.xlsx --operations reconci
 python -B scripts/gtm_privacy_scan.py cleanup_plan.xlsx
 ```
 
-The workbook has eight or fewer tabs and six or fewer columns. Only Summary and
-Cleanup Plan are visible; hidden proof remains available by unhiding and is
-privacy-scanned by default. Formula-like cell content must remain literal text.
-Show proposed and aggressiveness-deferred operations plus owner decisions and
-container-evidence limits. Never claim `Ready` while one of those decisions is
-unresolved. Keep each distinct actionable issue separate. Homogeneous duplicate,
-unused, naming, or folder batches may use one row. Do not include a change log.
+The workbook has at most eight tabs and six columns; only Summary and Cleanup Plan are visible.
+Hidden proof is privacy-scanned, and the audit package retains exhaustive proof. Show every operation
+and owner decision; summarize nonblocking evidence limits once while retaining exact hidden proof.
+Scope owner blocks to listed objects. Homogeneous duplicate, unused, naming, or folder work may share
+one presentation row only when every atomic ID, action, object, approval choice, and QA remains explicit.
+Do not include a change log.
 Order the visible plan by impact without changing canonical obligation or
 execution order. State the root problem, measurement impact, affected objects,
 retained behavior, exact target state/action, readiness, and QA. Summarize
 source-confirmed retained business families as well as cleanup operations.
-
 ### 7. Offer The Next Action
 
 After audit/plan delivery, ask whether the user wants:
@@ -439,12 +448,10 @@ After audit/plan delivery, ask whether the user wants:
 - direct GTM/API/MCP cleanup; or
 - an importable GTM container JSON.
 
-Then ask for execution aggressiveness: Conservative, Standard, Deep, or
-Transformational. Direct cleanup must use a new workspace, modify existing
-objects when possible, preserve readable GTM View Changes, and warn before work
-if workspace quota prevents creation. JSON must be a valid GTM import artifact,
-not Markdown; import behavior may recreate objects and is less suitable for
-human per-element review.
+Ask which operation IDs are approved; a subset remains an incomplete staged cleanup and must be re-simulated. Do not ask for an aggressiveness mode. Direct cleanup must use
+a new workspace, modify existing objects when possible, preserve readable GTM View Changes, and warn
+if workspace quota blocks creation. JSON must be a valid GTM import artifact, not Markdown; import
+behavior may recreate objects and is less suitable for per-element review.
 
 Naming standardization is mandatory during approved cleanup unless excluded.
 Apply it after behavior, canonical objects, remaps, and deletions are settled.
@@ -457,14 +464,14 @@ standardize case, and keep names unique within each GTM layer.
 
 - Never publish or create a GTM version unless explicitly requested.
 - Never mutate without approval, rollback source, and pre-write validation.
+- Re-read the complete workspace immediately before mutation and stop on source-identity drift.
 - Preserve custom-code variable references and exact values; never replace them
   with unrelated literals.
-- Validate/read back every batch and stop on drift, missing references, consent
-  uncertainty, or unexpected object recreation.
-- After execution or artifact generation, produce a separate field-level change
-  log linked to approved operation IDs. Link only an exact expected
-  layer/ID/path/before/after mutation; an unexpected field on an otherwise
-  approved object remains unlinked and blocked. A simulated log must say simulated.
+- Validate/read back every batch and stop on drift, missing references, consent uncertainty, or
+  unexpected recreation. After final readback, reassess all three lenses against the approved state.
+- Produce a separate field-level change log linked only by exact
+  layer/ID/path/before/after. Certify execution only when complete readback
+  matches the approved simulation with no unlinked change. Label simulations.
 
 End every stage with one concrete next step.
 

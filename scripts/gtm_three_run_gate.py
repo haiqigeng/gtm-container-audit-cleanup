@@ -111,7 +111,10 @@ def shared_integrity_errors(
 
 
 def review_binding_errors(
-    paths: dict[str, Path], shared: dict[str, Any], context: dict[str, Any]
+    paths: dict[str, Path],
+    shared: dict[str, Any],
+    context: dict[str, Any],
+    manifest: dict[str, Any],
 ) -> list[str]:
     errors: list[str] = []
     field_map = (
@@ -121,6 +124,12 @@ def review_binding_errors(
         ("provided_context_fields", "provided_fields"),
         ("unresolved_context_questions", "unresolved_questions"),
     )
+    contract_key_by_review = {
+        "operational_review": "operational_sanitation",
+        "configuration_review": "configuration_correctness",
+        "architecture_review": "business_architecture",
+    }
+    contracts = manifest.get("run_input_contracts") or {}
     for key in ("operational_review", "configuration_review", "architecture_review"):
         payload = load_json(paths[key])
         if payload.get("shared_facts_sha256") != shared.get("shared_facts_sha256"):
@@ -132,6 +141,9 @@ def review_binding_errors(
             for review_field, context_field in field_map
             if payload.get(review_field) != context.get(context_field)
         )
+        expected_contract = contracts.get(contract_key_by_review[key])
+        if payload.get("input_contract") != expected_contract:
+            errors.append(f"{paths[key].name} input contract differs from the package manifest")
     return errors
 
 
@@ -150,7 +162,7 @@ def validate_package_structure(export: Path, package_dir: Path) -> list[str]:
     context = load_json(paths["context"])
     errors.extend(context_integrity_errors(export, context))
     errors.extend(shared_integrity_errors(export, shared, context, manifest))
-    errors.extend(review_binding_errors(paths, shared, context))
+    errors.extend(review_binding_errors(paths, shared, context, manifest))
     return errors
 
 
@@ -178,7 +190,6 @@ def run_gate(
     export: Path,
     package_dir: Path,
     operations_path: Path | None = None,
-    audit_only: bool = False,
 ) -> dict[str, Any]:
     errors = validate_package_structure(export, package_dir)
     warnings: list[str] = []
@@ -192,18 +203,17 @@ def run_gate(
         errors.extend(run_errors)
         warnings.extend(run_warnings)
     future_state: dict[str, Any] | None = None
-    if not operations_path and not audit_only and not errors:
+    if not operations_path and not errors:
         errors.append(
-            "cleanup-plan completion requires reconciled operations and future-state simulation; "
-            "use audit_only only for a review-only completion gate"
+            "full completion requires reconciled cleanup actions and future-state simulation"
         )
     if operations_path and not errors:
         operations = load_json(operations_path)
         expected_hash = source_descriptor(export)["source_sha256"]
         if operations.get("source_sha256") != expected_hash:
             errors.append("operations source hash differs from the export")
-        elif operations.get("schema_version") != 2:
-            errors.append("operations schema_version must be 2")
+        elif operations.get("schema_version") != 3:
+            errors.append("operations schema_version must be 3")
         elif set((operations.get("run_statuses") or {}).values()) != {"complete"}:
             errors.append("operations do not record three complete input runs")
         else:
@@ -215,7 +225,6 @@ def run_gate(
                 configuration,
                 architecture,
                 str(operations.get("route") or ""),
-                str(operations.get("aggressiveness") or ""),
                 source_object_catalog(export),
             )
             errors.extend(f"operation recompile: {error}" for error in compile_errors)
@@ -223,6 +232,16 @@ def run_gate(
                 errors.append(
                     "operations artifact differs from deterministic recompilation of the three reviews"
                 )
+            action_completeness = operations.get("action_completeness") or {}
+            if action_completeness.get("status") != "pass":
+                completeness_errors = [
+                    str(value) for value in action_completeness.get("errors", []) if str(value)
+                ]
+                errors.extend(
+                    "action completeness: " + value for value in completeness_errors
+                )
+                if not completeness_errors:
+                    errors.append("action completeness: cleanup plan is incomplete")
             if not errors:
                 future_state, future_errors = check_future_state(export, operations)
                 errors.extend(f"future state: {error}" for error in future_errors)
@@ -237,7 +256,7 @@ def run_gate(
             "business_architecture",
         ],
         "future_state": future_state,
-        "completion_mode": "audit_only" if audit_only else "cleanup_plan",
+        "completion_mode": "audit_and_cleanup_plan",
         "errors": errors,
         "warnings": warnings,
     }
@@ -248,11 +267,10 @@ def main() -> int:
     parser.add_argument("export", type=Path)
     parser.add_argument("package_dir", type=Path)
     parser.add_argument("--operations", type=Path)
-    parser.add_argument("--audit-only", action="store_true")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
-    report = run_gate(args.export, args.package_dir, args.operations, args.audit_only)
+    report = run_gate(args.export, args.package_dir, args.operations)
     rendered = json.dumps(report, ensure_ascii=False, indent=2 if args.pretty else None)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -446,8 +446,68 @@ def refs(obj: Any) -> set[str]:
 
 
 def custom_template_id(obj: dict[str, Any]) -> str | None:
+    """Return the locally-addressed template ID embedded in a legacy type.
+
+    Older/custom container exports encode a local template reference as
+    ``cvt_<accountId>_<templateId>``.  Gallery-installed templates instead use
+    ``cvt_<galleryTemplateId>``; resolving those requires the container's
+    custom-template registry, so callers should use ``custom_template_ids``
+    when that registry is available.
+    """
     match = CUSTOM_TEMPLATE_RE.match(str(obj.get("type", "")))
     return match.group(1) if match else None
+
+
+def custom_template_type_index(
+    templates: list[dict[str, Any]],
+) -> dict[str, list[str]]:
+    """Map exported custom-tag type tokens to every local template ID.
+
+    A Community Template Gallery installation stores its local ``templateId``
+    separately from ``galleryReference.galleryTemplateId``.  GTM tag types use
+    the latter (for example ``cvt_5RM3Q``), whereas older templates use the
+    account/template form.  Preserve all matching local IDs so a malformed
+    duplicate gallery mapping remains visible rather than being silently
+    resolved to the first template.
+    """
+    index: dict[str, list[str]] = {}
+    for template in templates:
+        if not isinstance(template, dict):
+            continue
+        template_id = str(template.get("templateId") or "").strip()
+        if not template_id:
+            continue
+        tokens: set[str] = set()
+        account_id = str(template.get("accountId") or "").strip()
+        if account_id:
+            tokens.add(f"cvt_{account_id}_{template_id}")
+        gallery = template.get("galleryReference")
+        gallery_id = (
+            str(gallery.get("galleryTemplateId") or "").strip()
+            if isinstance(gallery, dict)
+            else ""
+        )
+        if gallery_id:
+            tokens.add(f"cvt_{gallery_id}")
+        for token in tokens:
+            index.setdefault(token, []).append(template_id)
+    return {token: sorted(set(ids)) for token, ids in index.items()}
+
+
+def custom_template_ids(
+    obj: dict[str, Any], template_type_index: dict[str, list[str]] | None = None
+) -> list[str]:
+    """Return all locally exported custom templates referenced by ``obj``.
+
+    The list form is intentional: if two local templates advertise the same
+    gallery ID, consumers must retain the ambiguity for review instead of
+    choosing one arbitrarily.
+    """
+    legacy_id = custom_template_id(obj)
+    if legacy_id:
+        return [legacy_id]
+    type_token = str(obj.get("type") or "")
+    return list((template_type_index or {}).get(type_token, []))
 
 
 def trigger_group_members(trigger: dict[str, Any]) -> list[str]:

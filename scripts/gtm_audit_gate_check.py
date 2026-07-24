@@ -123,37 +123,85 @@ def operations_alignment_errors(
     workbook_rows: dict[str, list[dict[str, Any]]], operations: dict[str, Any]
 ) -> list[str]:
     errors: list[str] = []
-    operation_count = len(as_list(operations.get("operations"))) + len(
-        as_list(operations.get("deferred_operations"))
-    )
-    unresolved_count = sum(
-        1
-        for row in as_list(operations.get("decision_ledger"))
-        if row.get("disposition") in {"owner_decision_needed", "container_evidence_limit"}
-    )
-    cleanup_rows = workbook_rows.get("02 Cleanup Plan", [])
-    expected_rows = operation_count + unresolved_count
-    if len(cleanup_rows) != expected_rows:
-        errors.append(
-            f"Cleanup Plan has {len(cleanup_rows)} rows but {expected_rows} operation or "
-            "decision rows are required"
-        )
-    summary_values = {
-        str(row.get("decision") or ""): str(row.get("value") or "")
-        for row in workbook_rows.get("01 Summary", [])
-    }
-    overall_status = summary_values.get("Overall status", "").lower()
     owner_count = sum(
         1
         for row in as_list(operations.get("decision_ledger"))
         if row.get("disposition") == "owner_decision_needed"
     )
+    evidence_limit_count = sum(
+        1
+        for row in as_list(operations.get("decision_ledger"))
+        if row.get("disposition") == "container_evidence_limit"
+    )
+    cleanup_rows = workbook_rows.get("02 Cleanup Plan", [])
+    expected_operation_ids = {
+        str(row.get("operation_id") or "")
+        for row in as_list(operations.get("operations"))
+        if row.get("operation_id")
+    }
+    rendered_operation_ids = [
+        value
+        for row in cleanup_rows
+        for value in re.findall(r"\bOP-\d{4}\b", str(row.get("id") or ""))
+    ]
+    if set(rendered_operation_ids) != expected_operation_ids:
+        missing = sorted(expected_operation_ids - set(rendered_operation_ids))
+        unknown = sorted(set(rendered_operation_ids) - expected_operation_ids)
+        if missing:
+            errors.append(
+                "Cleanup Plan omits operation IDs: " + ", ".join(missing)
+            )
+        if unknown:
+            errors.append(
+                "Cleanup Plan contains unknown operation IDs: " + ", ".join(unknown)
+            )
+    duplicates = sorted(
+        operation_id
+        for operation_id in set(rendered_operation_ids)
+        if rendered_operation_ids.count(operation_id) > 1
+    )
+    if duplicates:
+        errors.append(
+            "Cleanup Plan repeats operation IDs across visible rows: "
+            + ", ".join(duplicates)
+        )
+
+    expected_owner_ids = {
+        str(row.get("decision_id") or "")
+        for row in as_list(operations.get("decision_ledger"))
+        if row.get("disposition") == "owner_decision_needed"
+        and row.get("decision_id")
+    }
+    rendered_ids = [str(row.get("id") or "") for row in cleanup_rows]
+    missing_owner_ids = sorted(
+        owner_id for owner_id in expected_owner_ids if rendered_ids.count(owner_id) != 1
+    )
+    if missing_owner_ids:
+        errors.append(
+            "Cleanup Plan must show each owner decision exactly once: "
+            + ", ".join(missing_owner_ids)
+        )
+    if evidence_limit_count and rendered_ids.count("SCOPE-001") != 1:
+        errors.append("Cleanup Plan must contain one consolidated evidence-boundary row")
+    if not evidence_limit_count and "SCOPE-001" in rendered_ids:
+        errors.append("Cleanup Plan contains an evidence-boundary row without source decisions")
+    allowed_standalone_ids = expected_owner_ids | ({"SCOPE-001"} if evidence_limit_count else set())
+    for identifier in rendered_ids:
+        if re.search(r"\bOP-\d{4}\b", identifier) or identifier in allowed_standalone_ids:
+            continue
+        errors.append(f"Cleanup Plan contains an unlinked visible row ID: {identifier!r}")
+    summary_values = {
+        str(row.get("decision") or ""): str(row.get("value") or "")
+        for row in workbook_rows.get("01 Summary", [])
+    }
+    overall_status = summary_values.get("Overall status", "").lower()
     if owner_count and "owner decisions required" not in overall_status:
         errors.append("Summary status does not expose unresolved owner decisions")
-    if operations.get("aggressiveness") == "Undecided" and (
-        "cleanup level decision required" not in overall_status
-    ):
-        errors.append("Summary status does not expose undecided cleanup aggressiveness")
+    action_completeness = operations.get("action_completeness") or {}
+    if action_completeness.get("status") != "pass":
+        errors.append("cleanup plan action completeness is not pass")
+        if "incomplete cleanup plan" not in overall_status:
+            errors.append("Summary status does not expose incomplete cleanup actions")
     if set((operations.get("run_statuses") or {}).values()) != {"complete"}:
         errors.append("operations do not record three complete review runs")
     return errors

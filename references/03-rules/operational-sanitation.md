@@ -102,9 +102,11 @@ group deletion.
 Naming proposals remain provisional until behavior, canonical objects, and
 business-specific prefixes are understood.
 When neither an approved policy nor a reliable dominant local convention
-exists, create one visible naming-policy owner decision instead of declaring
-every object nonconforming to an invented default. Generate the complete rename
-set only after that decision and after consolidation/remaps are settled.
+exists, present one visible naming-policy question together with the analyst's
+recommended convention instead of declaring every object nonconforming to an
+invented default. The final action-complete plan remains blocked until the
+complete rename set can be generated after that decision and after
+consolidation/remaps are settled.
 
 ## Legacy And Destination Inventory
 
@@ -135,10 +137,14 @@ Each module records object count, zero/findings status, stable finding ID,
 source objects, deterministic evidence, and one explicit disposition. A later
 run may justify an exception but cannot remove the record.
 
-A nonzero deterministic finding must be resolved by a cleanup operation, a
-visible owner decision, or a documented owner exception already present in the
-source-locked intake context. The exception must identify the finding ID,
-signature, or affected object and provide a specific reason; the review
+A deterministic defect may hold an interim visible owner decision during
+analysis, but the final action-complete plan must resolve it through a cleanup
+operation or a documented owner exception already present in the source-locked
+intake context. A locked `review_candidate` may instead be retained when the
+completed review proves its intentional distinction with source-specific
+evidence; a locked review candidate or true business choice may remain a
+precise owner decision. The exception must identify the finding ID, signature,
+or affected object and provide a specific reason; the review
 rationale must preserve that reason. `not_applicable` and
 `container_evidence_limit` are not valid ways to dismiss a nonzero sanitation
 finding.

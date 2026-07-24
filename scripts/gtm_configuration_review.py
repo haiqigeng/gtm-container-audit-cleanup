@@ -48,9 +48,12 @@ from gtm_review_common import (
     object_consumer_map,
     object_keys,
     object_source_path_map,
+    pending_completion_attestation,
     precise_question,
+    review_input_contract,
     specific_text,
     validate_challenge,
+    validate_review_provenance,
     validate_structured_actions,
 )
 from gtm_shared_facts import build_shared_facts
@@ -1555,6 +1558,7 @@ def scaffold_review(
     technical_payload: dict[str, Any] | None = None,
     shared_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    descriptor = source_descriptor(export_path)
     data = json.loads(export_path.read_text(encoding="utf-8"))
     blocking_integrity = [
         row for row in source_integrity_findings(data) if row.get("blocking")
@@ -1796,20 +1800,28 @@ def scaffold_review(
                 "evidence_anchors": [],
                 "consumer_evidence_keys": [],
                 "reference_traces": [],
-                "related_operational_finding_ids": [],
                 "disposition": "",
                 "owner_question": "",
+                "recommended_action": "",
                 "operation": {},
                 "confidence": "",
                 "evidence_citations": {},
             }
         )
+    input_contract = review_input_contract(
+        "configuration_correctness",
+        descriptor["source_sha256"],
+        shared_facts["context_sha256"],
+        shared_facts["shared_facts_sha256"],
+    )
     return {
-        **source_descriptor(export_path),
+        **descriptor,
         "kind": "gtm_configuration_correctness_review",
-        "schema_version": 2,
+        "schema_version": 3,
         "shared_facts_sha256": shared_facts["shared_facts_sha256"],
         "context_sha256": shared_facts["context_sha256"],
+        "input_contract": input_contract,
+        "completion_attestation": pending_completion_attestation(input_contract),
         "audit_context": shared_facts.get("audit_context", {}),
         "inferred_context": shared_facts.get("inferred_context", {}),
         "provided_context": shared_facts.get("provided_context", {}),
@@ -2063,6 +2075,15 @@ def validate_contract_source(
         if not specific_text(check.get("research_status"), 8):
             errors.append(
                 f"{prefix} must document the unsuccessful official-source identification"
+            )
+        research_status = str(check.get("research_status") or "").lower()
+        if "official" not in research_status or not re.search(
+            r"\b(?:search|searched|check|checked|review|reviewed|investigat(?:e|ed|ion))\b",
+            research_status,
+        ):
+            errors.append(
+                f"{prefix} must record the attempted official-source research before "
+                "falling back to an unresolved owner or evidence decision"
             )
         return errors
     if not source_url.startswith("https://"):
@@ -3070,7 +3091,7 @@ def validate_review_identity(
     checks = (
         ("source_sha256", source_sha256, "source_sha256 does not match the export"),
         ("kind", "gtm_configuration_correctness_review", "kind is invalid"),
-        ("schema_version", 2, "schema_version must be 2"),
+        ("schema_version", 3, "schema_version must be 3"),
         (
             "shared_facts_sha256",
             expected.get("shared_facts_sha256"),
@@ -3184,6 +3205,13 @@ def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
         row.get("owner_question"), 5
     ):
         errors.append(f"{label}: owner decision requires one precise question")
+    if row.get("disposition") in {
+        "owner_decision_needed",
+        "container_evidence_limit",
+    } and not specific_text(row.get("recommended_action"), 6):
+        errors.append(
+            f"{label}: unresolved outcome requires one concrete recommended_action"
+        )
     if row.get("correctness_verdict") == "Issue" and row.get("disposition") not in {
         "cleanup_operation",
         "owner_decision_needed",
@@ -3262,6 +3290,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             supplied, expected, expected_context, descriptor["source_sha256"]
         )
     )
+    errors.extend(validate_review_provenance(supplied, expected, "configuration review"))
     expected_by_key, supplied_by_key, set_errors = configuration_row_sets(
         supplied, expected
     )

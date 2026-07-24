@@ -22,10 +22,13 @@ from gtm_review_common import (
     object_keys,
     object_name_map,
     object_source_path_map,
+    pending_completion_attestation,
     precise_question,
+    review_input_contract,
     specific_text,
     validate_challenge,
     validate_operation_set,
+    validate_review_provenance,
     validate_structured_actions,
 )
 from gtm_shared_facts import build_shared_facts
@@ -35,6 +38,7 @@ VALID_DISPOSITIONS = {
     "cleanup_operation",
     "documented_exception",
     "owner_decision_needed",
+    "keep",
     "container_evidence_limit",
     "not_applicable",
 }
@@ -63,8 +67,8 @@ DECISION_FIELDS = {
     "priority",
     "confidence",
     "execution_readiness",
-    "minimum_aggressiveness",
     "owner_question",
+    "recommended_action",
     "challenge_review",
 }
 
@@ -198,6 +202,7 @@ def scaffold_review(
     export_path: Path,
     shared_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    descriptor = source_descriptor(export_path)
     shared_facts = shared_facts or build_shared_facts(export_path)
     shared_by_key = {
         str(row.get("object_key") or ""): row
@@ -262,17 +267,25 @@ def scaffold_review(
                 "priority": "",
                 "confidence": "",
                 "execution_readiness": "",
-                "minimum_aggressiveness": "",
                 "owner_question": "",
+                "recommended_action": "",
                 "challenge_review": {},
             }
         )
+    input_contract = review_input_contract(
+        "operational_sanitation",
+        descriptor["source_sha256"],
+        shared_facts["context_sha256"],
+        shared_facts["shared_facts_sha256"],
+    )
     return {
-        **source_descriptor(export_path),
+        **descriptor,
         "kind": "gtm_operational_sanitation_review",
-        "schema_version": 2,
+        "schema_version": 3,
         "shared_facts_sha256": shared_facts["shared_facts_sha256"],
         "context_sha256": shared_facts["context_sha256"],
+        "input_contract": input_contract,
+        "completion_attestation": pending_completion_attestation(input_contract),
         "audit_context": shared_facts.get("audit_context", {}),
         "inferred_context": shared_facts.get("inferred_context", {}),
         "provided_context": shared_facts.get("provided_context", {}),
@@ -300,7 +313,7 @@ def validate_review_identity(
     checks = (
         ("source_sha256", source_sha256, "source_sha256 does not match the export"),
         ("kind", "gtm_operational_sanitation_review", "kind is invalid"),
-        ("schema_version", 2, "schema_version must be 2"),
+        ("schema_version", 3, "schema_version must be 3"),
         (
             "shared_facts_sha256",
             expected.get("shared_facts_sha256"),
@@ -477,7 +490,9 @@ def validate_cleanup_operation(
         "qa_steps",
         "rollback",
     ):
-        minimum = 2 if field in {"area", "problem_type"} else 3
+        # Taxonomy membership already proves area/problem-type validity; some
+        # supported labels (for example "Over-firing") are one lexical token.
+        minimum = 1 if field in {"area", "problem_type"} else 3
         if not specific_text(row.get(field), minimum):
             errors.append(f"{label}: {field} is incomplete")
     if row.get("priority") not in VALID_PRIORITIES:
@@ -516,6 +531,18 @@ def validate_non_operation(row: dict[str, Any], label: str) -> list[str]:
         row.get("owner_question"), 5
     ):
         errors.append(f"{label}: owner decision requires one precise owner question")
+    if row.get("disposition") == "owner_decision_needed" and not specific_text(
+        row.get("recommended_action"), 6
+    ):
+        errors.append(
+            f"{label}: owner decision requires one concrete recommended_action"
+        )
+    if row.get("disposition") == "keep" and not specific_text(
+        row.get("recommended_action"), 6
+    ):
+        errors.append(
+            f"{label}: retained review candidate requires one concrete recommended_action"
+        )
     return errors
 
 
@@ -569,6 +596,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             supplied, expected, expected_context, descriptor["source_sha256"]
         )
     )
+    errors.extend(validate_review_provenance(supplied, expected, "operational review"))
     expected_by_id, supplied_by_id, set_errors = finding_sets(supplied, expected)
     errors.extend(set_errors)
     operation_keys: dict[str, str] = {}

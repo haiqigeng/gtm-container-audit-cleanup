@@ -72,6 +72,7 @@ INFERENCE_EVIDENCE = {
     "cmp": "reachable active-object CMP identifiers",
     "markets": "domain ccTLD, container prefix, or Zone scope",
     "server_routing_hosts": "recognized route fields on reachable tags and Google configurations",
+    "requested_deliverable": "full-run contract: audit plus exact cleanup plan",
 }
 
 
@@ -322,6 +323,7 @@ def build_context_model(
         "website_url": website_url,
         "business_model": inferred_business_model(active_text),
         "container_type": container_type(cv),
+        "requested_deliverable": "audit_and_cleanup_plan",
         "cmp": sorted(
             name for name, pattern in CMP_PATTERNS.items() if pattern.search(active_text)
         ),
@@ -360,15 +362,18 @@ def build_context_model(
     accepted_provided = {
         field: value
         for field, value in provided.items()
-        if field not in INTAKE_FIELDS
-        or context_value_present(field, value, provided=True)
+        if field != "requested_deliverable"
+        and (
+            field not in INTAKE_FIELDS
+            or context_value_present(field, value, provided=True)
+        )
     }
     if "container_type" in accepted_provided:
         accepted_provided["container_type"] = str(
             accepted_provided["container_type"]
         ).strip().lower()
     context = {**inferred, **accepted_provided}
-    evidence = build_context_evidence(inferred, provided)
+    evidence = build_context_evidence(inferred, accepted_provided)
     intake_questions: list[dict[str, Any]] = []
     if not str(context.get("website_url") or "").strip():
         intake_questions.append(
@@ -424,18 +429,6 @@ def build_context_model(
                 "browser/server ownership, consent forwarding, and deduplication boundaries",
             )
         )
-    if not context_value_present(
-        "requested_deliverable", context.get("requested_deliverable")
-    ):
-        intake_questions.append(
-            intake_question(
-                "INTAKE-DELIVERABLE",
-                "requested_deliverable",
-                "Confirm the requested deliverable: audit, cleanup plan, execution, import JSON, or change log.",
-                True,
-                "workflow endpoint and required delivery artifacts",
-            )
-        )
     for index, value in enumerate(as_list(provided.get("unresolved_questions")), start=1):
         question = str(value or "").strip()
         if question and question not in {
@@ -470,7 +463,7 @@ def build_context_model(
         "context": context,
         "inferred_context": inferred,
         "provided_context": provided,
-        "provided_fields": sorted(provided),
+        "provided_fields": sorted(accepted_provided),
         "context_evidence": evidence,
         "intake_questions": intake_questions,
         "intake_status": intake_status,

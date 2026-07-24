@@ -9,6 +9,10 @@ An audit and cleanup plan is complete only when all criteria below pass.
 - Reconciliation and cleanup safety
 - Human output and automatic failure
 
+Completion is outcome-based: exhaustive review proof alone is insufficient.
+The result must contain the complete justified action set and a projected
+container that satisfies the three review lenses.
+
 ## Source And Scope
 
 - The source export hash is locked and every in-scope source object is inventoried.
@@ -25,8 +29,11 @@ An audit and cleanup plan is complete only when all criteria below pass.
   references, consumers, raw leaves, terminal sources, trigger logic, formula
   signals, consent routes, and behavior signatures.
 - All three reviews bind to the same source, context, and shared-fact hashes.
-- Each run receives no prior-run verdict artifact. Prefer a fresh reasoning
-  context; sequential execution reloads only the permitted source/fact inputs.
+- Each run carries the source-generated input contract and a completed
+  attestation covering every required role, only declared optional roles, and
+  no prohibited artifact, foreign verdict, repository test fixture, or test
+  completion helper. Prefer a fresh reasoning context; sequential execution
+  reloads only the permitted source/fact inputs.
 - Built-in/system references are distinguished from missing references.
 - Web, server, consent, ecommerce, and business scope are stated without
   claiming evidence from an unseen container or live website.
@@ -52,10 +59,13 @@ An audit and cleanup plan is complete only when all criteria below pass.
   make itself used.
 - Every finding has one explicit disposition. No finding disappears because a
   later run did not mention it.
-- A nonzero deterministic finding is resolved by cleanup, a visible owner
-  decision, or a source-locked owner exception that identifies the finding,
-  signature, or object and whose reason is preserved. It is never dismissed as
-  not applicable or as a container-evidence limit.
+- A nonzero deterministic structural finding with an export-established safe
+  disposition becomes an exact cleanup operation or a source-locked owner
+  exception that identifies the finding, signature, or object and whose reason
+  is preserved. A lifecycle or organisation condition whose safe outcome
+  depends on rollback retention, vendor ownership, or final folder taxonomy is
+  a `business_decision`, with an exact owner question and recommended target;
+  it is never silently dismissed as not applicable or an evidence limit.
 - One-member trigger groups identify the child, every consumer remap, and the
   safe deletion order; they cannot be absorbed into a generic trigger batch.
   A nested/cyclic dependency is resolved before any flattening, and malformed
@@ -119,7 +129,7 @@ An audit and cleanup plan is complete only when all criteria below pass.
   read, or return fails. Source-proven health/security signals cannot be
   dismissed as false positives or relabeled generically: cleanup, exception,
   and owner-decision verdicts require their source-bound action, exception
-  basis, or question respectively.
+  basis, or question plus recommended action respectively.
   Metadata-only custom-template resources remain opaque and
   cannot be marked Correct by inferred implementation behavior.
 - Vendor-facing objects and their consumed variables complete every generated,
@@ -135,6 +145,9 @@ An audit and cleanup plan is complete only when all criteria below pass.
   and topics retain dependency links instead of duplicating the task. A found
   source/domain must be added to the versioned registry, validated, and the
   review rebuilt; the topic remains Unproven before that binding.
+- Before an unresolved vendor owner/evidence fallback is accepted,
+  `research_status` records the attempted current official-source search;
+  saying only that the identity is absent from the export fails.
 - Mixed-integration objects retain every matched vendor context, and each
   unmatched external host creates its own research obligation.
 - Vendor and host inference excludes export/UI metadata, documentation/help,
@@ -145,7 +158,8 @@ An audit and cleanup plan is complete only when all criteria below pass.
   `outputs a value` is not. `Maps ecommerce.items[].item_id to Meta content_ids`
   is acceptable; `payload transformer` is not.
 - A confirmed branch, code, or vendor-contract issue is linked to a concrete
-  defect and exact operation or one precise unresolved decision.
+  defect and exact operation. Use an unresolved decision only for a genuinely
+  unproven external fact or business choice, and include the recommended action.
 - Formula and output-shape signals are resolved explicitly. Fixed numbered-slot
   aggregation cannot be marked correct without a specific business rule and
   cardinality proof.
@@ -204,8 +218,8 @@ An audit and cleanup plan is complete only when all criteria below pass.
   states across candidate subsets and supersets or from its own declared type.
 - Retention verdicts cite a source-visible distinction for every member.
   Verdict/disposition pairs are coherent, owner decisions contain one precise
-  interrogative question, and zero-discovery rationales name every method plus
-  source facts.
+  interrogative question and one concrete recommended action, and zero-discovery
+  rationales name every method plus source facts.
 - Unsafe same-payload/different-route, shared-Zone-child, trigger-cycle, and
   browser/server consent/deduplication candidates cannot receive a generic
   `Keep`. Visible deterministic relationships cannot be hidden wholly behind a
@@ -227,23 +241,42 @@ An audit and cleanup plan is complete only when all criteria below pass.
   blocked when their architecture family/comparison is preserved or unresolved;
   names, notes, export metadata, and folder placement are treated separately as
   metadata operations.
+- A source-bound non-destructive Run-1 or Run-2 repair may rely on completed
+  Run-3 family coverage rather than a duplicate architecture mutation. It has
+  no creation, deletion, or remap and still passes future-state simulation. An
+  architecture cleanup may resolve weaker candidates only when its complete
+  structured mutation exactly matches the compiled operation.
 - Operations with identical complete structured mutations may reconcile despite
-  independent wording or keys; every lens rationale remains preserved. One key
-  reused for different mutations fails.
+  independent wording or keys; explanatory deletion reasons and displayed
+  canonical labels do not alter mutation identity, while actual endpoints do.
+  Every lens rationale remains preserved. One key reused for different
+  mutations fails.
 - Every creation, missing-field/list addition, change, remap, deletion, and
   rename names exact source or planned objects and consumers; consolidation
   names one canonical object.
 - Future-state simulation creates no new missing reference, duplicate ID,
   orphan, folder, trigger, or naming finding and resolves every operational
   finding selected for cleanup.
-- Audit depth never changes with mutation aggressiveness.
-- Every operation declares a mechanically validated minimum aggressiveness;
-  operations above the selected level remain visible as deferred and do not
-  enter future-state execution.
+- The simulated future state regenerates configuration obligations and business-
+  relationship candidates. A complete plan leaves no deterministic
+  configuration Issue and creates no relationship outside an architecture-
+  backed operation or, for a non-unsafe discovery-only candidate, an explicit
+  Run-3 retention decision covering every candidate pair.
+- Audit and recommendation depth never change with approval. Every justified
+  operation remains in the plan; explicit operation IDs control execution.
 - The decision ledger contains every source obligation exactly once and links
   every cleanup disposition to a compiled operation.
+- Action completeness fails when a deterministic operational defect or a
+  source-proven configuration Issue is left as an owner question. Only a
+  source-locked review candidate may be retained after source-specific review;
+  only a locked review candidate or true business choice may remain an owner
+  decision. Genuine owner and evidence-limit decisions contain a concrete
+  recommended next action.
 - Projected before/after/delta counts exist for every GTM object layer and do
   not show unexplained broad deletion or recreation.
+- Every source-confirmed measurement family has a retained/changed target-state
+  entry with linked operation IDs, preserved business behavior, consent/routing
+  context, and any genuine owner or container-evidence boundary.
 - Every completed shard passes its existing manifest/source-lock and exact
   completion check before merge; the merged artifact still passes the complete
   authoritative run validator.
@@ -253,10 +286,14 @@ An audit and cleanup plan is complete only when all criteria below pass.
 - The cleanup workbook has at most eight tabs and six columns per tab.
 - Only `01 Summary` and `02 Cleanup Plan` are visible; hidden proof tabs remain
   available by unhiding.
-- Each distinct actionable issue has its own row. Exact duplicate, unused,
-  naming, and other homogeneous hygiene batches may share one row.
-- Deferred operations, owner decisions, and container-evidence limits remain
-  visible, and Summary does not claim readiness while owner action is pending.
+- Each distinct actionable issue has its own atomic operation. Exact duplicate,
+  unused, naming, and other homogeneous hygiene operations may share one
+  presentation row only when every operation ID, action, affected object,
+  approval choice, and QA remains explicit and appears exactly once.
+- All proposed operations and owner decisions remain individually actionable.
+  Nonblocking container-evidence limits use one visible scope-boundary row while
+  every per-object limit remains in hidden proof. Summary permits scoped approval
+  of unrelated operations and identifies the objects still awaiting owner action.
 - Visible text states problem, affected objects, impact, exact action, priority,
   readiness, and QA in web-analyst language without raw dumps or internal gates.
 - Visible rows are impact-led without changing operation IDs or execution order;
@@ -268,11 +305,13 @@ An audit and cleanup plan is complete only when all criteria below pass.
 - Every completed stage ends with one concrete next action.
 - Formula-like cells are escaped as literal text, and privacy checks cover
   hidden as well as visible proof tabs.
-- No visible or hidden proof cell is silently truncated. Overlong proof is
-  continued losslessly in adjacent hidden rows; overlong visible text fails the
-  workbook build until it is rewritten concisely.
+- No visible or hidden workbook cell is silently truncated. The workbook keeps
+  compact object/decision proof; exhaustive branch, trace, contract, and code-
+  line proof remains losslessly available in the JSON evidence package.
 - Executed change-log rows link to approved operations only when exact object,
   field, action, before, and after values match.
+- Execution certification fails when the full readback differs from the
+  approved simulated future state or any observed change is unlinked.
 - Import/readback and change-log sources pass the same unique-ID/entity-layer
   integrity checks, including Zones and Google tag configurations, before a
   field-level diff is trusted.
@@ -285,6 +324,8 @@ An audit and cleanup plan is complete only when all criteria below pass.
 - Release validation preserves exact-once object/branch identities,
   architecture candidate coverage, research ownership, and representative
   messy-container metrics; unexplained obligation growth blocks release.
+- The clean runtime bundle contains no repository test imports and can build a
+  source-locked audit package without the repository test tree.
 - Prefer one coherent semantic subsystem per release. Workflow and presentation
   changes remain projections of existing source facts, decisions, and gates.
 
@@ -294,5 +335,7 @@ Mark the result `Incomplete / blocked` if any required object, logic leaf, code
 line, recursive trace, family, candidate, open-discovery method, operational
 finding, official contract, decision-ledger row, or three-run gate remains
 pending while its source evidence is available.
+Also mark it incomplete when action completeness fails or the projected future
+state fails sanitation, configuration, or architecture quality checks.
 External behavior outside the container may be stated as a container-evidence
 limit, but it cannot excuse unreviewed exported configuration.

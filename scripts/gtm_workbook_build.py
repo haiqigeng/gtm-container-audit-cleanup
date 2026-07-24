@@ -93,6 +93,7 @@ def decision_text(row: dict[str, Any]) -> str:
         [
             row.get("disposition"),
             row.get("owner_question"),
+            row.get("recommended_action"),
             action,
             row.get("confidence"),
         ]
@@ -126,6 +127,7 @@ def operational_rows(review: dict[str, Any]) -> list[dict[str, str]]:
                         finding.get("priority"),
                         finding.get("execution_readiness"),
                         finding.get("owner_question"),
+                        finding.get("recommended_action"),
                     ]
                 ),
             }
@@ -134,16 +136,36 @@ def operational_rows(review: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def configuration_rows(review: dict[str, Any]) -> list[dict[str, str]]:
+    """Render one decision-oriented proof row per object.
+
+    The exact branch, trace, contract, and code-line coverage remains in the
+    JSON evidence package. Repeating every passing obligation in XLSX made the
+    analyst deliverable larger without improving discovery or decisions.
+    """
+
     rows: list[dict[str, str]] = []
     for item in as_list(review.get("rows")):
         object_label = clean_text(
             f"{item.get('object_key')} - {item.get('object_name')} [{item.get('object_type')}]"
         )
+        defects = [
+            f"{defect.get('defect_id')}: {defect.get('statement')}"
+            for defect in as_list(item.get("defects"))
+        ]
+        contract_exceptions = [
+            f"{check.get('contract_topic')}: {check.get('verdict')}"
+            for check in as_list(item.get("contract_checks"))
+            if check.get("verdict") in {"Non-compliant", "Unproven"}
+        ]
+        logic_exceptions = [
+            f"{check.get('check_key')}: {check.get('verdict')}"
+            for check in as_list(item.get("logic_cross_checks"))
+            if check.get("verdict") in {"Issue", "Unclear"}
+        ]
         rows.append(
             {
                 "Object": object_label,
-                "Review aspect": "Functional contract",
-                "Configured behavior / assessment": join_text(
+                "Configured behavior": join_text(
                     [
                         item.get("purpose"),
                         item.get("execution_logic"),
@@ -153,112 +175,16 @@ def configuration_rows(review: dict[str, Any]) -> list[dict[str, str]]:
                         item.get("consent_and_sequence"),
                     ]
                 ),
-                "Verdict": join_text(
+                "Correctness": join_text(
                     [item.get("correctness_verdict"), item.get("correctness_basis")]
                 ),
-                "Evidence": join_text(as_list(item.get("evidence_anchors"))),
-                "Decision": decision_text(item),
+                "Key evidence": join_text(as_list(item.get("evidence_anchors"))),
+                "Defects / limits": join_text(
+                    [*defects, *contract_exceptions, *logic_exceptions]
+                ),
+                "Decision / action": decision_text(item),
             }
         )
-        for check in as_list(item.get("logic_cross_checks")):
-            rows.append(
-                {
-                    "Object": object_label,
-                    "Review aspect": clean_text(f"D3 logic - {check.get('check_key')}"),
-                    "Configured behavior / assessment": clean_text(check.get("conclusion")),
-                    "Verdict": clean_text(check.get("verdict")),
-                    "Evidence": join_text(as_list(check.get("evidence_anchors"))),
-                    "Decision": "",
-                }
-            )
-        for branch in as_list(item.get("configuration_branch_reviews")):
-            rows.append(
-                {
-                    "Object": object_label,
-                    "Review aspect": clean_text(
-                        f"Branch - {branch.get('logic_role')} - {branch.get('json_path')}"
-                    ),
-                    "Configured behavior / assessment": join_text(
-                        [branch.get("interpretation"), branch.get("configured_effect")]
-                    ),
-                    "Verdict": clean_text(branch.get("correctness")),
-                    "Evidence": clean_text(
-                        {"path": branch.get("json_path"), "value_hash": branch.get("value_hash")}
-                    ),
-                    "Decision": "",
-                }
-            )
-        for trace in as_list(item.get("reference_traces")):
-            rows.append(
-                {
-                    "Object": object_label,
-                    "Review aspect": clean_text(f"Reference trace - {trace.get('reference')}"),
-                    "Configured behavior / assessment": clean_text(trace.get("terminal_source")),
-                    "Verdict": clean_text(trace.get("terminal_states")),
-                    "Evidence": join_text(as_list(trace.get("evidence_anchors"))),
-                    "Decision": "",
-                }
-            )
-            for node in as_list(trace.get("node_reviews")):
-                rows.append(
-                    {
-                        "Object": object_label,
-                        "Review aspect": clean_text(
-                            f"Trace node - {node.get('object_key')} - {node.get('object_name')}"
-                        ),
-                        "Configured behavior / assessment": join_text(
-                            [
-                                node.get("configured_function"),
-                                node.get("configured_output"),
-                                node.get("output_type_and_shape"),
-                                node.get("availability_and_fallback"),
-                                node.get("consumer_compatibility"),
-                            ]
-                        ),
-                        "Verdict": clean_text(node.get("semantic_role")),
-                        "Evidence": clean_text(node.get("configured_parameters")),
-                        "Decision": "",
-                    }
-                )
-        for contract in as_list(item.get("contract_checks")):
-            rows.append(
-                {
-                    "Object": object_label,
-                    "Review aspect": clean_text(
-                        f"Vendor contract - {contract.get('contract_topic')}"
-                    ),
-                    "Configured behavior / assessment": join_text(
-                        [contract.get("configured_value"), contract.get("expected_rule")]
-                    ),
-                    "Verdict": clean_text(contract.get("verdict")),
-                    "Evidence": join_text(
-                        [contract.get("source"), *as_list(contract.get("evidence_anchors"))]
-                    ),
-                    "Decision": "",
-                }
-            )
-        for defect in as_list(item.get("defects")):
-            rows.append(
-                {
-                    "Object": object_label,
-                    "Review aspect": clean_text(f"Defect - {defect.get('defect_id')}"),
-                    "Configured behavior / assessment": join_text(
-                        [
-                            defect.get("statement"),
-                            defect.get("configured_effect"),
-                            defect.get("expected_behavior"),
-                        ]
-                    ),
-                    "Verdict": "Issue",
-                    "Evidence": join_text(
-                        [
-                            *as_list(defect.get("evidence_anchors")),
-                            *as_list(defect.get("code_line_hashes")),
-                        ]
-                    ),
-                    "Decision": decision_text(item),
-                }
-            )
     return rows
 
 
@@ -289,25 +215,6 @@ def architecture_rows(review: dict[str, Any]) -> list[dict[str, str]]:
                 "Decision": decision_text(item),
             }
         )
-        for assessment in as_list(item.get("chain_assessments")):
-            rows.append(
-                {
-                    "Family / comparison": clean_text(item.get("family_id")),
-                    "Members / chain": clean_text(assessment.get("object_key")),
-                    "Business and execution logic": join_text(
-                        [
-                            assessment.get("configured_role"),
-                            assessment.get("necessity"),
-                            assessment.get("distinguishing_configuration"),
-                        ]
-                    ),
-                    "Relationship verdict": clean_text(assessment.get("status")),
-                    "Necessity / target state": join_text(
-                        as_list(assessment.get("evidence_anchors"))
-                    ),
-                    "Decision": "",
-                }
-            )
     for item in as_list(review.get("comparisons")):
         rows.append(
             {
@@ -336,56 +243,44 @@ def code_rows(configuration: dict[str, Any]) -> list[dict[str, str]]:
     for item in as_list(configuration.get("rows")):
         if not item.get("required_code_line_hashes"):
             continue
-        facts = item.get("technical_code_facts") or {}
         object_label = clean_text(f"{item.get('object_key')} - {item.get('object_name')}")
-        facts_by_hash = {
-            str(fact.get("line_hash") or ""): fact
-            for fact in as_list(item.get("code_line_facts"))
-        }
-        for block in as_list(item.get("code_behavior_blocks")):
-            line_facts = [
-                facts_by_hash[line_hash]
-                for line_hash in as_list(block.get("line_hashes"))
-                if line_hash in facts_by_hash
-            ]
-            rows.append(
-                {
-                    "Object": object_label,
-                    "Lines": clean_text(f"{block.get('start_line')}-{block.get('end_line')}"),
-                    "Behavior": clean_text(block.get("purpose")),
-                    "Inputs / outputs / side effects": join_text(
-                        [block.get("inputs"), block.get("outputs"), block.get("side_effects")]
-                    ),
-                    "Code health / evidence": join_text(
-                        [
-                            block.get("health_assessment"),
-                            *[fact.get("line_preview") for fact in line_facts],
-                            facts.get("javascript_parser"),
-                        ]
-                    ),
-                    "Decision": decision_text(item),
-                }
-            )
-        for finding in as_list(item.get("technical_finding_reviews")):
-            rows.append(
-                {
-                    "Object": object_label,
-                    "Lines": clean_text(finding.get("finding_key")),
-                    "Behavior": clean_text(finding.get("source_statement")),
-                    "Inputs / outputs / side effects": clean_text(finding.get("rationale")),
-                    "Code health / evidence": clean_text(finding.get("verdict")),
-                    "Decision": decision_text(item),
-                }
-            )
+        blocks = as_list(item.get("code_behavior_blocks"))
+        findings = as_list(item.get("technical_finding_reviews"))
+        rows.append(
+            {
+                "Object": object_label,
+                "Coverage": clean_text(
+                    f"{len(item.get('required_code_line_hashes', []))} executable lines / "
+                    f"{len(blocks)} behavior blocks"
+                ),
+                "Behavior": join_text([block.get("purpose") for block in blocks]),
+                "Inputs / outputs / side effects": join_text(
+                    [
+                        value
+                        for block in blocks
+                        for value in (
+                            block.get("inputs"),
+                            block.get("outputs"),
+                            block.get("side_effects"),
+                        )
+                    ]
+                ),
+                "Code findings": join_text(
+                    [
+                        f"{finding.get('finding_key')}: {finding.get('verdict')} - "
+                        f"{finding.get('rationale')}"
+                        for finding in findings
+                    ]
+                ),
+                "Decision": decision_text(item),
+            }
+        )
     return rows
 
 
 def operation_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
     rows = []
-    for operation in [
-        *as_list(payload.get("operations")),
-        *as_list(payload.get("deferred_operations")),
-    ]:
+    for operation in as_list(payload.get("operations")):
         rows.append(
             {
                 "Operation": clean_text(
@@ -400,6 +295,18 @@ def operation_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
                         operation.get("problem"),
                         operation.get("why_it_matters"),
                         operation.get("expected_clean_state"),
+                        (
+                            "Affected measurement families: "
+                            + ", ".join(
+                                str(value)
+                                for value in as_list(
+                                    operation.get("affected_measurement_family_ids")
+                                )
+                            )
+                            if as_list(operation.get("affected_measurement_family_ids"))
+                            else ""
+                        ),
+                        operation.get("retained_behavior"),
                     ]
                 ),
                 "Exact mutation": clean_text(
@@ -443,6 +350,17 @@ def source_rows(
             "Result": clean_text(manifest.get("context_sha256")),
         },
         {
+            "Check": "Independent run input contracts",
+            "Result": clean_text(
+                {
+                    key: (value or {}).get("contract_sha256")
+                    for key, value in (
+                        manifest.get("run_input_contracts") or {}
+                    ).items()
+                }
+            ),
+        },
+        {
             "Check": "Source model coverage",
             "Result": clean_text(source.get("coverage_gate")),
         },
@@ -465,7 +383,13 @@ def source_rows(
             ),
         },
         {"Check": "Execution route", "Result": clean_text(operations.get("route"))},
-        {"Check": "Cleanup level", "Result": clean_text(operations.get("aggressiveness"))},
+        {"Check": "Cleanup plan", "Result": clean_text(operations.get("plan_status"))},
+        {
+            "Check": "Measurement preservation",
+            "Result": clean_text(
+                (operations.get("measurement_preservation") or {}).get("status")
+            ),
+        },
         {
             "Check": "Decision ledger records",
             "Result": clean_text(len(as_list(operations.get("decision_ledger")))),
@@ -540,7 +464,6 @@ def build_workbook(
     workbook.remove(workbook.active)
     sheets = {name: workbook.create_sheet(name) for name in CANONICAL_SHEETS}
     operation_count = len(as_list(operations.get("operations")))
-    deferred_count = len(as_list(operations.get("deferred_operations")))
     ledger = as_list(operations.get("decision_ledger"))
     owner_decisions = sum(
         1
@@ -556,6 +479,20 @@ def build_workbook(
     documented_exceptions = sum(
         1 for row in ledger if row.get("disposition") == "documented_exception"
     )
+    preservation = operations.get("measurement_preservation") or {}
+    preservation_counts = preservation.get("counts") or {}
+    preservation_families = as_list(preservation.get("families"))
+    target_state_summary = join_text(
+        [
+            f"{family.get('family_id')} [{family.get('preservation_status')}]: "
+            f"{family.get('target_state') or family.get('required_business_behavior')}"
+            for family in preservation_families[:6]
+        ]
+    )
+    if len(preservation_families) > 6:
+        target_state_summary += (
+            f"; +{len(preservation_families) - 6} more reviewed measurement families"
+        )
     retained_families = [
         str(row.get("title") or row.get("decision_id") or "")
         for row in ledger
@@ -582,22 +519,35 @@ def build_workbook(
             for row in highest_impact
         ]
     )
-    if operations.get("aggressiveness") == "Undecided":
-        overall_status = "Cleanup level decision required"
-        if owner_decisions:
-            overall_status += "; owner decisions required before cleanup approval"
+    action_errors = as_list((operations.get("action_completeness") or {}).get("errors"))
+    if operations.get("plan_status") != "complete":
+        overall_status = (
+            "Incomplete cleanup plan; exact actions and owner decisions required"
+            if owner_decisions
+            else "Incomplete cleanup plan; exact actions required"
+        )
+    elif owner_decisions and operation_count:
+        overall_status = (
+            "Cleanup operations ready for scoped approval; owner decisions required for "
+            "affected objects"
+        )
     elif owner_decisions:
-        overall_status = "Owner decisions required before cleanup approval"
+        overall_status = "Owner decisions required for affected retained objects"
     elif evidence_limits:
         overall_status = "Plan ready with documented container evidence limits"
     elif operation_count:
         overall_status = "Ready for human approval"
     else:
-        overall_status = "Audit complete; no cleanup operation proposed"
+        overall_status = "Complete audit and cleanup plan; no cleanup operation is justified"
     next_step = (
-        "Select the cleanup level, then resolve any owner decisions before approval."
-        if operations.get("aggressiveness") == "Undecided"
-        else "Resolve the listed owner questions before approving cleanup."
+        "Resolve every listed action-completeness error and rebuild the cleanup plan."
+        if operations.get("plan_status") != "complete"
+        else (
+            "Approve, reject, or amend proposed operations by scope; resolve each owner "
+            "question before changing the objects it covers."
+            if operation_count
+            else "Resolve the listed owner questions for the affected retained objects."
+        )
         if owner_decisions
         else "Approve, reject, or amend the proposed operations before any GTM mutation."
     )
@@ -623,11 +573,31 @@ def build_workbook(
             "Value": retained_family_summary or "No retained family decision recorded",
         },
         {
+            "Decision": "Measurement-family preservation",
+            "Value": join_text(
+                [
+                    f"{status.replace('_', ' ')}: {count}"
+                    for status, count in preservation_counts.items()
+                    if count
+                ]
+            )
+            or "No source-confirmed business family was generated",
+        },
+        {
+            "Decision": "Target-state architecture",
+            "Value": target_state_summary or "No target-state family summary recorded",
+        },
+        {
+            "Decision": "Preservation evidence boundary",
+            "Value": preservation.get("scope")
+            or "Container-visible configuration only; runtime certification is separate.",
+        },
+        {
             "Decision": "Highest-impact proposed actions",
             "Value": highest_impact_summary or "No cleanup operation proposed",
         },
         {"Decision": "Proposed operations", "Value": operation_count},
-        {"Decision": "Deferred operations", "Value": deferred_count},
+        {"Decision": "Action-completeness errors", "Value": len(action_errors)},
         {"Decision": "Owner decisions", "Value": owner_decisions},
         {"Decision": "Container evidence limits", "Value": evidence_limits},
         {
@@ -644,7 +614,7 @@ def build_workbook(
             or "No count-changing operation proposed",
         },
         {"Decision": "Execution route", "Value": operations.get("route")},
-        {"Decision": "Cleanup level", "Value": operations.get("aggressiveness")},
+        {"Decision": "Cleanup plan status", "Value": operations.get("plan_status")},
         {
             "Decision": "Next step",
             "Value": next_step,

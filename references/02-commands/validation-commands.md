@@ -57,6 +57,12 @@ ContainerVersion export rather than treating the blocked result as a reduced
 audit mode.
 
 Complete the three review JSON files. Do not alter generated source fields.
+Each scaffold includes its immutable `input_contract` and a pending
+`completion_attestation`. Record the artifact roles actually used; do not load
+another run's verdict or repository test completion helper.
+Each scaffold includes its immutable `input_contract` and a pending
+`completion_attestation`. Record the artifact roles actually used; do not load
+another run's verdict or repository test completion helper.
 
 ## Shard Large Reviews
 
@@ -99,14 +105,14 @@ Any failure means the audit is incomplete.
 ## Compile And Simulate The Plan
 
 ```powershell
-python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json reconciled_operations.json --route "Pending user selection" --aggressiveness Undecided --pretty
+python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json reconciled_operations.json --route "Pending user selection" --pretty
 python -B scripts/gtm_future_state_check.py container.json reconciled_operations.json --output future_state_gate.json --pretty
 python -B scripts/gtm_three_run_gate.py container.json audit-package --operations reconciled_operations.json --output completion_gate.json --pretty
 ```
 
-For an audit-only delivery with no cleanup plan, use `--audit-only` and omit
-`--operations`. A cleanup plan always requires compiled operations and
-future-state simulation, even when the operation list is empty.
+Full completion always requires the audit and cleanup plan together. Omitting
+`--operations` deliberately fails the completion gate, even when no mutation is
+ultimately justified.
 
 ## Build And Gate The Cleanup Workbook
 
@@ -142,11 +148,17 @@ Use the route matching the artifact: `direct-readback`, `same-container-view`,
 After real execution or artifact generation:
 
 ```powershell
-python -B scripts/gtm_diff_operations.py container.json post-cleanup.json --route "Direct GTM/MCP/API" --aggressiveness Deep --operations reconciled_operations.json --execution-mode executed --json field_changes.json --pretty
+python -B scripts/gtm_diff_operations.py container.json post-cleanup.json --route "Direct GTM/MCP/API" --operations reconciled_operations.json --execution-mode executed --json field_changes.json --pretty
 python -B scripts/gtm_change_log_build.py field_changes.json change_log.xlsx
 ```
 
 Use `planned` execution mode for a planned preview. Never label it executed.
+In `executed` mode the command exits nonzero unless the complete readback
+matches the approved simulated future state and every observed field change
+links exactly to an approved operation.
+In `executed` mode the command exits nonzero unless the complete readback
+matches the approved simulated future state and every observed field change
+links exactly to an approved operation.
 
 ## Project Checks
 
@@ -161,6 +173,14 @@ python -B scripts/gtm_vendor_registry.py --max-age-days 365
 python -B scripts/check_release.py
 git diff --check
 ```
+
+The release check also rejects production scripts importing repository tests.
+The runtime-bundle test builds a source-locked package from the clean bundle
+without relying on the repository test tree.
+
+The release check also rejects production scripts importing repository tests.
+The runtime-bundle test builds a source-locked package from the clean bundle
+without relying on the repository test tree.
 
 For every semantic correction, add a fixture that reproduces the failure and a
 paired assertion that nearby true positives and architecture candidates remain.

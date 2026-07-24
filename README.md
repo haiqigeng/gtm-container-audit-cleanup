@@ -4,10 +4,23 @@
 [![CI](https://github.com/haiqigeng/gtm-container-audit-cleanup/actions/workflows/ci.yml/badge.svg)](https://github.com/haiqigeng/gtm-container-audit-cleanup/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/haiqigeng/gtm-container-audit-cleanup/blob/main/LICENSE)
 
-A container-only workflow for understanding and cleaning Google Tag Manager as
-a web analyst. It finds routine container clutter, checks what every object
-actually does, and reviews whether related tags work together as a coherent
-measurement system.
+A container-only workflow for doing the heavy operational work of cleaning
+Google Tag Manager as an expert web analyst. It audits every supported object,
+turns every substantiated problem into a precise cleanup action, and can apply
+the explicitly approved actions through GTM while preserving necessary
+measurement, consent behaviour, and integrations.
+
+## North Star
+
+Do the heavy operational work needed to leave an existing GTM container as
+clean, simple, well-organised and logically correct as its real measurement
+needs allow. Exhaustively identify every container-visible cleanup and
+optimisation opportunity, decide the exact safe disposition and target state
+for each, and, when authorised, execute and verify the approved changes without
+regressing necessary measurement, consent behaviour, routing or integrations.
+
+The audit is the evidence foundation. The actionable cleanup plan—and the
+verified resulting container when execution is approved—is the product.
 
 It is designed for Codex, Claude Code, Gemini, and other file-capable agents.
 
@@ -41,6 +54,10 @@ from extracting the same container three different ways.
 The audit then runs three independent reviews against that same fact map and
 the raw export. The map contains evidence, not conclusions, so one review still
 cannot substitute its conclusions for another.
+
+Each review is source-locked to its own permitted input roles and must attest
+what it actually used. Another run's verdict or a repository test helper cannot
+complete a real audit run.
 
 The package gate reconstructs this map and the audit context from source. A
 copied or stale hash is not enough to pass.
@@ -102,8 +119,10 @@ Retention must cite how every member actually differs; verdicts, dispositions,
 owner questions, and zero-discovery attestations are validated as one coherent
 decision rather than independent form fields.
 
-Only after all three validators pass are their approved actions reconciled and
-simulated against a future copy of the container.
+Only after all three validators pass are their actions reconciled and simulated
+against a future copy of the container. The simulation reruns sanitation,
+configuration, and architecture checks so a structurally valid mutation cannot
+silently create a logically worse target state.
 
 Large reviews can be split into bounded, source-locked shards. The merge tool
 refuses missing, duplicate, pending, or source-mismatched work, so scaling the
@@ -144,8 +163,10 @@ forwarding requires both a server route and a behavior-bearing payload chain.
 - Lossless hidden proof: long evidence continues onto another row instead of
   being silently truncated.
 - Exact reconciled operations with preconditions, QA, and rollback.
-- Deferred operations that exceed the selected cleanup level, plus owner
-  decisions and container-evidence limits that still need attention.
+- Every substantiated cleanup action in one exact operation set, plus genuine
+  owner decisions and container-evidence limits with a recommended resolution.
+- One visible nonblocking evidence-boundary summary, with each exact per-object
+  limit preserved in the hidden reviews instead of presented as a cleanup task.
 - On request and after approval, direct GTM changes or a valid import JSON.
 - A separate field-level change log after changes or an import artifact exist.
 
@@ -186,13 +207,15 @@ context. Resolve material questions in a small JSON file and pass it with
 `--context audit-context.json`; non-material questions remain visible without
 creating another audit gate.
 
-Complete the three generated review files independently, then validate them:
+Complete the three generated review files independently, compile the exact
+cleanup operations, then validate the complete audit-and-plan package:
 
 ```powershell
 python -B scripts/gtm_operational_review.py validate container.json audit-package/operational_review.json
 python -B scripts/gtm_configuration_review.py validate container.json audit-package/configuration_review.json
 python -B scripts/gtm_architecture_review.py validate container.json audit-package/architecture_review.json
-python -B scripts/gtm_three_run_gate.py container.json audit-package --audit-only --pretty
+python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json audit-package/operations.json --route "Pending user selection" --pretty
+python -B scripts/gtm_three_run_gate.py container.json audit-package --operations audit-package/operations.json --pretty
 ```
 
 Prefer a fresh reasoning context per run and never provide another run's
@@ -219,7 +242,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.2.0
+python -B scripts/check_release.py --tag v1.3.0
 git diff --check
 ```
 

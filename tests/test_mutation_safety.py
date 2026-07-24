@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+from gtm_diff_operations import execution_verification  # noqa: E402
 from gtm_diff_operations import operations as diff_operations  # noqa: E402
 from gtm_future_state_check import apply_operations  # noqa: E402
 from gtm_lib import container_version  # noqa: E402
@@ -164,7 +165,6 @@ class MutationSafetyTests(unittest.TestCase):
             container_version(mutation_export()),
             container_version(future),
             "Direct GTM/MCP/API",
-            "Deep",
             payload,
             "executed",
         )
@@ -213,7 +213,6 @@ class MutationSafetyTests(unittest.TestCase):
             container_version(mutation_export()),
             container_version(future),
             "Direct GTM/MCP/API",
-            "Deep",
             payload,
             "executed",
         )
@@ -289,6 +288,78 @@ class MutationSafetyTests(unittest.TestCase):
             },
         )
         self.assertEqual(original, source)
+
+    def test_execution_verification_certifies_exact_approved_readback(self) -> None:
+        approved = {
+            "operations": [
+                empty_actions(
+                    operation_id="OP-RENAME",
+                    why_it_matters="Give the retained tag its approved canonical name.",
+                    renames=[
+                        {
+                            "object_key": "tag:3",
+                            "before": "Consumer Tag",
+                            "after": "Vendor - Consumer Event",
+                        }
+                    ],
+                )
+            ]
+        }
+        source_cv = container_version(mutation_export())
+        future, errors = apply_operations(mutation_export(), approved)
+        self.assertEqual([], errors)
+        future_cv = container_version(future)
+        rows = diff_operations(
+            source_cv,
+            future_cv,
+            "Direct GTM/MCP/API",
+            approved,
+            "executed",
+        )
+
+        verification = execution_verification(source_cv, future_cv, approved, rows)
+
+        self.assertEqual("pass", verification["status"])
+        self.assertTrue(verification["matches_approved_future_state"])
+        self.assertEqual([], verification["unlinked_change_ids"])
+        self.assertEqual(0, verification["unexpected_or_missing_field_count"])
+
+    def test_execution_verification_rejects_readback_drift(self) -> None:
+        approved = {
+            "operations": [
+                empty_actions(
+                    operation_id="OP-RENAME",
+                    why_it_matters="Give the retained tag its approved canonical name.",
+                    renames=[
+                        {
+                            "object_key": "tag:3",
+                            "before": "Consumer Tag",
+                            "after": "Vendor - Consumer Event",
+                        }
+                    ],
+                )
+            ]
+        }
+        source_cv = container_version(mutation_export())
+        readback, errors = apply_operations(mutation_export(), approved)
+        self.assertEqual([], errors)
+        readback_cv = container_version(readback)
+        consumer = next(row for row in readback_cv["tag"] if row["tagId"] == "3")
+        consumer["firingTriggerId"] = ["11"]
+        rows = diff_operations(
+            source_cv,
+            readback_cv,
+            "Direct GTM/MCP/API",
+            approved,
+            "executed",
+        )
+
+        verification = execution_verification(source_cv, readback_cv, approved, rows)
+
+        self.assertEqual("fail", verification["status"])
+        self.assertFalse(verification["matches_approved_future_state"])
+        self.assertGreater(verification["unexpected_or_missing_field_count"], 0)
+        self.assertTrue(verification["unlinked_change_ids"])
 
 
 if __name__ == "__main__":

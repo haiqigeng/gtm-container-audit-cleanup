@@ -12,7 +12,8 @@ from gtm_lib import (
     SEMANTIC_LAYERS,
     comparable,
     custom_template_executable_code,
-    custom_template_id,
+    custom_template_ids,
+    custom_template_type_index,
     is_system_variable_reference,
     object_id,
     refs,
@@ -79,6 +80,9 @@ def build_consumers(
     cv: dict[str, Any], root_path: str = "$.containerVersion"
 ) -> dict[str, list[dict[str, str]]]:
     consumers: dict[str, list[dict[str, str]]] = defaultdict(list)
+    template_type_index = custom_template_type_index(
+        as_list(cv.get("customTemplate"))
+    )
     for layer, index, obj in layer_objects(cv):
         key = object_key(layer, obj)
         name = str(obj.get("name") or "")
@@ -171,8 +175,7 @@ def build_consumers(
 
     for layer in ("tag", "variable", "client", "gtagConfig", "transformation"):
         for index, obj in enumerate(as_list(cv.get(layer))):
-            template_id = custom_template_id(obj)
-            if template_id:
+            for template_id in custom_template_ids(obj, template_type_index):
                 consumers[f"template-id:{template_id}"].append(
                     {
                         "consumer_key": object_key(layer, obj),

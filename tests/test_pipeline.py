@@ -18,6 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from build_skill_package import build as build_skill_bundle  # noqa: E402
 from check_release import (  # noqa: E402
+    check_production_test_imports,
     check_project_version,
     check_release_tag,
     check_repository_layout,
@@ -46,7 +47,12 @@ from gtm_diff_operations import operations as diff_operations  # noqa: E402
 from gtm_future_state_check import apply_operations, check_future_state  # noqa: E402
 from gtm_human_rows import build_rows  # noqa: E402
 from gtm_lib import container_version  # noqa: E402
-from gtm_operation_compile import compile_operations, source_object_catalog  # noqa: E402
+from gtm_operation_compile import (  # noqa: E402
+    action_completeness_report,
+    compile_operations,
+    runtime_neutral_operational_deletions,
+    source_object_catalog,
+)
 from gtm_operational_review import (  # noqa: E402
     MANDATORY_OPERATIONAL_MODULES,
     mandatory_module_errors,
@@ -72,6 +78,7 @@ from gtm_relationships import (  # noqa: E402
     scan_export as scan_relationships,
 )
 from gtm_review_common import (  # noqa: E402
+    complete_review_attestation,
     object_consumer_map,
     object_keys,
     object_name_map,
@@ -452,8 +459,10 @@ def behavior_signal_text(fact: dict) -> str:
     return "; ".join(signals)
 
 
-def complete_configuration(export_path: Path) -> dict:
-    review = scaffold_configuration(export_path)
+def complete_configuration(
+    export_path: Path, shared_facts: dict | None = None
+) -> dict:
+    review = scaffold_configuration(export_path, shared_facts=shared_facts)
     for row in review["rows"]:
         row.update(
             {
@@ -591,7 +600,6 @@ def complete_configuration(export_path: Path) -> dict:
                     }
                     for item in row["reference_trace_requirements"]
                 ],
-                "related_operational_finding_ids": [],
                 "logic_cross_checks": [
                     {
                         "check_key": check["check_key"],
@@ -659,8 +667,9 @@ def complete_configuration(export_path: Path) -> dict:
                         "unclassified integration."
                     ),
                     "research_status": (
-                        "No authoritative vendor identity or official documentation source can "
-                        "be established from the exported integration hostname and code alone."
+                        "Searched current official vendor documentation using the exported "
+                        "integration hostname and code identifiers, but no authoritative vendor "
+                        "identity or official source could be established."
                         if topic.get("research_required")
                         and not topic["official_doc_candidates"]
                         else "Official source is registered for this detected vendor."
@@ -1003,6 +1012,10 @@ def complete_configuration(export_path: Path) -> dict:
                 "Should the listed source-proven defects be corrected through an approved "
                 "operation, or is there a documented owner constraint requiring a redesign?"
             )
+            row["recommended_action"] = (
+                "Correct every listed source-proven defect with one exact operation and retain "
+                "the object only if that correction preserves its required measurement role."
+            )
             row["confidence"] = "High"
         elif unresolved:
             row["correctness_verdict"] = "Owner decision needed"
@@ -1015,6 +1028,10 @@ def complete_configuration(export_path: Path) -> dict:
             row["owner_question"] = (
                 "What approved runtime, vendor, or ownership evidence resolves the explicitly "
                 "unproven configuration contract for this object?"
+            )
+            row["recommended_action"] = (
+                "Obtain the named runtime or owner evidence, then keep the current configuration "
+                "only if that evidence proves the required contract; otherwise correct it."
             )
             row["confidence"] = "Medium"
         for technical_review in row["technical_finding_reviews"]:
@@ -1031,6 +1048,7 @@ def complete_configuration(export_path: Path) -> dict:
                     "or approve removal of the opaque implementation?"
                 )
     review["run_status"] = "complete"
+    review["completion_attestation"] = complete_review_attestation(review)
     return review
 
 
@@ -1050,9 +1068,14 @@ def complete_operational(export_path: Path) -> dict:
                     f"Should the source objects for {row['finding_type']} be retained for a "
                     "documented business reason, or approved for the proposed cleanup?"
                 ),
+                "recommended_action": (
+                    f"Resolve {row['finding_type']} through the exact cleanup action indicated by "
+                    "the source evidence unless an intake-locked exception proves it necessary."
+                ),
             }
         )
     review["run_status"] = "complete"
+    review["completion_attestation"] = complete_review_attestation(review)
     return review
 
 
@@ -1139,8 +1162,10 @@ def unsafe_owner_question(comparison_types: set[str], candidate_keys: list[str])
     )
 
 
-def complete_architecture(export_path: Path) -> dict:
-    review = scaffold_architecture(export_path)
+def complete_architecture(
+    export_path: Path, shared_facts: dict | None = None
+) -> dict:
+    review = scaffold_architecture(export_path, shared_facts=shared_facts)
     non_retention_types = {
         "same_tag_payload_different_route",
         "shared_zone_child_container",
@@ -1233,6 +1258,12 @@ def complete_architecture(export_path: Path) -> dict:
                     if unresolved_member_relationship
                     else ""
                 ),
+                "recommended_action": (
+                    f"Resolve the unsafe {', '.join(sorted(family_comparison_types))} relationship "
+                    "to one evidence-supported route while preserving required measurement."
+                    if unresolved_member_relationship
+                    else ""
+                ),
                 "operations": [],
                 "confidence": "High",
             }
@@ -1276,6 +1307,12 @@ def complete_architecture(export_path: Path) -> dict:
                     unsafe_owner_question(
                         comparison_types, row["candidate_object_keys"]
                     )
+                    if owner_required
+                    else ""
+                ),
+                "recommended_action": (
+                    f"Resolve {row['comparison_id']} to the simplest evidence-supported route and "
+                    "retain variants only where source-visible behavior proves they are necessary."
                     if owner_required
                     else ""
                 ),
@@ -1350,6 +1387,7 @@ def complete_architecture(export_path: Path) -> dict:
         }
     )
     review["run_status"] = "complete"
+    review["completion_attestation"] = complete_review_attestation(review)
     return review
 
 
@@ -1436,7 +1474,6 @@ def duplicate_variable_operation() -> dict:
         "priority": "Medium",
         "confidence": "High",
         "execution_readiness": "approval_required",
-        "minimum_aggressiveness": "Standard",
         "challenge_review": {},
     }
 
@@ -1511,6 +1548,253 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(["built_in"], trace["terminal_states"])
 
+    def test_canonical_remap_does_not_turn_consumers_into_architecture_conflicts(self) -> None:
+        from gtm_architecture_review import operation_behavior_keys
+        from gtm_operation_compile import behavior_impact_keys
+
+        operation = {
+            "remaps": [
+                {
+                    "from_object_key": "trigger:10",
+                    "to_object_key": "trigger:11",
+                    "consumer_object_keys": ["tag:20", "tag:21"],
+                }
+            ],
+            "creations": [],
+            "additions": [],
+            "changes": [],
+            "deletions": [],
+        }
+        expected = {"trigger:10", "trigger:11"}
+        self.assertEqual(expected, operation_behavior_keys(operation))
+        self.assertEqual(expected, behavior_impact_keys(operation))
+
+    def test_folder_operations_are_runtime_and_architecture_neutral(self) -> None:
+        from gtm_architecture_review import operation_behavior_keys
+        from gtm_operation_compile import behavior_impact_keys
+
+        operation = {
+            "creations": [
+                {
+                    "layer": "folder",
+                    "object": {"folderId": "20", "name": "Media"},
+                    "reason": "Create a bounded operational folder.",
+                }
+            ],
+            "additions": [],
+            "changes": [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].parentFolderId",
+                    "before": "10",
+                    "after": "20",
+                }
+            ],
+            "remaps": [
+                {
+                    "from_object_key": "folder:10",
+                    "to_object_key": "folder:20",
+                    "consumer_object_keys": ["tag:1"],
+                }
+            ],
+            "deletions": [
+                {"object_key": "folder:10", "reason": "Replaced by role folder."}
+            ],
+        }
+        self.assertEqual(set(), operation_behavior_keys(operation))
+        self.assertEqual(set(), behavior_impact_keys(operation))
+
+    def test_architecture_exact_duplicate_can_remove_an_entire_inactive_set(self) -> None:
+        from gtm_architecture_review import validate_decision
+
+        operation = duplicate_variable_operation()
+        operation["canonical_object_key"] = ""
+        operation["remaps"] = []
+        operation["deletions"] = [
+            {"object_key": "variable:20", "reason": "Inactive duplicate removed."},
+            {"object_key": "variable:21", "reason": "Inactive duplicate removed."},
+        ]
+        row = {
+            "relationship_verdict": "Exact duplicate",
+            "disposition": "cleanup_operation",
+            "confidence": "High",
+            "owner_question": "",
+            "recommended_action": "",
+            "operations": [operation],
+        }
+        errors = validate_decision(
+            row,
+            {"variable:20", "variable:21"},
+            "inactive exact duplicate set",
+            {"variable:20": set(), "variable:21": set()},
+            ["variable:20", "variable:21"],
+        )
+        self.assertFalse(any("lacks canonical object" in error for error in errors), errors)
+
+    def test_non_destructive_fix_does_not_create_fake_relationship_conflicts(self) -> None:
+        from gtm_operation_compile import (
+            comparison_reconciliation_errors,
+            family_reconciliation_errors,
+        )
+
+        comparisons = [
+            {
+                "comparison_id": "REL-KEEP",
+                "candidate_object_keys": ["tag:1", "tag:2"],
+                "relationship_verdict": "Intentional variant",
+                "disposition": "keep",
+            }
+        ]
+        families = [
+            {
+                "family_id": "FAM-KEEP",
+                "member_object_keys": ["tag:1"],
+                "chain_object_keys": ["tag:1", "trigger:10"],
+                "relationship_verdict": "Complementary",
+                "disposition": "keep",
+            }
+        ]
+        self.assertEqual(
+            [],
+            comparison_reconciliation_errors(
+                "fix-tag-consent", set(), {"tag:1"}, comparisons
+            ),
+        )
+        self.assertEqual(
+            [],
+            family_reconciliation_errors(
+                "consolidate-trigger", {"trigger:10"}, {"trigger:10"}, families
+            ),
+        )
+
+    def test_distinguishing_terms_fall_back_to_behavior_signatures(self) -> None:
+        from gtm_architecture_review import distinguishing_terms_for_keys
+
+        terms = distinguishing_terms_for_keys(
+            ["tag:1", "tag:2"],
+            {
+                "tag:1": {
+                    "behavior_signatures": {
+                        "configuration": "same",
+                        "execution_route": "route-a",
+                    }
+                },
+                "tag:2": {
+                    "behavior_signatures": {
+                        "configuration": "same",
+                        "execution_route": "route-b",
+                    }
+                },
+            },
+        )
+        self.assertIn("execution route signature route-a", terms["tag:1"])
+        self.assertIn("execution route signature route-b", terms["tag:2"])
+
+    def test_missing_reference_check_ignores_custom_template_test_examples(self) -> None:
+        from gtm_validate_artifact import missing_references
+
+        template_data = """___TERMS_OF_SERVICE___
+accepted
+___SANDBOXED_JS_FOR_WEB_TEMPLATE___
+data.gtmOnSuccess();
+___TESTS___
+scenarios:
+- name: test-only variable
+  code: \"return '{{Event}}';\"
+"""
+        report = missing_references(
+            {
+                "tag": [],
+                "trigger": [],
+                "variable": [],
+                "builtInVariable": [],
+                "folder": [],
+                "customTemplate": [
+                    {
+                        "templateId": "1",
+                        "name": "Template with test reference",
+                        "templateData": template_data,
+                    }
+                ],
+            }
+        )
+        self.assertEqual([], report["undefinedVariableReferences"])
+
+    def test_gallery_template_type_is_reachable_and_not_flagged_unused(self) -> None:
+        from gtm_architecture_review import dependency_graph
+
+        data = sample_export()
+        data["containerVersion"].setdefault("customTemplate", []).append(
+            {
+                "templateId": "90",
+                "accountId": "100",
+                "name": "Gallery-backed template",
+                "galleryReference": {"galleryTemplateId": "GALLERY90"},
+                "templateData": "___SANDBOXED_JS_FOR_WEB_TEMPLATE___\ndata.gtmOnSuccess();",
+            }
+        )
+        data["containerVersion"]["tag"].append(
+            {
+                "tagId": "91",
+                "name": "Tag using gallery template",
+                "type": "cvt_GALLERY90",
+                "firingTriggerId": ["10"],
+            }
+        )
+        self.export_path.write_text(json.dumps(data), encoding="utf-8")
+
+        scan = audit_export(self.export_path)
+        self.assertFalse(
+            any(
+                row["module_name"] == "unused_custom_templates"
+                and "90" in row["object_ids"]
+                for row in scan["findings"]
+            )
+        )
+        self.assertIn(
+            "tag:91", object_consumer_map(self.export_path)["customTemplate:90"]
+        )
+        self.assertNotIn(
+            "90", missing_references(data["containerVersion"])["missingCustomTemplateReferences"]
+        )
+
+        graph, _ = dependency_graph(
+            data["containerVersion"], object_records(data["containerVersion"])
+        )
+        self.assertTrue(
+            any(
+                edge["to_object_key"] == "customTemplate:90"
+                for edge in graph["tag:91"]
+            )
+        )
+
+    def test_future_state_review_candidate_is_visible_but_nonblocking(self) -> None:
+        from gtm_future_state_check import blocking_new_operational_findings
+
+        rows = [
+            {"finding_id": "CANDIDATE", "finding_class": "review_candidate"},
+            {"finding_id": "DEFECT", "finding_class": "deterministic_defect"},
+        ]
+        self.assertEqual(
+            ["DEFECT"],
+            [
+                row["finding_id"]
+                for row in blocking_new_operational_findings(rows)
+            ],
+        )
+
+    def test_projected_quality_review_returns_report(self) -> None:
+        from gtm_future_state_check import projected_quality_review
+
+        report, errors = projected_quality_review(
+            self.export_path,
+            sample_export(),
+            {"plan_status": "partial", "operations": []},
+        )
+        self.assertIsInstance(report, dict)
+        self.assertIsInstance(errors, list)
+        self.assertEqual(errors, report["errors"])
+
     def test_container_only_contract_has_no_d4_or_runtime_gate(self) -> None:
         paths = [ROOT / "SKILL.md", ROOT / "README.md"]
         paths.extend((ROOT / "scripts").glob("*.py"))
@@ -1554,6 +1838,7 @@ class PipelineTests(unittest.TestCase):
             "cleanup_operation",
             "documented_exception",
             "owner_decision_needed",
+            "keep",
         }
         self.assertTrue(
             all(
@@ -2633,7 +2918,6 @@ class PipelineTests(unittest.TestCase):
             configuration,
             architecture,
             "Direct GTM/MCP/API",
-            "Deep",
             source_object_catalog(self.export_path),
         )
         self.assertEqual([], payload["operations"])
@@ -2654,7 +2938,6 @@ class PipelineTests(unittest.TestCase):
             configuration,
             architecture,
             "Direct GTM/MCP/API",
-            "Deep",
             source_object_catalog(self.export_path),
         )
         self.assertEqual([], errors)
@@ -2690,7 +2973,7 @@ class PipelineTests(unittest.TestCase):
                 "reason": "Use variable 21 as the conflicting canonical object in this test.",
             }
         ]
-        _, errors = compile_operations(operational, configuration, architecture, "Manual", "Deep")
+        _, errors = compile_operations(operational, configuration, architecture, "Manual")
         self.assertTrue(
             any("reused for different structured mutations" in error for error in errors)
         )
@@ -2711,7 +2994,6 @@ class PipelineTests(unittest.TestCase):
             configuration,
             architecture,
             "Manual",
-            "Deep",
         )
         self.assertEqual([], errors)
         self.assertEqual(1, len(payload["operations"]))
@@ -2727,9 +3009,7 @@ class PipelineTests(unittest.TestCase):
     def test_future_state_blocks_deletion_that_breaks_a_consumer(self) -> None:
         operational, configuration, architecture = self.completed_reviews()
         align_duplicate_operation(operational, architecture)
-        payload, errors = compile_operations(
-            operational, configuration, architecture, "Manual", "Deep"
-        )
+        payload, errors = compile_operations(operational, configuration, architecture, "Manual")
         self.assertEqual([], errors)
         payload["operations"][0]["deletions"] = [
             {"object_key": "variable:20", "reason": "Intentional broken test deletion."}
@@ -2742,9 +3022,7 @@ class PipelineTests(unittest.TestCase):
     def test_future_state_rejects_stale_before_value(self) -> None:
         operational, configuration, architecture = self.completed_reviews()
         align_duplicate_operation(operational, architecture)
-        payload, errors = compile_operations(
-            operational, configuration, architecture, "Manual", "Deep"
-        )
+        payload, errors = compile_operations(operational, configuration, architecture, "Manual")
         self.assertEqual([], errors)
         payload["operations"][0]["changes"] = [
             {
@@ -2758,10 +3036,103 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual("fail", report["status"])
         self.assertTrue(any("before value does not match" in error for error in future_errors))
 
+    def test_future_state_rechecks_configuration_and_architecture_quality(self) -> None:
+        configuration_data = sample_export()
+        configuration_data["containerVersion"]["gtagConfig"] = [
+            {
+                "gtagConfigId": "80",
+                "name": "Google configuration missing its required type",
+                "parameter": [
+                    {
+                        "type": "TEMPLATE",
+                        "key": "measurementId",
+                        "value": "G-TEST123",
+                    }
+                ],
+            }
+        ]
+        configuration_export = self.root / "future-configuration-issue.json"
+        configuration_export.write_text(json.dumps(configuration_data), encoding="utf-8")
+        configuration_report, configuration_errors = check_future_state(
+            configuration_export,
+            {"operations": [], "plan_status": "complete"},
+        )
+        self.assertEqual("fail", configuration_report["projected_quality"]["status"])
+        self.assertTrue(
+            any(
+                "retains deterministic configuration Issues" in error
+                for error in configuration_errors
+            )
+        )
+
+        architecture_data = sample_export()
+        architecture_export = self.root / "future-architecture-candidate.json"
+        architecture_export.write_text(json.dumps(architecture_data), encoding="utf-8")
+        created_variable = copy.deepcopy(architecture_data["containerVersion"]["variable"][0])
+        created_variable.update(
+            {"variableId": "99", "name": "DLV - Items Third Copy"}
+        )
+        architecture_report, architecture_errors = check_future_state(
+            architecture_export,
+            {
+                "plan_status": "complete",
+                "operations": [
+                    {
+                        "source_runs": ["configuration_correctness"],
+                        "affected_object_keys": ["variable:99"],
+                        "creations": [
+                            {"layer": "variable", "object": created_variable}
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertTrue(
+            architecture_report["projected_quality"]["architecture"][
+                "unexpected_new_candidates"
+            ]
+        )
+        self.assertTrue(
+            any(
+                "outside architecture-backed operations" in error
+                for error in architecture_errors
+            )
+        )
+
+        architecture_backed = {
+            "plan_status": "complete",
+            "operations": [
+                {
+                    "source_runs": ["business_architecture"],
+                    "source_object_keys": [
+                        "variable:20",
+                        "variable:21",
+                        "variable:99",
+                    ],
+                    "affected_object_keys": ["variable:99"],
+                    "creations": [{"layer": "variable", "object": created_variable}],
+                }
+            ],
+        }
+        covered_report, covered_errors = check_future_state(
+            architecture_export, architecture_backed
+        )
+        self.assertEqual(
+            [],
+            covered_report["projected_quality"]["architecture"][
+                "unexpected_new_candidates"
+            ],
+        )
+        self.assertFalse(
+            any(
+                "outside architecture-backed operations" in error
+                for error in covered_errors
+            )
+        )
+
     def test_structured_operations_support_creation_and_missing_field_addition(self) -> None:
         operation = {
             "problem_type": "Missing tracking",
-            "minimum_aggressiveness": "Standard",
             "creations": [
                 {
                     "layer": "variable",
@@ -2828,36 +3199,40 @@ class PipelineTests(unittest.TestCase):
             future_cv["tag"][0]["parameter"][-1]["key"],
         )
 
-    def test_aggressiveness_defers_operations_below_their_minimum_level(self) -> None:
+    def test_compiler_keeps_every_valid_operation_for_explicit_approval(self) -> None:
         operational, configuration, architecture = self.completed_reviews()
         align_duplicate_operation(operational, architecture)
-        conservative, errors = compile_operations(
+        payload, errors = compile_operations(
             operational,
             configuration,
             architecture,
             "Manual",
-            "Conservative",
         )
         self.assertEqual([], errors)
-        self.assertEqual([], conservative["operations"])
-        self.assertEqual(1, len(conservative["deferred_operations"]))
-        self.assertEqual(
-            "deferred_by_aggressiveness",
-            conservative["deferred_operations"][0]["resolution_status"],
-        )
-        human, human_errors = build_rows(conservative)
+        self.assertEqual(1, len(payload["operations"]))
+        self.assertNotIn("deferred_operations", payload)
+        self.assertNotIn("aggressiveness", payload)
+        self.assertEqual("proposed", payload["operations"][0]["resolution_status"])
+        human, human_errors = build_rows(payload)
         self.assertEqual([], human_errors)
-        deferred_rows = [row for row in human if row["Level"] == "Deferred"]
-        self.assertEqual(1, len(deferred_rows))
-        self.assertEqual(
-            conservative["deferred_operations"][0]["operation_id"],
-            deferred_rows[0]["ID"],
+        proposed_rows = [row for row in human if row["Status"] == "Proposed action"]
+        self.assertEqual(1, len(proposed_rows))
+        self.assertEqual(payload["operations"][0]["operation_id"], proposed_rows[0]["ID"])
+
+        deprecated = duplicate_variable_operation()
+        deprecated["minimum_aggressiveness"] = "Standard"
+        deprecated_errors = validate_structured_actions(
+            deprecated,
+            object_keys(self.export_path),
+            "deprecated mode test",
+            object_consumer_map(self.export_path),
+            object_source_path_map(self.export_path),
         )
+        self.assertTrue(any("deprecated" in error for error in deprecated_errors))
 
     def test_human_plan_exposes_owner_decisions_without_internal_proof_columns(self) -> None:
         payload = {
             "operations": [],
-            "deferred_operations": [],
             "decision_ledger": [
                 {
                     "decision_id": "CFG-001",
@@ -2869,14 +3244,51 @@ class PipelineTests(unittest.TestCase):
                     "owner_question": (
                         "Should Legacy lead remain a separate paid-media conversion?"
                     ),
+                    "recommended_action": (
+                        "Retain one canonical paid-media conversion unless the owner supplies "
+                        "evidence that the second conversion serves a distinct optimization goal."
+                    ),
                 }
             ],
         }
         rows, errors = build_rows(payload)
         self.assertEqual([], errors)
         self.assertEqual(1, len(rows))
-        self.assertEqual("Owner decision", rows[0]["Level"])
+        self.assertEqual("Owner confirmation", rows[0]["Status"])
         self.assertEqual(6, len(rows[0]))
+
+    def test_human_plan_batches_nonblocking_container_evidence_limits(self) -> None:
+        evidence_decision = {
+            "disposition": "container_evidence_limit",
+            "area": "Consent & compliance",
+            "problem_type": "Consent mismatch",
+            "summary": "Live consent timing is outside the container export.",
+            "owner_question": "What runtime evidence proves the live consent timing?",
+            "recommended_action": "Validate the live route separately.",
+        }
+        rows, errors = build_rows(
+            {
+                "operations": [],
+                "decision_ledger": [
+                    {
+                        **evidence_decision,
+                        "decision_id": "CFG-001",
+                        "affected_objects": "tag:1 - Analytics",
+                    },
+                    {
+                        **evidence_decision,
+                        "decision_id": "CFG-002",
+                        "affected_objects": "variable:2 - Event name",
+                    },
+                ],
+            }
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(1, len(rows))
+        self.assertEqual("SCOPE-001", rows[0]["ID"])
+        self.assertEqual("Evidence boundary", rows[0]["Status"])
+        self.assertIn("2 retained review decision", rows[0]["Affected object(s)"])
+        self.assertIn("do not block unrelated cleanup", rows[0]["Problem / evidence"])
 
     def test_remap_requires_the_exact_source_consumer_set(self) -> None:
         review = complete_configuration(self.export_path)
@@ -2943,7 +3355,7 @@ class PipelineTests(unittest.TestCase):
         shared = json.loads(shared_path.read_text(encoding="utf-8"))
         shared["objects"][0]["object_name"] = "Fabricated object name"
         shared_path.write_text(json.dumps(shared), encoding="utf-8")
-        report = run_gate(self.export_path, package_dir, audit_only=True)
+        report = run_gate(self.export_path, package_dir)
         self.assertEqual("fail", report["status"])
         self.assertTrue(any("recorded hash" in error for error in report["errors"]))
 
@@ -2978,6 +3390,25 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("fresh reasoning context", skill_source)
         self.assertIn("prohibited inputs", skill_source)
         self.assertIn("exclude completed verdict artifacts", execution_contract)
+
+        completed = complete_configuration(self.export_path)
+        self.assertNotIn("related_operational_finding_ids", completed["rows"][0])
+        self.assertIn(
+            "operational_review",
+            completed["input_contract"]["prohibited_artifact_roles"],
+        )
+        completed["completion_attestation"]["foreign_verdict_artifacts_used"] = [
+            "operational_review.json"
+        ]
+        completed["completion_attestation"]["helper_modules"] = [
+            "tests.test_pipeline.complete_configuration"
+        ]
+        errors, _ = validate_configuration(
+            self.export_path,
+            self.write_review("foreign-input-configuration.json", completed),
+        )
+        self.assertTrue(any("foreign verdict artifacts" in error for error in errors))
+        self.assertTrue(any("test helpers" in error for error in errors))
 
     def test_large_review_shards_merge_only_with_complete_exact_coverage(self) -> None:
         completed = complete_configuration(self.export_path)
@@ -3033,7 +3464,7 @@ class PipelineTests(unittest.TestCase):
         errors, _ = validate_architecture(self.export_path, merged_path)
         self.assertEqual([], errors)
 
-    def test_three_run_gate_rejects_scaffolds_and_passes_completed_reviews(self) -> None:
+    def test_three_run_gate_rejects_scaffolds_and_action_incomplete_reviews(self) -> None:
         package_dir = self.root / "package"
         build_package(self.export_path, package_dir, pretty=True)
         pending = run_gate(self.export_path, package_dir)
@@ -3054,13 +3485,14 @@ class PipelineTests(unittest.TestCase):
             configuration,
             architecture,
             "Direct GTM/MCP/API",
-            "Deep",
             source_object_catalog(self.export_path),
         )
         self.assertEqual([], compile_errors)
+        self.assertEqual("incomplete_actions", payload["plan_status"])
         operations_path = self.write_review("operations.json", payload)
         completed = run_gate(self.export_path, package_dir, operations_path)
-        self.assertEqual("pass", completed["status"], completed["errors"])
+        self.assertEqual("fail", completed["status"])
+        self.assertTrue(any("action completeness" in error for error in completed["errors"]))
 
         tampered = copy.deepcopy(payload)
         tampered["operations"][0]["exact_proposed_action"] = (
@@ -3070,6 +3502,96 @@ class PipelineTests(unittest.TestCase):
         rejected = run_gate(self.export_path, package_dir, tampered_path)
         self.assertEqual("fail", rejected["status"])
         self.assertTrue(any("deterministic recompilation" in error for error in rejected["errors"]))
+
+    def test_action_completeness_accepts_exact_actions_and_genuine_owner_limits(self) -> None:
+        ledger = [
+            {
+                "decision_id": "OPS-001",
+                "source_run": "operational_sanitation",
+                "disposition": "cleanup_operation",
+                "verdict": "Issue",
+                "compiled_operation_ids": ["OP-0001"],
+            },
+            {
+                "decision_id": "OPS-CANDIDATE-001",
+                "source_run": "operational_sanitation",
+                "disposition": "keep",
+                "finding_class": "review_candidate",
+                "verdict": "normalized_duplicate_tag_signature",
+                "recommended_action": (
+                    "Retain the two routes because their exported blocker conditions prove "
+                    "that they execute in distinct business scopes."
+                ),
+                "compiled_operation_ids": [],
+            },
+            {
+                "decision_id": "CFG-001",
+                "source_run": "configuration_correctness",
+                "disposition": "owner_decision_needed",
+                "verdict": "Owner decision needed",
+                "recommended_action": (
+                    "Obtain the named runtime evidence and correct the configuration if the "
+                    "required contract cannot be demonstrated."
+                ),
+                "compiled_operation_ids": [],
+            },
+            {
+                "decision_id": "ARCH-001",
+                "source_run": "business_architecture",
+                "disposition": "keep",
+                "verdict": "Complementary",
+                "compiled_operation_ids": [],
+            },
+        ]
+        self.assertEqual("pass", action_completeness_report(ledger)["status"])
+
+        deterministic_fallback = copy.deepcopy(ledger)
+        deterministic_fallback[0].update(
+            {"disposition": "owner_decision_needed", "compiled_operation_ids": []}
+        )
+        report = action_completeness_report(deterministic_fallback)
+        self.assertEqual("incomplete", report["status"])
+        self.assertTrue(any("deterministic operational finding" in error for error in report["errors"]))
+
+    def test_inactive_lifecycle_deletion_does_not_require_fabricated_architecture(self) -> None:
+        finding = {
+            "finding_id": "BASE-UNUSED_VARIABLES-001",
+            "finding_type": "unused_object",
+            "object_type": "variable",
+            "object_ids": ["9"],
+            "shared_fact_object_keys": ["variable:9"],
+        }
+        operation = {
+            "source_references": [finding["finding_id"]],
+            "creations": [],
+            "additions": [],
+            "changes": [],
+            "remaps": [],
+            "deletions": [
+                {"object_key": "variable:9", "reason": "No active execution root reaches it."}
+            ],
+            "renames": [],
+        }
+        self.assertEqual(
+            {"variable:9"},
+            runtime_neutral_operational_deletions(
+                operation, {finding["finding_id"]: finding}
+            ),
+        )
+        operation["changes"] = [
+            {
+                "object_key": "variable:9",
+                "json_path": "$.containerVersion.variable[0].parameter[0].value",
+                "before": "old",
+                "after": "new",
+            }
+        ]
+        self.assertEqual(
+            set(),
+            runtime_neutral_operational_deletions(
+                operation, {finding["finding_id"]: finding}
+            ),
+        )
 
     def test_human_rows_and_workbook_are_compact_and_separate_from_change_log(self) -> None:
         try:
@@ -3083,10 +3605,24 @@ class PipelineTests(unittest.TestCase):
             configuration,
             architecture,
             "Direct GTM/MCP/API",
-            "Deep",
             source_object_catalog(self.export_path),
         )
         self.assertEqual([], errors)
+        preservation = payload["measurement_preservation"]
+        self.assertEqual(
+            len(architecture["families"]),
+            len(preservation["families"]),
+        )
+        self.assertTrue(
+            all("target_state" in family for family in preservation["families"])
+        )
+        self.assertTrue(
+            all(
+                "affected_measurement_family_ids" in operation
+                and "retained_behavior" in operation
+                for operation in payload["operations"]
+            )
+        )
         human, human_errors = build_rows(payload)
         self.assertEqual([], human_errors)
         self.assertEqual(6, len(human[0]))
@@ -3117,6 +3653,9 @@ class PipelineTests(unittest.TestCase):
         }
         self.assertIn("Retained / no-change decisions", summary_decisions)
         self.assertIn("Retained business-family architecture", summary_decisions)
+        self.assertIn("Measurement-family preservation", summary_decisions)
+        self.assertIn("Target-state architecture", summary_decisions)
+        self.assertIn("Preservation evidence boundary", summary_decisions)
         self.assertIn("Highest-impact proposed actions", summary_decisions)
         for sheet in workbook:
             self.assertLessEqual(sheet.max_column, 6)
@@ -3131,7 +3670,7 @@ class PipelineTests(unittest.TestCase):
             workbook_path,
             self.write_review("workbook-operations.json", payload),
         )
-        self.assertEqual([], gate_errors)
+        self.assertEqual(["cleanup plan action completeness is not pass"], gate_errors)
         self.assertEqual([], gate_warnings)
 
     def test_human_rows_present_high_impact_actions_first_without_rekeying(self) -> None:
@@ -3172,13 +3711,45 @@ class PipelineTests(unittest.TestCase):
                         "Consent mismatch",
                     ),
                 ],
-                "deferred_operations": [],
                 "decision_ledger": [],
             }
         )
         self.assertEqual([], errors)
         self.assertEqual(["OP-CRITICAL", "OP-LOW"], [row["ID"] for row in rows])
         self.assertIn("Execution order: 2", rows[0]["Action / priority / QA"])
+
+    def test_human_rows_batch_homogeneous_hygiene_without_losing_atomic_ids(self) -> None:
+        operations = [
+            {
+                "operation_id": f"OP-{index:04d}",
+                "area": "GTM hygiene",
+                "problem_type": "Exact duplicate",
+                "problem": f"Duplicate object pair {index} is source-proven.",
+                "why_it_matters": "Parallel copies increase maintenance and regression risk.",
+                "exact_proposed_action": (
+                    f"Remap every consumer to canonical variable {index} and delete its copy."
+                ),
+                "qa_steps": f"Verify every consumer for duplicate pair {index}.",
+                "priority": "Medium",
+                "execution_readiness": "approval_required",
+                "execution_order": index,
+                "affected_objects": f"variable:{index}; variable:{index + 10}",
+                "affected_measurement_family_ids": [f"FAM-{index:05d}"],
+                "retained_behavior": f"Preserve the source measurement family {index}.",
+                "blocker": "",
+            }
+            for index in range(1, 4)
+        ]
+        rows, errors = build_rows(
+            {"operations": operations, "decision_ledger": []}
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(1, len(rows))
+        self.assertTrue(rows[0]["ID"].startswith("BATCH-"))
+        for operation in operations:
+            self.assertEqual(1, rows[0]["ID"].count(operation["operation_id"]))
+            self.assertIn(operation["operation_id"], rows[0]["Action / priority / QA"])
+        self.assertIn("Approve, reject, or amend each atomic operation ID", rows[0]["Action / priority / QA"])
 
     def test_hidden_proof_is_split_losslessly_and_visible_text_is_not_truncated(self) -> None:
         try:
@@ -3597,6 +4168,11 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(
             any({"1", "99"}.issubset(set(row["object_ids"])) for row in candidates)
         )
+        candidate = next(
+            row for row in candidates if {"1", "99"}.issubset(set(row["object_ids"]))
+        )
+        self.assertEqual("review_candidate", candidate["finding_class"])
+        self.assertIn("keep", candidate["required_resolution"])
 
     def test_run1_queues_same_contract_different_consent_controls(self) -> None:
         data = sample_export()
@@ -3636,7 +4212,6 @@ class PipelineTests(unittest.TestCase):
             "deletions": [
                 {"object_key": "trigger:10", "reason": "Remove redundant trigger logic."}
             ],
-            "minimum_aggressiveness": "Deep",
         }
         keys = {"trigger:10", "trigger:11", "tag:1"}
         consumers = {"trigger:10": {"tag:1"}, "trigger:11": set(), "tag:1": set()}
@@ -3676,7 +4251,6 @@ class PipelineTests(unittest.TestCase):
                 ],
                 "renames": [],
                 "deletions": deletions or [],
-                "minimum_aggressiveness": "Deep",
             }
 
         cross_layer = validate_structured_actions(
@@ -4920,7 +5494,7 @@ class PipelineTests(unittest.TestCase):
         before = container_version(sample_export())
         after = copy.deepcopy(before)
         after["tag"][0]["name"] = "GA4 - Purchase - Global"
-        rows = diff_operations(before, after, "Direct", "Deep")
+        rows = diff_operations(before, after, "Direct")
         self.assertEqual(1, len(rows))
         self.assertEqual("$.name", rows[0]["field_path"])
         change_log_path = self.root / "change-log.xlsx"
@@ -4959,7 +5533,7 @@ class PipelineTests(unittest.TestCase):
         after = copy.deepcopy(before)
         after["zone"][0]["boundary"]["customEvaluationTriggerId"] = ["11"]
         after["gtagConfig"][0]["parameter"][0]["value"] = "G-NEW123"
-        rows = diff_operations(before, after, "Direct", "Deep")
+        rows = diff_operations(before, after, "Direct")
         self.assertEqual(
             {"Zone", "Google tag configuration"}, {row["layer"] for row in rows}
         )
@@ -4967,7 +5541,7 @@ class PipelineTests(unittest.TestCase):
         duplicate = copy.deepcopy(before)
         duplicate["zone"].append(copy.deepcopy(duplicate["zone"][0]))
         with self.assertRaisesRegex(ValueError, "change-log source fails integrity"):
-            diff_operations(duplicate, after, "Direct", "Deep")
+            diff_operations(duplicate, after, "Direct")
 
         invalid_artifact = self.root / "invalid-import-artifact.json"
         invalid_artifact.write_text(
@@ -4989,7 +5563,6 @@ class PipelineTests(unittest.TestCase):
             configuration,
             architecture,
             "Direct GTM/MCP/API",
-            "Deep",
             source_object_catalog(self.export_path),
         )
         self.assertEqual([], errors)
@@ -5001,7 +5574,6 @@ class PipelineTests(unittest.TestCase):
             container_version(sample_export()),
             after,
             "Direct GTM/MCP/API",
-            "Deep",
             approved,
             "executed",
         )
@@ -5030,7 +5602,6 @@ class PipelineTests(unittest.TestCase):
             configuration,
             architecture,
             "Direct GTM/MCP/API",
-            "Deep",
             source_object_catalog(self.export_path),
         )
         self.assertEqual([], errors)
@@ -5143,6 +5714,7 @@ event_replacements = ["DifferentEvent=>NewEvent", "broken"]
     def test_release_layout_allows_ignored_editable_install_metadata(self) -> None:
         errors = check_repository_layout(ROOT)
         self.assertEqual([], errors)
+        self.assertEqual([], check_production_test_imports(ROOT))
 
     def test_release_check_does_not_hide_git_tracking_failure(self) -> None:
         (self.root / ".git").mkdir()
@@ -5159,7 +5731,7 @@ event_replacements = ["DifferentEvent=>NewEvent", "broken"]
         self.assertTrue(check_release_tag("v2026.07.20.1"))
         self.assertTrue(check_release_tag("v01.0.0"))
         self.assertTrue(check_release_tag("1.0.0"))
-        self.assertEqual([], check_project_version(ROOT, "v1.2.0"))
+        self.assertEqual([], check_project_version(ROOT, "v1.3.0"))
         self.assertTrue(check_project_version(ROOT, "v1.0.2"))
 
     def test_runtime_bundle_is_self_installable_and_excludes_repo_only_files(self) -> None:
@@ -5184,6 +5756,37 @@ event_replacements = ["DifferentEvent=>NewEvent", "broken"]
         self.assertFalse((bundle / ".github").exists())
         self.assertFalse((bundle / "scripts/check_release.py").exists())
         self.assertFalse((bundle / "scripts/gtm_self_test.py").exists())
+        for script in (bundle / "scripts").glob("*.py"):
+            source = script.read_text(encoding="utf-8")
+            self.assertNotRegex(source, r"(?m)^\s*(?:from|import)\s+tests?\b")
+
+        runtime_package = self.root / "clean-runtime-package"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(bundle / "scripts" / "gtm_audit_package_build.py"),
+                str(self.export_path),
+                "--out-dir",
+                str(runtime_package),
+                "--pretty",
+            ],
+            cwd=bundle,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        for filename in (
+            "operational_review.json",
+            "configuration_review.json",
+            "architecture_review.json",
+        ):
+            review = json.loads(
+                (runtime_package / filename).read_text(encoding="utf-8")
+            )
+            self.assertTrue(review["input_contract"]["contract_sha256"])
+            self.assertEqual("pending", review["completion_attestation"]["status"])
 
 
 if __name__ == "__main__":

@@ -168,4 +168,4 @@ Before any rename:
   references, sequencing, trigger groups, and owner references where evidence is
   available;
 - record before name, after name, object ID, reason, expected behavior impact,
-  QA status, and blocker if deferred.
+  QA status, and blocker if owner confirmation is still required.

@@ -4,8 +4,9 @@ Compile operations only from three validated reviews. Audit findings describe a
 problem; operations describe an exact proposed mutation.
 
 The packet carries the source, context, and shared-fact hashes. It also carries
-a decision ledger covering every source obligation, execution phases, and
-projected object counts by layer.
+a decision ledger covering every source obligation, execution phases,
+projected object counts by layer, and a target-state preservation entry for
+every source-confirmed measurement family.
 
 Compilation is fail-closed on source identity. The source must be a complete
 ContainerVersion shape with modeled entity layers, valid object records, and
@@ -18,7 +19,7 @@ top-level list block operations instead of being silently ignored.
 - Source identity, layer coverage, and behavior-impact alignment
 - Structured creations, additions, field changes, remaps, deletions, and renames
 - Consolidation and challenge review
-- Merge/conflict rules and aggressiveness
+- Merge/conflict rules and action completeness
 
 ## Dispositions
 
@@ -32,11 +33,18 @@ Use one:
 - `not_applicable`
 
 Operational findings use `documented_exception` rather than `keep` so every
-mechanical anomaly remains visible. For a nonzero deterministic operational
-finding, only `cleanup_operation`, `owner_decision_needed`, or a
-source-locked `documented_exception` is valid. Configuration and architecture
+mechanical anomaly remains visible. For a deterministic operational defect,
+only `cleanup_operation` or a source-locked `documented_exception` is valid in
+the final plan. A locked `review_candidate` may also use `keep` or a precise
+`owner_decision_needed`; a locked true business choice may use the owner
+decision. Configuration and architecture
 may use `container_evidence_limit` or `not_applicable` only where their own
 validators and evidence boundary allow it.
+
+An unresolved owner or evidence-limit decision is not an empty fallback. It
+contains one precise question and one concrete recommended action. A final plan
+cannot leave a deterministic operational defect or source-proven configuration
+Issue in `owner_decision_needed`.
 
 ## Required Human Fields
 
@@ -50,7 +58,9 @@ Each operation contains:
 - preconditions, QA steps, and rollback;
 - priority, confidence, and execution readiness;
 - source run(s), source review IDs, and evidence object keys;
-- affected mutation objects.
+- affected mutation objects;
+- affected measurement-family IDs and the business behavior retained through
+  the target state.
 
 Use the shared taxonomy in `scripts/gtm_taxonomy.py`. Do not combine unrelated
 issues under `Generic hygiene batch` merely to reduce rows.
@@ -153,6 +163,11 @@ configuration object, architecture family, and relationship comparison. Each
 row states its originating review ID, disposition, and linked operation ID when
 cleanup is selected. No source obligation may disappear during reconciliation.
 
+Human presentation may batch homogeneous duplicate, unused, naming, folder, or
+generic hygiene operations. The JSON operations remain atomic, and every
+operation ID, structured mutation, affected object, approval choice, and QA
+must remain recoverable exactly once from the visible plan.
+
 Apply approved operations in dependency-safe phases: create objects; add missing
 fields/list members; apply logic correction; remap consumers; flatten trigger
 groups and sequencing; rename; delete; then readback validation. The simulated
@@ -203,18 +218,20 @@ multi-market changes from over-inference.
   object or route. Export-only metadata, notes, folders, and reference-safe
   naming changes do not become behavior changes merely because their JSON differs.
 
-## Aggressiveness
+## Action Completeness And Approval
 
-Audit and plan contain all confirmed findings. Execution selection controls which
-approved operations proceed:
+Compile every justified operation into one proposed action set. Action
+completeness passes only when:
 
-Each operation declares its minimum safe level. A selected level below that
-minimum moves the operation to `deferred_operations`; it remains visible in the
-plan and is excluded from future-state execution.
+- each cleanup disposition links to a compiled operation;
+- each deterministic operational defect is an operation or intake-locked
+  documented exception, while each retained review candidate includes
+  source-specific proof of its intentional distinction;
+- each source-proven configuration Issue is an operation;
+- each genuine owner or evidence-limit decision includes the analyst's concrete
+  recommended action.
 
-- Conservative: broken references and very low-risk hygiene;
-- Standard: clear duplicates, unused objects, groups, folders, and naming;
-- Deep: behavior-preserving consolidation and logic corrections with strong evidence;
-- Transformational: target-architecture redesign requiring explicit owner approval.
-
-`Undecided` is valid only before route/aggressiveness approval.
+Do not classify operations into cleanup levels or defer them through an
+aggressiveness setting. Before mutation, the analyst approves all operations or
+an explicit list of operation IDs. Any changed selection requires a regenerated
+future-state simulation before execution.

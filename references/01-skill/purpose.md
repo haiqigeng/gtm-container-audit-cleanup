@@ -1,19 +1,18 @@
 # Product Purpose
 
-This skill acts as a container-only GTM web analyst. It determines whether a
-container is technically clean, logically correct, and organized around useful
-business measurement.
+This skill acts as a container-only GTM web analyst. Its governing north star is
+stated once in `SKILL.md`. The audit is the evidence foundation; the operational
+cleanup plan and, when authorised, the improved container are the product.
 
-Its north-star question is:
+Use the north star to answer one practical question: what exact audited,
+approved, and verified work will leave this real container as clean, simple,
+organised, logically correct, consent-aware, and maintainable as its necessary
+measurement, routing, and integrations allow?
 
-> What should be kept, fixed, simplified, consolidated, migrated, renamed, or
-> deleted so the container measures the intended business actions with correct
-> values, coherent consent, clear ownership, and the smallest maintainable GTM
-> architecture?
-
-The skill is not a duplicate finder with extra commentary. Basic sanitation is
-mandatory, but every retained object must also make sense in its complete
-tag-trigger-variable chain and in the wider business family it serves.
+The skill is not a duplicate finder with extra commentary and does not stop at
+describing problems. Basic sanitation is mandatory, every retained object must
+make sense in its complete tag-trigger-variable chain and wider business family,
+and every substantiated cleanup finding must become an exact recommendation.
 
 The analysis therefore uses three independent runs:
 
@@ -24,3 +23,6 @@ The analysis therefore uses three independent runs:
    necessity, overlap, conflict, and the clean target structure.
 
 The runs are reconciled only after all three pass their own completion gate.
+Reconciliation produces one complete action set and the simplest safe target
+architecture. Explicit approval controls mutation; it never reduces audit depth
+or hides a recommendation.

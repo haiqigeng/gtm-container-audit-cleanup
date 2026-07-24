@@ -290,6 +290,18 @@ def check_py_compile(root: Path) -> list[str]:
     return errors
 
 
+def check_production_test_imports(root: Path) -> list[str]:
+    errors: list[str] = []
+    pattern = re.compile(r"^\s*(?:from|import)\s+tests?(?:\.|\s|$)", re.M)
+    for path in sorted((root / "scripts").glob("*.py")):
+        if pattern.search(path.read_text(encoding="utf-8")):
+            errors.append(
+                f"{path.relative_to(root)} imports repository test code and will fail "
+                "in the clean runtime bundle"
+            )
+    return errors
+
+
 def check_release_tag(tag: str | None) -> list[str]:
     if not tag:
         return []
@@ -388,6 +400,7 @@ def main() -> int:
     errors.extend(check_generated_artifacts(root))
     errors.extend(check_patterns(root, "blocklist", release_blocklist(root)))
     errors.extend(check_py_compile(root))
+    errors.extend(check_production_test_imports(root))
     errors.extend(check_release_tag(args.tag))
     errors.extend(check_project_version(root, args.tag))
     errors.extend(check_release_notes(args.release_notes))

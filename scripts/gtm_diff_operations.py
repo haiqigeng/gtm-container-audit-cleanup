@@ -18,6 +18,7 @@ from gtm_lib import (
     load_container_version,
     object_id,
     sort_ids,
+    source_descriptor,
     source_integrity_findings,
 )
 from gtm_privacy import redact_text, spreadsheet_safe_text
@@ -295,7 +296,6 @@ def change_log_row(
     change: dict[str, Any],
     approved: dict[str, Any] | None,
     route: str,
-    aggressiveness: str,
     execution_mode: str,
 ) -> dict[str, Any]:
     field_path = str(change["field_path"])
@@ -308,7 +308,6 @@ def change_log_row(
         )
     return {
         "change_id": f"GTM-OP-{number:03d}",
-        "aggressiveness": aggressiveness,
         "route": route,
         "layer": LAYER_LABELS[layer],
         "action": action,
@@ -337,7 +336,6 @@ def operations(
     before_cv: dict[str, Any],
     after_cv: dict[str, Any],
     route: str,
-    aggressiveness: str,
     approved_operations: dict[str, Any] | None = None,
     execution_mode: str = "planned",
 ) -> list[dict[str, Any]]:
@@ -388,12 +386,66 @@ def operations(
                         change,
                         approved,
                         route,
-                        aggressiveness,
                         execution_mode,
                     )
                 )
                 change_number += 1
     return rows
+
+
+def execution_verification(
+    before_cv: dict[str, Any],
+    after_cv: dict[str, Any],
+    approved_operations: dict[str, Any],
+    change_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    expected, apply_errors = apply_operations(
+        {"containerVersion": copy.deepcopy(before_cv)},
+        approved_operations,
+    )
+    expected_cv = load_container_version_from_payload(expected)
+    state_differences = state_field_diffs(expected_cv, after_cv)
+    unlinked_changes = [
+        str(row.get("change_id") or "")
+        for row in change_rows
+        if not row.get("operation_id")
+    ]
+    errors = [
+        *[f"approved operation simulation failed: {error}" for error in apply_errors],
+        *(
+            [
+                "readback differs from the approved simulated future state at "
+                + ", ".join(
+                    f"{layer}:{object_id_value}{field_path}"
+                    for (
+                        layer,
+                        object_id_value,
+                        _action,
+                        field_path,
+                        _before,
+                        _after,
+                    ) in state_differences[:20]
+                )
+            ]
+            if state_differences
+            else []
+        ),
+        *(
+            [
+                "readback contains field changes with no exact approved operation link: "
+                + ", ".join(unlinked_changes)
+            ]
+            if unlinked_changes
+            else []
+        ),
+    ]
+    return {
+        "status": "pass" if not errors else "fail",
+        "matches_approved_future_state": not state_differences and not apply_errors,
+        "unlinked_change_ids": unlinked_changes,
+        "unexpected_or_missing_field_count": len(state_differences),
+        "errors": errors,
+    }
 
 
 def csv_row(row: dict[str, Any]) -> dict[str, str]:
@@ -421,7 +473,6 @@ def main() -> int:
         help="Treat the after file as a same-container patch applied to the before export",
     )
     parser.add_argument("--route", default="Direct GTM/MCP/API", help="Execution route label")
-    parser.add_argument("--aggressiveness", default="Standard", help="Cleanup aggressiveness")
     parser.add_argument("--operations", type=Path, help="Approved reconciled_operations.json")
     parser.add_argument("--execution-mode", choices=("planned", "executed"), default="planned")
     parser.add_argument("--json", type=Path, help="Optional JSON output file")
@@ -429,6 +480,7 @@ def main() -> int:
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     args = parser.parse_args()
 
+    before_descriptor = source_descriptor(args.before)
     before_cv = load_container_version(args.before)
     after_cv = load_container_version(args.after)
     if args.patch:
@@ -436,11 +488,19 @@ def main() -> int:
     approved = json.loads(args.operations.read_text(encoding="utf-8")) if args.operations else None
     if args.execution_mode == "executed" and not approved:
         raise SystemExit("--operations is required for an executed change log")
+    source_hash_error = ""
+    if (
+        args.execution_mode == "executed"
+        and approved
+        and approved.get("source_sha256") != before_descriptor["source_sha256"]
+    ):
+        source_hash_error = (
+            "approved operations source hash differs from the original readback source"
+        )
     rows = operations(
         before_cv,
         after_cv,
         args.route,
-        args.aggressiveness,
         approved,
         args.execution_mode,
     )
@@ -450,6 +510,12 @@ def main() -> int:
         "changeCount": len(rows),
         "changes": rows,
     }
+    if args.execution_mode == "executed" and approved:
+        verification = execution_verification(before_cv, after_cv, approved, rows)
+        if source_hash_error:
+            verification["status"] = "fail"
+            verification["errors"].insert(0, source_hash_error)
+        payload["execution_verification"] = verification
 
     if args.csv:
         with args.csv.open("w", encoding="utf-8-sig", newline="") as handle:
@@ -463,7 +529,11 @@ def main() -> int:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(rendered + "\n", encoding="utf-8")
     print(rendered)
-    return 0
+    return (
+        1
+        if (payload.get("execution_verification") or {}).get("status") == "fail"
+        else 0
+    )
 
 
 if __name__ == "__main__":

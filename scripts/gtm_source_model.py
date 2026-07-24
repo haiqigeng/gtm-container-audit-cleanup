@@ -22,7 +22,8 @@ from gtm_lib import (
     SEMANTIC_LAYERS,
     container_root_path,
     container_version,
-    custom_template_id,
+    custom_template_ids,
+    custom_template_type_index,
     is_system_trigger_reference,
     is_system_variable_reference,
     refs,
@@ -270,6 +271,7 @@ def unresolved_model_edges(
     trigger_ids = {str(obj.get("triggerId")) for obj in triggers}
     folder_ids = {str(obj.get("folderId")) for obj in folders}
     template_ids = {str(obj.get("templateId")) for obj in templates}
+    template_type_index = custom_template_type_index(templates)
     tag_names = {obj.get("name") for obj in tags}
     return {
         "undefined_variable_references": sorted(
@@ -294,7 +296,7 @@ def unresolved_model_edges(
             {
                 template_id
                 for obj in referenced_objects
-                for template_id in [custom_template_id(obj)]
+                for template_id in custom_template_ids(obj, template_type_index)
                 if template_id and template_id not in template_ids
             }
         ),

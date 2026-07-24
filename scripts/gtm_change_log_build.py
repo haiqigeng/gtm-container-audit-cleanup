@@ -74,7 +74,7 @@ def build_change_log(payload: dict[str, Any], output: Path) -> None:
             "Field / action": (
                 f"{row.get('change_category')} / {row.get('action')} / "
                 f"{row.get('field_path')} / {row.get('route')} / "
-                f"{row.get('aggressiveness')}"
+                f"{row.get('status')}"
             ),
             "Before / after": (
                 f"Before: {row.get('before_value')}\nAfter: {row.get('after_value')}"

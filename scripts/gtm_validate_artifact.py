@@ -11,7 +11,8 @@ from typing import Any
 from gtm_lib import (
     ID_KEYS,
     apply_patch,
-    custom_template_id,
+    custom_template_ids,
+    custom_template_type_index,
     is_system_trigger_reference,
     is_system_variable_reference,
     load_container_version,
@@ -93,11 +94,14 @@ def folder_reference_set(cv: dict[str, Any]) -> set[str]:
 
 
 def template_reference_set(cv: dict[str, Any]) -> set[str]:
+    template_type_index = custom_template_type_index(
+        cv.get("customTemplate", []) or []
+    )
     return {
         template_id
         for layer in ("tag", "variable", "client", "gtagConfig", "transformation")
         for obj in cv.get(layer, []) or []
-        for template_id in [custom_template_id(obj)]
+        for template_id in custom_template_ids(obj, template_type_index)
         if template_id
     }
 
@@ -113,7 +117,16 @@ def missing_references(cv: dict[str, Any]) -> dict[str, Any]:
     variable_names = {v.get("name") for v in variables if v.get("name")}
     builtin_names = {b.get("name") for b in builtins if b.get("name")}
     all_variable_names = variable_names | builtin_names
-    all_refs = refs(cv)
+    # Resolve references object-by-object so custom-template metadata/tests are
+    # reduced to executable template code by refs(). Scanning the whole
+    # ContainerVersion bypasses that boundary and can turn test-only
+    # ``{{Variable}}`` examples into false missing-reference failures.
+    all_refs = {
+        reference
+        for layer in ID_KEYS
+        for obj in cv.get(layer, []) or []
+        for reference in refs(obj)
+    }
 
     tag_names = {tag.get("name") for tag in tags if tag.get("name")}
     trigger_ids = {trigger.get("triggerId") for trigger in triggers}

@@ -31,6 +31,7 @@ from gtm_operation_compile import (
 )
 from gtm_operational_review import validate_review as validate_operational
 from gtm_relationships import relationship_candidates
+from gtm_review_common import complete_review_attestation
 from gtm_review_shards import check_shard, merge_review, split_review
 from gtm_three_run_gate import run_gate
 from gtm_vendor_registry import vendor_records
@@ -130,8 +131,10 @@ class AdversarialAuditTests(unittest.TestCase):
             "provided_context",
             "provided_context_fields",
             "unresolved_context_questions",
+            "input_contract",
         ):
             completed[field] = copy.deepcopy(packaged_review[field])
+        completed["completion_attestation"] = complete_review_attestation(completed)
         review_path = self.write_json("contextual-operational.json", completed)
         errors, _ = validate_operational(self.export, review_path)
         self.assertEqual([], errors)
@@ -139,7 +142,7 @@ class AdversarialAuditTests(unittest.TestCase):
         context = json.loads((package / "context.json").read_text(encoding="utf-8"))
         context["unresolved_questions"].append("Fabricated question")
         (package / "context.json").write_text(json.dumps(context), encoding="utf-8")
-        report = run_gate(self.export, package, audit_only=True)
+        report = run_gate(self.export, package)
         self.assertEqual("fail", report["status"])
         self.assertTrue(any("context" in error for error in report["errors"]))
 
@@ -149,12 +152,15 @@ class AdversarialAuditTests(unittest.TestCase):
             "high_confidence_inferred",
             inferred["context_evidence"]["container_type"]["status"],
         )
-        deliverable = next(
-            row
-            for row in inferred["intake_questions"]
-            if row["field"] == "requested_deliverable"
+        self.assertEqual(
+            "audit_and_cleanup_plan", inferred["context"]["requested_deliverable"]
         )
-        self.assertTrue(deliverable["material"])
+        self.assertFalse(
+            any(
+                row["field"] == "requested_deliverable"
+                for row in inferred["intake_questions"]
+            )
+        )
         self.assertEqual("confirmation_required", inferred["intake_status"])
 
         package = self.root / "preflight-package"
@@ -174,6 +180,9 @@ class AdversarialAuditTests(unittest.TestCase):
             },
         )
         confirmed = build_context_model(self.export, provided)
+        self.assertEqual(
+            "audit_and_cleanup_plan", confirmed["context"]["requested_deliverable"]
+        )
         self.assertEqual("provided", confirmed["context_evidence"]["cmp"]["status"])
         self.assertFalse(
             any(row["material"] for row in confirmed["intake_questions"]),
@@ -344,8 +353,10 @@ class AdversarialAuditTests(unittest.TestCase):
             "provided_context",
             "provided_context_fields",
             "unresolved_context_questions",
+            "input_contract",
         ):
             baseline[field] = copy.deepcopy(contextual[field])
+        baseline["completion_attestation"] = complete_review_attestation(baseline)
         baseline["findings"][0].update(
             {
                 "disposition": "documented_exception",
@@ -390,6 +401,15 @@ class AdversarialAuditTests(unittest.TestCase):
             )
             if topic.get("research_required")
         )
+        valid_research_status = research_check["research_status"]
+        research_check["research_status"] = (
+            "No authoritative vendor identity or official source is visible in the export."
+        )
+        errors, _ = validate_configuration(
+            export, self.write_json("unresearched-contract.json", review)
+        )
+        self.assertTrue(any("attempted official-source research" in error for error in errors))
+        research_check["research_status"] = valid_research_status
         research_check["source"] = "https://vendor.example.com/official/setup"
         errors, _ = validate_configuration(
             export, self.write_json("placeholder-contract.json", review)
@@ -732,6 +752,235 @@ class AdversarialAuditTests(unittest.TestCase):
             {"findings": []}, architecture, [operation]
         )
         self.assertTrue(any("says to keep" in error for error in errors))
+
+    def test_source_bound_non_destructive_repair_uses_completed_family_coverage(self) -> None:
+        operation = {
+            "operation_key": "repair-tag-endpoint",
+            "source_references": ["tag:1"],
+            "source_runs": ["configuration_correctness"],
+            "creations": [],
+            "additions": [],
+            "changes": [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].parameter[0].value",
+                    "before": "http://collector.example.test",
+                    "after": "https://collector.example.test",
+                }
+            ],
+            "remaps": [],
+            "renames": [],
+            "deletions": [],
+        }
+        architecture = {
+            "comparisons": [],
+            "families": [
+                {
+                    "family_id": "FAM-ENDPOINT",
+                    "review_status": "complete",
+                    "member_object_keys": ["tag:1"],
+                    "chain_object_keys": ["tag:1", "trigger:10"],
+                    "relationship_verdict": "Complementary",
+                    "disposition": "keep",
+                }
+            ],
+        }
+        self.assertEqual(
+            [], validate_cross_run_reconciliation({"findings": []}, architecture, [operation])
+        )
+        self.assertEqual(["FAM-ENDPOINT"], operation["architecture_supporting_family_ids"])
+
+    def test_source_bound_operational_repair_uses_completed_family_coverage(self) -> None:
+        operation = {
+            "operation_key": "remove-ineffective-blocker",
+            "source_references": ["BASE-INEFFECTIVE_BLOCKING_TRIGGER-001"],
+            "source_runs": ["operational_sanitation"],
+            "creations": [],
+            "additions": [],
+            "changes": [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].blockingTriggerId",
+                    "before": ["10"],
+                    "after": [],
+                }
+            ],
+            "remaps": [],
+            "renames": [],
+            "deletions": [],
+        }
+        operational = {
+            "findings": [
+                {
+                    "finding_id": "BASE-INEFFECTIVE_BLOCKING_TRIGGER-001",
+                    "finding_class": "deterministic_defect",
+                    "disposition": "cleanup_operation",
+                }
+            ]
+        }
+        architecture = {
+            "comparisons": [],
+            "families": [
+                {
+                    "family_id": "FAM-BLOCKER",
+                    "review_status": "complete",
+                    "member_object_keys": ["tag:1"],
+                    "chain_object_keys": ["tag:1", "trigger:10"],
+                    "relationship_verdict": "Complementary",
+                    "disposition": "keep",
+                }
+            ],
+        }
+        self.assertEqual([], validate_cross_run_reconciliation(operational, architecture, [operation]))
+        self.assertEqual(["FAM-BLOCKER"], operation["architecture_supporting_family_ids"])
+
+    def test_paused_tag_retirement_is_outside_active_behavior_alignment(self) -> None:
+        operation = {
+            "operation_key": "retire-paused-tag",
+            "source_references": ["CFG-00001"],
+            "source_runs": ["configuration_correctness"],
+            "creations": [],
+            "additions": [],
+            "changes": [],
+            "remaps": [],
+            "renames": [],
+            "deletions": [{"object_key": "tag:9", "reason": "Paused legacy tag."}],
+        }
+        operational = {
+            "findings": [
+                {
+                    "finding_id": "BASE-PAUSED_TAGS-001",
+                    "finding_type": "paused_objects_for_lifecycle_review",
+                    "object_type": "tag",
+                    "object_ids": ["9"],
+                }
+            ]
+        }
+        self.assertEqual(
+            [],
+            validate_cross_run_reconciliation(
+                operational, {"comparisons": [], "families": []}, [operation]
+            ),
+        )
+
+    def test_lifecycle_retention_and_folder_taxonomy_are_business_decisions(self) -> None:
+        from gtm_baseline_audit import operational_finding_class
+
+        for finding_type in (
+            "used_only_by_paused_tags",
+            "unfiled_objects",
+            "overloaded_folder",
+        ):
+            self.assertEqual("business_decision", operational_finding_class(finding_type))
+
+    def test_projected_benign_candidate_requires_all_retained_architecture_pairs(self) -> None:
+        from gtm_future_state_check import (
+            candidate_has_retention_coverage,
+            retained_architecture_pairs,
+        )
+
+        keys = ["trigger:1", "trigger:2", "trigger:3"]
+        ledger = [
+            {
+                "source_run": "business_architecture",
+                "comparison_types": ["semantic_name_family_candidate"],
+                "disposition": "keep",
+                "verdict": "Intentional variant",
+                "source_object_keys": [left, right],
+            }
+            for index, left in enumerate(keys)
+            for right in keys[index + 1 :]
+        ]
+        pairs = retained_architecture_pairs({"decision_ledger": ledger})
+        candidate = {
+            "candidate_object_keys": keys,
+            "comparison_types": ["shared_business_scope"],
+        }
+        self.assertTrue(candidate_has_retention_coverage(candidate, pairs))
+        self.assertFalse(
+            candidate_has_retention_coverage(
+                candidate, {("trigger:1", "trigger:2")}
+            )
+        )
+        self.assertFalse(
+            candidate_has_retention_coverage(
+                {**candidate, "comparison_types": ["same_payload_different_route"]}, pairs
+            )
+        )
+
+    def test_exact_architecture_cleanup_resolves_weaker_candidate_rows(self) -> None:
+        operation = {
+            "operation_key": "remove-duplicate-trigger",
+            "source_references": ["REL-EXACT:operation:1"],
+            "source_runs": ["business_architecture"],
+            "creations": [],
+            "additions": [],
+            "changes": [],
+            "remaps": [],
+            "renames": [],
+            "deletions": [{"object_key": "trigger:10", "reason": "Exact duplicate."}],
+        }
+        architecture = {
+            "comparisons": [
+                {
+                    "comparison_id": "REL-EXACT",
+                    "candidate_object_keys": ["trigger:10", "trigger:11"],
+                    "relationship_verdict": "Exact duplicate",
+                    "disposition": "cleanup_operation",
+                    "operations": [copy.deepcopy(operation)],
+                },
+                {
+                    "comparison_id": "REL-WEAKER",
+                    "candidate_object_keys": ["trigger:10", "trigger:12"],
+                    "relationship_verdict": "Owner decision",
+                    "disposition": "owner_decision_needed",
+                },
+            ],
+            "families": [],
+        }
+        self.assertEqual(
+            [], validate_cross_run_reconciliation({"findings": []}, architecture, [operation])
+        )
+
+    def test_reconciliation_ignores_deletion_explanations_not_mutations(self) -> None:
+        from gtm_operation_compile import merge_compatible_operations, normalized_operation
+
+        first = normalized_operation(
+            {
+                "operation_key": "remove-orphan-a",
+                "area": "GTM hygiene",
+                "problem_type": "Unused object",
+                "canonical_object_key": "",
+                "deletions": [{"object_key": "variable:20", "reason": "Unused."}],
+            },
+            "operational_sanitation",
+            "BASE-UNUSED_VARIABLES-001",
+            ["variable:20"],
+        )
+        second = normalized_operation(
+            {
+                "operation_key": "remove-orphan-b",
+                "area": "GTM hygiene",
+                "problem_type": "Unused object",
+                "canonical_object_key": "variable:21",
+                "deletions": [
+                    {
+                        "object_key": "variable:20",
+                        "reason": "Delete the unused duplicate path.",
+                    }
+                ],
+            },
+            "business_architecture",
+            "REL-ORPHAN:operation:1",
+            ["variable:20", "variable:21"],
+        )
+        errors: list[str] = []
+        merged = merge_compatible_operations([first, second], errors)
+        self.assertEqual([], errors)
+        self.assertEqual(1, len(merged))
+        self.assertEqual(
+            ["business_architecture", "operational_sanitation"], merged[0]["source_runs"]
+        )
 
     def test_architecture_keep_blocks_behavior_change_but_not_metadata_maintenance(self) -> None:
         architecture = {

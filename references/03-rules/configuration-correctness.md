@@ -214,7 +214,10 @@ positives; either confirm them, document an evidence-bound accepted exception,
 or leave an explicit owner decision. `Cleanup opportunity` supplies a concrete
 `proposed_action`; `Documented exception` supplies a source-bound
 `exception_basis`; and `Owner decision needed` supplies a source-specific
-`owner_question`. Changing only the verdict label is not resolution.
+`owner_question` plus the analyst's concrete `recommended_action`. Changing
+only the verdict label is not resolution. A source-proven overall Issue must
+become an exact cleanup operation before the full plan can pass action
+completeness.
 A `Confirmed issue` links by `technical_finding_keys` to exactly one concrete,
 source-evidenced defect before the overall object can be considered resolved.
 GTM substitutions may be replaced with disclosed neutral identifiers only for
@@ -259,6 +262,9 @@ certifying it. Until then, leave the contract `Unproven` with its research
 status and no claimed source URL. Analyst-entered vendor wording cannot
 self-authenticate an unrelated hostname. After rebuild, complete the same event,
 destination, payload, consent, and deduplication checks.
+The research status must state the current official-source search actually
+attempted before an unresolved owner/evidence fallback is accepted. Merely
+restating that the vendor is not identified in the export is insufficient.
 Do not classify generic words such as `activity` or `contents` as a vendor.
 Placeholder, example, test, or non-HTTPS URLs are invalid. Use the bundled
 registry first; otherwise search the current official vendor site and record

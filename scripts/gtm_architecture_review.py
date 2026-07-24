@@ -15,7 +15,8 @@ from gtm_lib import (
     ID_KEYS,
     container_root_path,
     container_version,
-    custom_template_id,
+    custom_template_ids,
+    custom_template_type_index,
     is_system_trigger_reference,
     is_system_variable_reference,
     refs,
@@ -39,9 +40,12 @@ from gtm_review_common import (
     object_consumer_map,
     object_keys,
     object_source_path_map,
+    pending_completion_attestation,
     precise_question,
+    review_input_contract,
     specific_text,
     validate_challenge,
+    validate_review_provenance,
     validate_structured_actions,
 )
 from gtm_shared_facts import build_shared_facts
@@ -321,6 +325,19 @@ def distinguishing_terms_for_keys(
     for key in keys:
         other_terms = set().union(*(values for other, values in terms.items() if other != key))
         own_unique = sorted(terms[key] - other_terms)
+        if not own_unique:
+            own_signatures = shared_by_key.get(key, {}).get("behavior_signatures", {}) or {}
+            other_signatures = [
+                shared_by_key.get(other, {}).get("behavior_signatures", {}) or {}
+                for other in keys
+                if other != key
+            ]
+            own_unique = [
+                f"{dimension.replace('_', ' ')} signature {value}"
+                for dimension, value in sorted(own_signatures.items())
+                if value
+                and any(other.get(dimension) != value for other in other_signatures)
+            ]
         result[key] = own_unique[:80]
     return result
 
@@ -543,6 +560,9 @@ def dependency_graph(
     templates: dict[str, list[str]] = defaultdict(list)
     for record in records.get("customTemplate", []):
         templates[str(record["object_id"])].append(record["object_key"])
+    template_type_index = custom_template_type_index(
+        [record["object"] for record in records.get("customTemplate", [])]
+    )
     graph: dict[str, list[dict[str, str]]] = defaultdict(list)
     for key, record in by_key.items():
         obj = record["object"]
@@ -655,8 +675,7 @@ def dependency_graph(
                             "resolution_state": "missing",
                         }
                     )
-        template_id = custom_template_id(obj)
-        if template_id:
+        for template_id in custom_template_ids(obj, template_type_index):
             targets = templates.get(template_id, [])
             for target in targets:
                 graph[key].append(
@@ -781,6 +800,7 @@ def scaffold_families(
                 "target_architecture": "",
                 "disposition": "",
                 "owner_question": "",
+                "recommended_action": "",
                 "operations": [],
                 "confidence": "",
             }
@@ -803,6 +823,7 @@ def scaffold_comparisons(
                 "architecture_effect": "",
                 "disposition": "",
                 "owner_question": "",
+                "recommended_action": "",
                 "operations": [],
                 "confidence": "",
             }
@@ -814,6 +835,7 @@ def scaffold_review(
     export_path: Path,
     shared_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    descriptor = source_descriptor(export_path)
     data = json.loads(export_path.read_text(encoding="utf-8"))
     blocking_integrity = [
         row for row in source_integrity_findings(data) if row.get("blocking")
@@ -914,12 +936,20 @@ def scaffold_review(
                 ),
             }
         )
+    input_contract = review_input_contract(
+        "business_architecture",
+        descriptor["source_sha256"],
+        shared_facts["context_sha256"],
+        shared_facts["shared_facts_sha256"],
+    )
     return {
-        **source_descriptor(export_path),
+        **descriptor,
         "kind": "gtm_business_architecture_review",
-        "schema_version": 2,
+        "schema_version": 3,
         "shared_facts_sha256": shared_facts["shared_facts_sha256"],
         "context_sha256": shared_facts["context_sha256"],
+        "input_contract": input_contract,
+        "completion_attestation": pending_completion_attestation(input_contract),
         "audit_context": shared_facts.get("audit_context", {}),
         "inferred_context": shared_facts.get("inferred_context", {}),
         "provided_context": shared_facts.get("provided_context", {}),
@@ -1057,7 +1087,7 @@ def operation_behavior_keys(
         layer = str(creation.get("layer") or "")
         obj = creation.get("object")
         id_key = ID_KEYS.get(layer)
-        if id_key and isinstance(obj, dict):
+        if layer != "folder" and id_key and isinstance(obj, dict):
             object_id = str(obj.get(id_key) or obj.get("name") or "")
             if object_id:
                 keys.add(f"{layer}:{object_id}")
@@ -1079,19 +1109,23 @@ def operation_behavior_keys(
                 if key and not before_after_is_noop and path_is_bound:
                     keys.add(key)
     for remap in as_list(operation.get("remaps")):
+        # The relationship decision concerns the remap endpoints. Consumer
+        # keys are still exact mutation/precondition evidence, but including
+        # them here would force unrelated consumer families to pretend that a
+        # behavior-preserving canonical remap is an architecture conflict.
         keys.update(
             str(value)
             for value in (
                 remap.get("from_object_key"),
                 remap.get("to_object_key"),
-                *as_list(remap.get("consumer_object_keys")),
             )
-            if value
+            if value and not str(value).startswith("folder:")
         )
     keys.update(
         str(item.get("object_key") or "")
         for item in as_list(operation.get("deletions"))
         if item.get("object_key")
+        and not str(item.get("object_key")).startswith("folder:")
     )
     return keys
 
@@ -1229,7 +1263,8 @@ def validate_operation(
         "qa_steps",
         "rollback",
     ):
-        minimum = 2 if field in {"area", "problem_type"} else 3
+        # Taxonomy labels such as "Over-firing" are intentionally concise.
+        minimum = 1 if field in {"area", "problem_type"} else 3
         if not specific_text(operation.get(field), minimum):
             errors.append(f"{label}: operation field {field} is incomplete")
     if operation.get("priority") not in VALID_PRIORITIES:
@@ -1311,6 +1346,13 @@ def validate_decision(
         verdict == "Owner decision needed" or disposition == "owner_decision_needed"
     ) and not precise_question(row.get("owner_question"), 5):
         errors.append(f"{label}: owner decision requires one precise question")
+    if disposition in {
+        "owner_decision_needed",
+        "container_evidence_limit",
+    } and not specific_text(row.get("recommended_action"), 6):
+        errors.append(
+            f"{label}: unresolved relationship requires one concrete recommended_action"
+        )
     if verdict == "Container evidence limit" or disposition == "container_evidence_limit":
         if not precise_question(row.get("owner_question"), 5):
             errors.append(
@@ -1423,9 +1465,12 @@ def validate_decision(
                 str(item.get("object_key") or "")
                 for item in as_list(operation.get("deletions"))
             }
-            if not canonical:
+            all_relationship_members_deleted = bool(relationship_key_set) and (
+                relationship_key_set <= deletion_keys
+            )
+            if not canonical and not all_relationship_members_deleted:
                 errors.append(f"{label} operation {index}: consolidation lacks canonical object")
-            elif relationship_key_set and canonical not in relationship_key_set:
+            elif canonical and relationship_key_set and canonical not in relationship_key_set:
                 errors.append(
                     f"{label} operation {index}: canonical object is outside the relationship"
                 )
@@ -1702,7 +1747,7 @@ def validate_review_identity(
     checks = (
         ("source_sha256", source_sha256, "source_sha256 does not match the export"),
         ("kind", "gtm_business_architecture_review", "kind is invalid"),
-        ("schema_version", 2, "schema_version must be 2"),
+        ("schema_version", 3, "schema_version must be 3"),
         (
             "shared_facts_sha256",
             expected.get("shared_facts_sha256"),
@@ -1875,26 +1920,20 @@ def validate_families(
                 valid_keys,
                 label,
                 expected_consumers,
-                expected_row["member_object_keys"],
+                # A family decision covers the complete dependency chain, not
+                # only its root members. This lets a source-bound repair or
+                # canonical remap of a trigger/variable resolve the family
+                # without pretending the root tag itself was mutated.
+                expected_row["chain_object_keys"],
                 family_policy_types,
                 [
                     family_cautions_by_key[key]
                     for key in sorted(family_cautions_by_key)
                 ],
-                dict(
-                    zip(
-                        expected_row["member_object_keys"],
-                        expected_row["member_source_paths"],
-                        strict=True,
-                    )
-                ),
+                dict(expected_row["chain_source_paths"]),
                 {
                     key: [name]
-                    for key, name in zip(
-                        expected_row["member_object_keys"],
-                        expected_row["member_object_names"],
-                        strict=True,
-                    )
+                    for key, name in expected_row["chain_object_names"].items()
                 },
                 source_paths_by_key,
             )
@@ -2065,13 +2104,7 @@ def validate_deterministic_comparisons(
                 expected_row["candidate_object_keys"],
                 as_list(expected_row.get("comparison_types")),
                 as_list(expected_row.get("required_caution_states")),
-                dict(
-                    zip(
-                        expected_row["candidate_object_keys"],
-                        expected_row["candidate_source_paths"],
-                        strict=True,
-                    )
-                ),
+                dict(expected_row["candidate_source_paths"]),
                 {
                     key: [name, object_id]
                     for key, name, object_id in zip(
@@ -2339,6 +2372,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             supplied, expected, expected_context, descriptor["source_sha256"]
         )
     )
+    errors.extend(validate_review_provenance(supplied, expected, "architecture review"))
     errors.extend(
         validate_families(
             supplied,

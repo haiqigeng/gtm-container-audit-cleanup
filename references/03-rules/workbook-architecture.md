@@ -7,12 +7,12 @@ not a dump of agent internals.
 
 | Tab | Visibility | Purpose |
 | --- | --- | --- |
-| `01 Summary` | Visible | Source, scope, counts, status, route, level, next step. |
+| `01 Summary` | Visible | Source, scope, counts, status, route, and next step. |
 | `02 Cleanup Plan` | Visible | Concise actionable issues and proposed operations. |
 | `03 Operational Review` | Hidden | Run 1 findings, evidence, disposition, action. |
-| `04 Configuration Review` | Hidden | Run 2 literal behavior, branches, traces, contracts, defects. |
+| `04 Configuration Review` | Hidden | Run 2 object-level behavior, verdict, defects, and action. |
 | `05 Architecture Review` | Hidden | Run 3 families, chains, comparisons, target state. |
-| `06 Custom Code Review` | Hidden | Code behavior, effects, health, findings, decision. |
+| `06 Custom Code Review` | Hidden | Object-level code coverage, behavior, effects, findings, decision. |
 | `07 Reconciled Operations` | Hidden | Exact structured mutation packets. |
 | `08 Source & Gates` | Hidden | Source hash and completion statuses. |
 
@@ -36,7 +36,7 @@ Hidden tabs remain available by unhiding. Do not password-protect them.
 ## Cleanup Plan Columns
 
 1. ID
-2. Level
+2. Status
 3. Area / problem type
 4. Affected object(s)
 5. Problem / evidence
@@ -44,21 +44,28 @@ Hidden tabs remain available by unhiding. Do not password-protect them.
 
 Keep one row per distinct actionable issue. A summary row may precede detailed
 rows only when visual hierarchy makes the relationship clear. Homogeneous exact
-duplicates, unused objects, naming, or folder work may remain one batch row.
+duplicates, unused objects, naming, or folder work may remain one batch row,
+but every atomic operation ID, action, affected object, approval choice, and QA
+must be explicit. The workbook gate requires every operation ID exactly once.
 
-Also show operations deferred by the selected aggressiveness, unresolved owner
-questions, and container-evidence limits. The Summary status must reflect these
-states and must not say `Ready for human approval` while an owner decision is
-outstanding.
+Show every proposed operation and every unresolved owner question with the
+analyst's recommended action. Consolidate nonblocking container-evidence limits
+into one visible scope-boundary row; preserve every per-object boundary and
+exact next action in the hidden reviews and machine-readable package. Do not
+turn out-of-scope runtime certification into hundreds of visible cleanup tasks.
+The Summary must distinguish operations ready for scoped approval from the
+specific objects still blocked by owner decisions, and must expose any action-
+completeness failure.
 
 Order visible rows by decision impact without changing operation IDs,
 dependency-aware execution order, or hidden proof order. Lead with Critical and
 High proposed actions and continue through lower-priority proposals before
-unresolved owner/evidence decisions and deferred work. For each action state
+unresolved owner/evidence decisions. For each action state
 the root problem, measurement or operational impact, exact target state/action,
 readiness, and QA. The Summary also counts retained/no-change decisions and
 names a concise set of retained business families so the target architecture is
-not described only through defects.
+not described only through defects. It exposes measurement-family preservation,
+the target-state architecture, and the container-only proof boundary.
 
 ## Wording
 
@@ -69,10 +76,12 @@ branch ledger, or parser trace in visible rows. Avoid vague text such as
 
 The visible plan and hidden proof must agree. The plan may consolidate wording,
 but cannot blend unrelated problem types or hide a material object-level defect.
-Hidden proof uses separate rows for the object contract, each D3 cross-check,
-each configuration branch, each recursive trace and node, each official
-contract, each code behavior block/finding, and each architecture member or
-comparison. Do not collapse these obligations into one repeated summary cell.
+Hidden workbook proof uses one decision-oriented row per object, family,
+comparison, and code object, with defects and unresolved contracts called out.
+The machine-readable package remains the lossless source for every D3 check,
+configuration branch, recursive trace/node, official contract, code line, and
+member assessment. Do not duplicate that evidence into thousands of workbook
+rows merely to prove it exists.
 
 All cell content derived from container or analyst input must be literal text;
 escape spreadsheet-formula prefixes. Privacy scanning covers hidden and visible
